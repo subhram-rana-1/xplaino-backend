@@ -109,13 +109,14 @@ class TextService:
         language_code: str
     ) -> WordInfo:
         """Get explanation for a single word."""
-        explanation_data = await openai_service.get_word_explanation(word, context, language_code)
+        raw_response = await openai_service.get_word_explanation(word, context, language_code)
         
         return WordInfo(
             location=location,
             word=word,
-            meaning=explanation_data['meaning'],
-            examples=explanation_data['examples'],
+            raw_response=raw_response,
+            meaning=None,
+            examples=None,
             languageCode=language_code
         )
     

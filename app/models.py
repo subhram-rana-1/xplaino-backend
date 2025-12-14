@@ -38,8 +38,9 @@ class WordInfo(BaseModel):
     
     location: WordWithLocation = Field(..., description="Word location in original text")
     word: str = Field(..., description="The actual word")
-    meaning: str = Field(..., description="Simplified meaning of the word")
-    examples: List[str] = Field(..., min_items=2, max_items=2, description="Two example sentences")
+    raw_response: str = Field(..., description="Raw formatted response from OpenAI in the format: [[[WORD_MEANING]]]:{...}[[[EXAMPLES]]]:{[[ITEM]]{...}[[ITEM]]{...}}")
+    meaning: Optional[str] = Field(default=None, description="Simplified meaning of the word (deprecated - use raw_response)")
+    examples: Optional[List[str]] = Field(default=None, description="Two example sentences (deprecated - use raw_response)")
     languageCode: Optional[str] = Field(default=None, alias="language_code", description="ISO 639-1 language code (e.g., 'EN', 'ES', 'DE', 'FR')")
     
     model_config = ConfigDict(populate_by_name=True)

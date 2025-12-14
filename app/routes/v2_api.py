@@ -240,20 +240,8 @@ async def words_explanation_v2(
                     text_obj.important_words_location,
                     text_obj.languageCode
                 ):
-                    # Create response with textStartIndex
-                    response_data = {
-                        "word_info": {
-                            "textStartIndex": text_obj.textStartIndex,
-                            "location": word_info.location.model_dump(),
-                            "word": word_info.word,
-                            "meaning": word_info.meaning,
-                            "examples": word_info.examples,
-                            "languageCode": word_info.languageCode
-                        }
-                    }
-                    
-                    # Send SSE event for this individual word
-                    event_data = f"data: {json.dumps(response_data)}\n\n"
+                    # Send raw_response directly without JSON wrapper
+                    event_data = f"data: {word_info.raw_response}\n\n"
                     yield event_data
             
             # Send final completion event

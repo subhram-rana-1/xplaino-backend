@@ -271,14 +271,18 @@ class OpenAIService:
                 raise
             raise LLMServiceError(f"Failed to analyze text for important words: {str(e)}")
 
-    async def get_word_explanation(self, word: str, context: str, language_code: Optional[str] = None) -> Dict[str, Any]:
+    async def get_word_explanation(self, word: str, context: str, language_code: Optional[str] = None) -> str:
         """Get explanation and examples for a single word in context.
+        Returns the raw formatted response string that the frontend will parse.
         
         Args:
             word: The word to explain
             context: The context in which the word appears
             language_code: Optional target language code. If provided, response will be in this language.
                           If None, language will be detected from the context.
+        
+        Returns:
+            Raw formatted string in the format: [[[WORD_MEANING]]]:{...}[[[EXAMPLES]]]:{[[ITEM]]{...}[[ITEM]]{...}}
         """
         try:
             # Build language requirement section
@@ -319,9 +323,23 @@ class OpenAIService:
             - Provide a simple, clear meaning of the word as used in this context
             - Create exactly 2 simple example sentences showing how to use the word
             - Keep explanations accessible for language learners
-            - Return the result as JSON with keys: 'meaning' and 'examples' (array of 2 strings)
             
-            Return only the JSON object, no additional text."""
+            CRITICAL FORMAT REQUIREMENT - YOU MUST FOLLOW THIS EXACT FORMAT:
+            The response MUST be in this exact format (no deviations allowed):
+            [[[WORD_MEANING]]]:{{text explaining the meaning of the word}}[[[EXAMPLES]]]:{{[[ITEM]]{{example sentence 1}}[[ITEM]]{{example sentence 2}}}}
+            
+            Format rules:
+            1. WORD_MEANING must be surrounded by [[[ and ]]]
+            2. After [[[WORD_MEANING]]]: provide the meaning text
+            3. EXAMPLES must be surrounded by [[[ and ]]]
+            4. Each example sentence must start with [[ITEM]] followed by the example sentence
+            5. There must be exactly 2 examples, each wrapped in [[ITEM]]{{...}}
+            6. The format is: [[[WORD_MEANING]]]:{{meaning}}[[[EXAMPLES]]]:{{[[ITEM]]{{example1}}[[ITEM]]{{example2}}}}
+            
+            Example of correct format:
+            [[[WORD_MEANING]]]:{{A word that means something important}}[[[EXAMPLES]]]:{{[[ITEM]]{{This is the first example sentence.}}[[ITEM]]{{This is the second example sentence.}}}}
+            
+            Return ONLY the formatted response in the exact format specified above. No additional text, no JSON, no explanations."""
 
             response = await self._make_api_call(
                 model=settings.gpt4o_model,
@@ -332,25 +350,9 @@ class OpenAIService:
 
             result = response.choices[0].message.content.strip()
 
-            # Parse the JSON response
-            try:
-                # Strip Markdown code block (e.g., ```json\n...\n```)
-                if result.startswith("```"):
-                    result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
-
-                explanation_data = json.loads(result)
-                if not all(key in explanation_data for key in ['meaning', 'examples']):
-                    raise ValueError("Missing required keys")
-
-                if not isinstance(explanation_data['examples'], list) or len(explanation_data['examples']) != 2:
-                    raise ValueError("Examples must be a list of exactly 2 items")
-
-                logger.info("Successfully got word explanation", word=word, language_code=language_code)
-                return explanation_data
-
-            except json.JSONDecodeError as e:
-                logger.error("Failed to parse word explanation response", error=str(e), response=result)
-                raise LLMServiceError("Failed to parse word explanation response")
+            # Return the raw response string - frontend will parse it
+            logger.info("Successfully got word explanation", word=word, language_code=language_code)
+            return result
 
         except Exception as e:
             logger.error("Failed to get word explanation", word=word, error=str(e))
