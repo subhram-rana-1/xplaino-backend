@@ -1,7 +1,7 @@
 """Database service for user and session management."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import secrets
@@ -627,7 +627,8 @@ def create_unauthenticated_user_usage(
         "voice_to_text_api_count_so_far": 0,
         "translate_api_count_so_far": 0,
         "web_search_api_count_so_far": 0,
-        "web_search_stream_api_count_so_far": 0
+        "web_search_stream_api_count_so_far": 0,
+        "saved_words_api_count_so_far": 0
     }
     
     # Set the current API count to 1 (this API was just called)
@@ -882,4 +883,341 @@ def update_user_session_refresh_token(
     )
     
     return refresh_token, expires_at
+
+
+def get_user_id_by_auth_vendor_id(
+    db: Session,
+    auth_vendor_id: str
+) -> Optional[str]:
+    """
+    Get user_id from google_user_auth_info by auth_vendor_id.
+    
+    Args:
+        db: Database session
+        auth_vendor_id: The google_user_auth_info.id (from user_session.auth_vendor_id)
+        
+    Returns:
+        user_id (CHAR(36) UUID) or None if not found
+    """
+    logger.info(
+        "Getting user_id by auth_vendor_id",
+        function="get_user_id_by_auth_vendor_id",
+        auth_vendor_id=auth_vendor_id
+    )
+    
+    result = db.execute(
+        text("SELECT user_id FROM google_user_auth_info WHERE id = :auth_vendor_id"),
+        {"auth_vendor_id": auth_vendor_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "No google_user_auth_info found for auth_vendor_id",
+            function="get_user_id_by_auth_vendor_id",
+            auth_vendor_id=auth_vendor_id
+        )
+        return None
+    
+    user_id = result[0]
+    
+    logger.info(
+        "User_id retrieved successfully",
+        function="get_user_id_by_auth_vendor_id",
+        auth_vendor_id=auth_vendor_id,
+        user_id=user_id
+    )
+    
+    return user_id
+
+
+def get_saved_words_by_user_id(
+    db: Session,
+    user_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved words for a user with pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of saved words dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved words by user_id",
+        function="get_saved_words_by_user_id",
+        user_id=user_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM saved_word WHERE user_id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated words
+    words_result = db.execute(
+        text("""
+            SELECT id, word, source_url, user_id, created_at
+            FROM saved_word
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "user_id": user_id,
+            "limit": limit,
+            "offset": offset
+        }
+    ).fetchall()
+    
+    words = []
+    for row in words_result:
+        word_id, word, source_url, user_id_val, created_at = row
+        # Convert created_at to ISO format string
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        words.append({
+            "id": word_id,
+            "word": word,
+            "source_url": source_url,
+            "user_id": user_id_val,
+            "created_at": created_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved words successfully",
+        function="get_saved_words_by_user_id",
+        user_id=user_id,
+        words_count=len(words),
+        total_count=total_count
+    )
+    
+    return words, total_count
+
+
+def create_saved_word(
+    db: Session,
+    user_id: str,
+    word: str,
+    source_url: str
+) -> Dict[str, Any]:
+    """
+    Create a new saved word for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        word: Word to save (max 32 characters)
+        source_url: Source URL (max 1024 characters)
+        
+    Returns:
+        Dictionary with created saved word data
+    """
+    logger.info(
+        "Creating saved word",
+        function="create_saved_word",
+        user_id=user_id,
+        word=word,
+        source_url_length=len(source_url)
+    )
+    
+    # Generate UUID for the new saved word
+    word_id = str(uuid.uuid4())
+    
+    # Insert the new saved word
+    db.execute(
+        text("""
+            INSERT INTO saved_word (id, word, source_url, user_id)
+            VALUES (:id, :word, :source_url, :user_id)
+        """),
+        {
+            "id": word_id,
+            "word": word,
+            "source_url": source_url,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, word, source_url, user_id, created_at
+            FROM saved_word
+            WHERE id = :id
+        """),
+        {"id": word_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created saved word",
+            function="create_saved_word",
+            word_id=word_id
+        )
+        raise Exception("Failed to retrieve created saved word")
+    
+    word_id_val, word_val, source_url_val, user_id_val, created_at = result
+    
+    # Convert created_at to ISO format string
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    saved_word = {
+        "id": word_id_val,
+        "word": word_val,
+        "source_url": source_url_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str
+    }
+    
+    logger.info(
+        "Created saved word successfully",
+        function="create_saved_word",
+        word_id=word_id_val,
+        user_id=user_id
+    )
+    
+    return saved_word
+
+
+def get_saved_word_by_id_and_user_id(
+    db: Session,
+    word_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved word by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        word_id: Saved word ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved word data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved word by id and user_id",
+        function="get_saved_word_by_id_and_user_id",
+        word_id=word_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, word, source_url, user_id, created_at
+            FROM saved_word
+            WHERE id = :word_id AND user_id = :user_id
+        """),
+        {
+            "word_id": word_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved word not found or doesn't belong to user",
+            function="get_saved_word_by_id_and_user_id",
+            word_id=word_id,
+            user_id=user_id
+        )
+        return None
+    
+    word_id_val, word, source_url, user_id_val, created_at = result
+    
+    # Convert created_at to ISO format string
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    saved_word = {
+        "id": word_id_val,
+        "word": word,
+        "source_url": source_url,
+        "user_id": user_id_val,
+        "created_at": created_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved word successfully",
+        function="get_saved_word_by_id_and_user_id",
+        word_id=word_id_val,
+        user_id=user_id
+    )
+    
+    return saved_word
+
+
+def delete_saved_word_by_id_and_user_id(
+    db: Session,
+    word_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a saved word by ID if it belongs to the user.
+    
+    Args:
+        db: Database session
+        word_id: Saved word ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if word was deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting saved word by id and user_id",
+        function="delete_saved_word_by_id_and_user_id",
+        word_id=word_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM saved_word
+            WHERE id = :word_id AND user_id = :user_id
+        """),
+        {
+            "word_id": word_id,
+            "user_id": user_id
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount > 0:
+        logger.info(
+            "Deleted saved word successfully",
+            function="delete_saved_word_by_id_and_user_id",
+            word_id=word_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return True
+    else:
+        logger.warning(
+            "Saved word not found or doesn't belong to user",
+            function="delete_saved_word_by_id_and_user_id",
+            word_id=word_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return False
 

@@ -59,3 +59,15 @@ CREATE TABLE IF NOT EXISTS unauthenticated_user_api_usage (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Saved words table
+CREATE TABLE IF NOT EXISTS saved_word (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    word VARCHAR(32) NOT NULL,
+    source_url VARCHAR(1024) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_user_created_at (user_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

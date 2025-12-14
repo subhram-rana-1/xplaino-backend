@@ -173,3 +173,29 @@ class RefreshTokenResponse(BaseModel):
     refreshTokenExpiresAt: int = Field(..., description="Unix timestamp when refresh token expires")
     userSessionPk: str = Field(..., description="User session primary key (ID from user_session table)")
     user: UserInfo = Field(..., description="User information")
+
+
+class SaveWordRequest(BaseModel):
+    """Request model for saving a word."""
+    
+    word: str = Field(..., min_length=1, max_length=32, description="Word to save (max 32 characters)")
+    sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the word was found (max 1024 characters)")
+
+
+class SavedWordResponse(BaseModel):
+    """Response model for a saved word."""
+    
+    id: str = Field(..., description="Saved word ID (UUID)")
+    word: str = Field(..., description="The saved word")
+    sourceUrl: str = Field(..., description="Source URL where the word was found")
+    userId: str = Field(..., description="User ID who saved the word (UUID)")
+    createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
+
+
+class GetSavedWordsResponse(BaseModel):
+    """Response model for getting saved words with pagination."""
+    
+    words: List[SavedWordResponse] = Field(..., description="List of saved words")
+    total: int = Field(..., description="Total number of saved words for the user")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")

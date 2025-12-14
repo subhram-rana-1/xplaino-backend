@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     summarise_api_max_limit: int = Field(default=3, description="Max limit for summarise API")
     web_search_api_max_limit: int = Field(default=5, description="Max limit for web-search API")
     web_search_stream_api_max_limit: int = Field(default=5, description="Max limit for web-search-stream API")
+    saved_words_api_max_limit: int = Field(default=100, description="Max limit for saved-words API")
     
     @property
     def database_url(self) -> str:

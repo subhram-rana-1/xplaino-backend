@@ -42,6 +42,9 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     "/api/v2/summarise": "summarise_api_count_so_far",
     "/api/v2/web-search": "web_search_api_count_so_far",
     "/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
+    
+    # Saved words APIs
+    "/api/saved-words": "saved_words_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping
@@ -65,6 +68,9 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     "/api/v2/summarise": "summarise_api_max_limit",
     "/api/v2/web-search": "web_search_api_max_limit",
     "/api/v2/web-search-stream": "web_search_stream_api_max_limit",
+    
+    # Saved words APIs
+    "/api/saved-words": "saved_words_api_max_limit",
 }
 
 
