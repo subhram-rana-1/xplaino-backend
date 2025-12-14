@@ -45,6 +45,10 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     
     # Saved words APIs
     "/api/saved-words": "saved_words_api_count_so_far",
+    
+    # Saved paragraph APIs
+    "/api/saved-paragraph": "saved_paragraph_api_count_so_far",
+    "/api/saved-paragraph/folder": "saved_paragraph_folder_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping
@@ -71,6 +75,10 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     
     # Saved words APIs
     "/api/saved-words": "saved_words_api_max_limit",
+    
+    # Saved paragraph APIs
+    "/api/saved-paragraph": "saved_paragraph_api_max_limit",
+    "/api/saved-paragraph/folder": "saved_paragraph_folder_api_max_limit",
 }
 
 

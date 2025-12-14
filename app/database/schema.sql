@@ -71,3 +71,36 @@ CREATE TABLE IF NOT EXISTS saved_word (
     FOREIGN KEY (user_id) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Folder table
+CREATE TABLE IF NOT EXISTS folder (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    name VARCHAR(50) NOT NULL,
+    type ENUM('PAGE', 'PARAGRAPH') NOT NULL,
+    parent_id CHAR(36) NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_parent_id (parent_id),
+    INDEX idx_user_parent (user_id, parent_id),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (parent_id) REFERENCES folder(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Saved paragraph table
+CREATE TABLE IF NOT EXISTS saved_paragraph (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    source_url VARCHAR(1024) NOT NULL,
+    name VARCHAR(50) NULL,
+    content TEXT NOT NULL,
+    folder_id CHAR(36) NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

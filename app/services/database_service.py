@@ -1221,3 +1221,539 @@ def delete_saved_word_by_id_and_user_id(
         )
         return False
 
+
+def get_folders_by_user_id_and_parent_id(
+    db: Session,
+    user_id: str,
+    parent_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get folders for a user with a specific parent_id.
+    If parent_id is None, get folders where parent_id IS NULL.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
+        
+    Returns:
+        List of folder dictionaries
+    """
+    logger.info(
+        "Getting folders by user_id and parent_id",
+        function="get_folders_by_user_id_and_parent_id",
+        user_id=user_id,
+        parent_id=parent_id
+    )
+    
+    if parent_id is None:
+        result = db.execute(
+            text("""
+                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                FROM folder
+                WHERE user_id = :user_id AND parent_id IS NULL
+                ORDER BY created_at DESC
+            """),
+            {"user_id": user_id}
+        ).fetchall()
+    else:
+        result = db.execute(
+            text("""
+                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                FROM folder
+                WHERE user_id = :user_id AND parent_id = :parent_id
+                ORDER BY created_at DESC
+            """),
+            {
+                "user_id": user_id,
+                "parent_id": parent_id
+            }
+        ).fetchall()
+    
+    folders = []
+    for row in result:
+        folder_id, name, folder_type, parent_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        folders.append({
+            "id": folder_id,
+            "name": name,
+            "type": folder_type,
+            "parent_id": parent_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved folders successfully",
+        function="get_folders_by_user_id_and_parent_id",
+        user_id=user_id,
+        parent_id=parent_id,
+        folders_count=len(folders)
+    )
+    
+    return folders
+
+
+def get_saved_paragraphs_by_user_id_and_folder_id(
+    db: Session,
+    user_id: str,
+    folder_id: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved paragraphs for a user with pagination, ordered by created_at DESC.
+    If folder_id is None, get paragraphs where folder_id IS NULL.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID) or None for root paragraphs
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of paragraph dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved paragraphs by user_id and folder_id",
+        function="get_saved_paragraphs_by_user_id_and_folder_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    if folder_id is None:
+        count_result = db.execute(
+            text("SELECT COUNT(*) FROM saved_paragraph WHERE user_id = :user_id AND folder_id IS NULL"),
+            {"user_id": user_id}
+        ).fetchone()
+    else:
+        count_result = db.execute(
+            text("SELECT COUNT(*) FROM saved_paragraph WHERE user_id = :user_id AND folder_id = :folder_id"),
+            {
+                "user_id": user_id,
+                "folder_id": folder_id
+            }
+        ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated paragraphs
+    if folder_id is None:
+        paragraphs_result = db.execute(
+            text("""
+                SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+                FROM saved_paragraph
+                WHERE user_id = :user_id AND folder_id IS NULL
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset
+            }
+        ).fetchall()
+    else:
+        paragraphs_result = db.execute(
+            text("""
+                SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+                FROM saved_paragraph
+                WHERE user_id = :user_id AND folder_id = :folder_id
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "user_id": user_id,
+                "folder_id": folder_id,
+                "limit": limit,
+                "offset": offset
+            }
+        ).fetchall()
+    
+    paragraphs = []
+    for row in paragraphs_result:
+        para_id, source_url, name, content, folder_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        paragraphs.append({
+            "id": para_id,
+            "source_url": source_url,
+            "name": name,
+            "content": content,
+            "folder_id": folder_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved paragraphs successfully",
+        function="get_saved_paragraphs_by_user_id_and_folder_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        paragraphs_count=len(paragraphs),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return paragraphs, total_count
+
+
+def create_saved_paragraph(
+    db: Session,
+    user_id: str,
+    content: str,
+    source_url: str,
+    name: Optional[str] = None,
+    folder_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new saved paragraph for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        content: Paragraph content (TEXT)
+        source_url: Source URL (max 1024 characters)
+        name: Optional name for the paragraph (max 50 characters)
+        folder_id: Optional folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with created saved paragraph data
+    """
+    logger.info(
+        "Creating saved paragraph",
+        function="create_saved_paragraph",
+        user_id=user_id,
+        content_length=len(content),
+        source_url_length=len(source_url),
+        has_name=name is not None,
+        has_folder_id=folder_id is not None
+    )
+    
+    # Generate UUID for the new saved paragraph
+    paragraph_id = str(uuid.uuid4())
+    
+    # Insert the new saved paragraph
+    db.execute(
+        text("""
+            INSERT INTO saved_paragraph (id, source_url, name, content, folder_id, user_id)
+            VALUES (:id, :source_url, :name, :content, :folder_id, :user_id)
+        """),
+        {
+            "id": paragraph_id,
+            "source_url": source_url,
+            "name": name,
+            "content": content,
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id = :id
+        """),
+        {"id": paragraph_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created saved paragraph",
+            function="create_saved_paragraph",
+            paragraph_id=paragraph_id
+        )
+        raise Exception("Failed to retrieve created saved paragraph")
+    
+    para_id, source_url_val, name_val, content_val, folder_id_val, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_paragraph = {
+        "id": para_id,
+        "source_url": source_url_val,
+        "name": name_val,
+        "content": content_val,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created saved paragraph successfully",
+        function="create_saved_paragraph",
+        paragraph_id=para_id,
+        user_id=user_id
+    )
+    
+    return saved_paragraph
+
+
+def delete_saved_paragraph_by_id_and_user_id(
+    db: Session,
+    paragraph_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a saved paragraph by ID if it belongs to the user.
+    
+    Args:
+        db: Database session
+        paragraph_id: Saved paragraph ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if paragraph was deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting saved paragraph by id and user_id",
+        function="delete_saved_paragraph_by_id_and_user_id",
+        paragraph_id=paragraph_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM saved_paragraph
+            WHERE id = :paragraph_id AND user_id = :user_id
+        """),
+        {
+            "paragraph_id": paragraph_id,
+            "user_id": user_id
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount > 0:
+        logger.info(
+            "Deleted saved paragraph successfully",
+            function="delete_saved_paragraph_by_id_and_user_id",
+            paragraph_id=paragraph_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return True
+    else:
+        logger.warning(
+            "Saved paragraph not found or doesn't belong to user",
+            function="delete_saved_paragraph_by_id_and_user_id",
+            paragraph_id=paragraph_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return False
+
+
+def get_folder_by_id_and_user_id(
+    db: Session,
+    folder_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a folder by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        folder_id: Folder ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with folder data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting folder by id and user_id",
+        function="get_folder_by_id_and_user_id",
+        folder_id=folder_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE id = :folder_id AND user_id = :user_id
+        """),
+        {
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Folder not found or doesn't belong to user",
+            function="get_folder_by_id_and_user_id",
+            folder_id=folder_id,
+            user_id=user_id
+        )
+        return None
+    
+    folder_id_val, name, folder_type, parent_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    folder = {
+        "id": folder_id_val,
+        "name": name,
+        "type": folder_type,
+        "parent_id": parent_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved folder successfully",
+        function="get_folder_by_id_and_user_id",
+        folder_id=folder_id_val,
+        user_id=user_id
+    )
+    
+    return folder
+
+
+def create_paragraph_folder(
+    db: Session,
+    user_id: str,
+    name: str,
+    parent_folder_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new PARAGRAPH type folder for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        name: Folder name (max 50 characters)
+        parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with created folder data
+    """
+    logger.info(
+        "Creating paragraph folder",
+        function="create_paragraph_folder",
+        user_id=user_id,
+        name=name,
+        has_parent_folder_id=parent_folder_id is not None
+    )
+    
+    # Generate UUID for the new folder
+    folder_id = str(uuid.uuid4())
+    
+    # Insert the new folder with type = 'PARAGRAPH'
+    db.execute(
+        text("""
+            INSERT INTO folder (id, name, type, parent_id, user_id)
+            VALUES (:id, :name, 'PARAGRAPH', :parent_id, :user_id)
+        """),
+        {
+            "id": folder_id,
+            "name": name,
+            "parent_id": parent_folder_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE id = :id
+        """),
+        {"id": folder_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created folder",
+            function="create_paragraph_folder",
+            folder_id=folder_id
+        )
+        raise Exception("Failed to retrieve created folder")
+    
+    folder_id_val, name_val, folder_type, parent_id_val, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    folder = {
+        "id": folder_id_val,
+        "name": name_val,
+        "type": folder_type,
+        "parent_id": parent_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created paragraph folder successfully",
+        function="create_paragraph_folder",
+        folder_id=folder_id_val,
+        user_id=user_id
+    )
+    
+    return folder
+

@@ -199,3 +199,63 @@ class GetSavedWordsResponse(BaseModel):
     total: int = Field(..., description="Total number of saved words for the user")
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
+
+
+class FolderType(str, Enum):
+    """Folder type enum."""
+    PAGE = "PAGE"
+    PARAGRAPH = "PARAGRAPH"
+
+
+class SaveParagraphRequest(BaseModel):
+    """Request model for saving a paragraph."""
+    
+    content: str = Field(..., min_length=1, description="Paragraph content")
+    source_url: str = Field(..., min_length=1, max_length=1024, description="Source URL where the paragraph was found (max 1024 characters)")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the paragraph in (nullable)")
+    name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the paragraph (max 50 characters)")
+
+
+class CreateParagraphFolderRequest(BaseModel):
+    """Request model for creating a paragraph folder."""
+    
+    parent_folder_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable for root folders)")
+    name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+
+
+class FolderResponse(BaseModel):
+    """Response model for a folder."""
+    
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    type: str = Field(..., description="Folder type (PAGE or PARAGRAPH)")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
+    user_id: str = Field(..., description="User ID who owns the folder (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the folder was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
+
+
+class SavedParagraphResponse(BaseModel):
+    """Response model for a saved paragraph."""
+    
+    id: str = Field(..., description="Saved paragraph ID (UUID)")
+    name: Optional[str] = Field(default=None, description="Optional name for the paragraph")
+    source_url: str = Field(..., description="Source URL where the paragraph was found")
+    content: str = Field(..., description="Paragraph content")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID the paragraph is saved in (nullable)")
+    user_id: str = Field(..., description="User ID who saved the paragraph (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the paragraph was saved")
+    updated_at: str = Field(..., description="ISO format timestamp when the paragraph was last updated")
+
+
+class GetAllSavedParagraphResponse(BaseModel):
+    """Response model for getting saved paragraphs with folders and pagination."""
+    
+    folder_id: Optional[str] = Field(default=None, description="Current folder ID (nullable for root)")
+    user_id: str = Field(..., description="User ID (UUID)")
+    sub_folders: List[FolderResponse] = Field(..., description="List of sub-folders in the current folder")
+    saved_paragraphs: List[SavedParagraphResponse] = Field(..., description="List of saved paragraphs")
+    total: int = Field(..., description="Total number of saved paragraphs for the user in this folder")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more paragraphs to fetch")
