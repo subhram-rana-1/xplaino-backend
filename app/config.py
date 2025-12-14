@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     
     # Authentication Configuration
     google_oauth_client_id: str = Field(..., description="Google OAuth Client ID")
+    google_oauth_client_id_xplaino_web: str = Field(
+        default="355884005048-ad7r1e3hdmkehnq4qvmaa56c2f8gmqpd.apps.googleusercontent.com",
+        description="Google OAuth Client ID for XPLAINO_WEB source"
+    )
     jwt_secret_key: str = Field(..., description="JWT secret key for signing tokens")
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     access_token_expiry_hours: int = Field(default=24, description="Access token expiry in hours")
