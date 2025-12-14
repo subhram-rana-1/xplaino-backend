@@ -259,3 +259,43 @@ class GetAllSavedParagraphResponse(BaseModel):
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
     has_next: bool = Field(..., description="Whether there are more paragraphs to fetch")
+
+
+class SavePageRequest(BaseModel):
+    """Request model for saving a page."""
+    
+    url: str = Field(..., min_length=1, max_length=1024, description="Page URL to save (max 1024 characters)")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the page in (nullable)")
+    name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the page (max 50 characters)")
+
+
+class SavedPageResponse(BaseModel):
+    """Response model for a saved page."""
+    
+    id: str = Field(..., description="Saved page ID (UUID)")
+    name: Optional[str] = Field(default=None, description="Optional name for the page")
+    url: str = Field(..., description="Page URL")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID the page is saved in (nullable)")
+    user_id: str = Field(..., description="User ID who saved the page (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the page was saved")
+    updated_at: str = Field(..., description="ISO format timestamp when the page was last updated")
+
+
+class GetAllSavedPagesResponse(BaseModel):
+    """Response model for getting saved pages with folders and pagination."""
+    
+    folder_id: Optional[str] = Field(default=None, description="Current folder ID (nullable for root)")
+    user_id: str = Field(..., description="User ID (UUID)")
+    sub_folders: List[FolderResponse] = Field(..., description="List of sub-folders in the current folder")
+    saved_pages: List[SavedPageResponse] = Field(..., description="List of saved pages")
+    total: int = Field(..., description="Total number of saved pages for the user in this folder")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more pages to fetch")
+
+
+class CreatePageFolderRequest(BaseModel):
+    """Request model for creating a page folder."""
+    
+    parent_folder_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable for root folders)")
+    name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")

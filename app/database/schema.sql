@@ -104,3 +104,19 @@ CREATE TABLE IF NOT EXISTS saved_paragraph (
     FOREIGN KEY (folder_id) REFERENCES folder(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Saved page table
+CREATE TABLE IF NOT EXISTS saved_page (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    url VARCHAR(1024) NOT NULL,
+    name VARCHAR(50) NULL,
+    folder_id CHAR(36) NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

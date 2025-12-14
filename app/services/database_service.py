@@ -1757,3 +1757,464 @@ def create_paragraph_folder(
     
     return folder
 
+
+def get_folders_by_user_id_and_parent_id_and_type(
+    db: Session,
+    user_id: str,
+    parent_id: Optional[str] = None,
+    folder_type: str = "PAGE"
+) -> List[Dict[str, Any]]:
+    """
+    Get folders for a user with a specific parent_id and type.
+    If parent_id is None, get folders where parent_id IS NULL.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
+        folder_type: Folder type ('PAGE' or 'PARAGRAPH')
+        
+    Returns:
+        List of folder dictionaries
+    """
+    logger.info(
+        "Getting folders by user_id, parent_id and type",
+        function="get_folders_by_user_id_and_parent_id_and_type",
+        user_id=user_id,
+        parent_id=parent_id,
+        folder_type=folder_type
+    )
+    
+    if parent_id is None:
+        result = db.execute(
+            text("""
+                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                FROM folder
+                WHERE user_id = :user_id AND parent_id IS NULL AND type = :folder_type
+                ORDER BY created_at DESC
+            """),
+            {
+                "user_id": user_id,
+                "folder_type": folder_type
+            }
+        ).fetchall()
+    else:
+        result = db.execute(
+            text("""
+                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                FROM folder
+                WHERE user_id = :user_id AND parent_id = :parent_id AND type = :folder_type
+                ORDER BY created_at DESC
+            """),
+            {
+                "user_id": user_id,
+                "parent_id": parent_id,
+                "folder_type": folder_type
+            }
+        ).fetchall()
+    
+    folders = []
+    for row in result:
+        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        folders.append({
+            "id": folder_id,
+            "name": name,
+            "type": folder_type_val,
+            "parent_id": parent_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved folders successfully",
+        function="get_folders_by_user_id_and_parent_id_and_type",
+        user_id=user_id,
+        parent_id=parent_id,
+        folder_type=folder_type,
+        folders_count=len(folders)
+    )
+    
+    return folders
+
+
+def get_saved_pages_by_user_id_and_folder_id(
+    db: Session,
+    user_id: str,
+    folder_id: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved pages for a user with pagination, ordered by created_at DESC.
+    If folder_id is None, get pages where folder_id IS NULL.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID) or None for root pages
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of page dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved pages by user_id and folder_id",
+        function="get_saved_pages_by_user_id_and_folder_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    if folder_id is None:
+        count_result = db.execute(
+            text("SELECT COUNT(*) FROM saved_page WHERE user_id = :user_id AND folder_id IS NULL"),
+            {"user_id": user_id}
+        ).fetchone()
+    else:
+        count_result = db.execute(
+            text("SELECT COUNT(*) FROM saved_page WHERE user_id = :user_id AND folder_id = :folder_id"),
+            {
+                "user_id": user_id,
+                "folder_id": folder_id
+            }
+        ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated pages
+    if folder_id is None:
+        pages_result = db.execute(
+            text("""
+                SELECT id, url, name, folder_id, user_id, created_at, updated_at
+                FROM saved_page
+                WHERE user_id = :user_id AND folder_id IS NULL
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset
+            }
+        ).fetchall()
+    else:
+        pages_result = db.execute(
+            text("""
+                SELECT id, url, name, folder_id, user_id, created_at, updated_at
+                FROM saved_page
+                WHERE user_id = :user_id AND folder_id = :folder_id
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "user_id": user_id,
+                "folder_id": folder_id,
+                "limit": limit,
+                "offset": offset
+            }
+        ).fetchall()
+    
+    pages = []
+    for row in pages_result:
+        page_id, url, name, folder_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        pages.append({
+            "id": page_id,
+            "url": url,
+            "name": name,
+            "folder_id": folder_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved pages successfully",
+        function="get_saved_pages_by_user_id_and_folder_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        pages_count=len(pages),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return pages, total_count
+
+
+def create_saved_page(
+    db: Session,
+    user_id: str,
+    url: str,
+    name: Optional[str] = None,
+    folder_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new saved page for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        url: Page URL (max 1024 characters)
+        name: Optional name for the page (max 50 characters)
+        folder_id: Optional folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with created saved page data
+    """
+    logger.info(
+        "Creating saved page",
+        function="create_saved_page",
+        user_id=user_id,
+        url_length=len(url),
+        has_name=name is not None,
+        has_folder_id=folder_id is not None
+    )
+    
+    # Generate UUID for the new saved page
+    page_id = str(uuid.uuid4())
+    
+    # Insert the new saved page
+    db.execute(
+        text("""
+            INSERT INTO saved_page (id, url, name, folder_id, user_id)
+            VALUES (:id, :url, :name, :folder_id, :user_id)
+        """),
+        {
+            "id": page_id,
+            "url": url,
+            "name": name,
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_page
+            WHERE id = :id
+        """),
+        {"id": page_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created saved page",
+            function="create_saved_page",
+            page_id=page_id
+        )
+        raise Exception("Failed to retrieve created saved page")
+    
+    page_id_val, url_val, name_val, folder_id_val, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_page = {
+        "id": page_id_val,
+        "url": url_val,
+        "name": name_val,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created saved page successfully",
+        function="create_saved_page",
+        page_id=page_id_val,
+        user_id=user_id
+    )
+    
+    return saved_page
+
+
+def delete_saved_page_by_id_and_user_id(
+    db: Session,
+    page_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a saved page by ID if it belongs to the user.
+    
+    Args:
+        db: Database session
+        page_id: Saved page ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if page was deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting saved page by id and user_id",
+        function="delete_saved_page_by_id_and_user_id",
+        page_id=page_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM saved_page
+            WHERE id = :page_id AND user_id = :user_id
+        """),
+        {
+            "page_id": page_id,
+            "user_id": user_id
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount > 0:
+        logger.info(
+            "Deleted saved page successfully",
+            function="delete_saved_page_by_id_and_user_id",
+            page_id=page_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return True
+    else:
+        logger.warning(
+            "Saved page not found or doesn't belong to user",
+            function="delete_saved_page_by_id_and_user_id",
+            page_id=page_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return False
+
+
+def create_page_folder(
+    db: Session,
+    user_id: str,
+    name: str,
+    parent_folder_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new PAGE type folder for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        name: Folder name (max 50 characters)
+        parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with created folder data
+    """
+    logger.info(
+        "Creating page folder",
+        function="create_page_folder",
+        user_id=user_id,
+        name=name,
+        has_parent_folder_id=parent_folder_id is not None
+    )
+    
+    # Generate UUID for the new folder
+    folder_id = str(uuid.uuid4())
+    
+    # Insert the new folder with type = 'PAGE'
+    db.execute(
+        text("""
+            INSERT INTO folder (id, name, type, parent_id, user_id)
+            VALUES (:id, :name, 'PAGE', :parent_id, :user_id)
+        """),
+        {
+            "id": folder_id,
+            "name": name,
+            "parent_id": parent_folder_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE id = :id
+        """),
+        {"id": folder_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created folder",
+            function="create_page_folder",
+            folder_id=folder_id
+        )
+        raise Exception("Failed to retrieve created folder")
+    
+    folder_id_val, name_val, folder_type, parent_id_val, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    folder = {
+        "id": folder_id_val,
+        "name": name_val,
+        "type": folder_type,
+        "parent_id": parent_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created page folder successfully",
+        function="create_page_folder",
+        folder_id=folder_id_val,
+        user_id=user_id
+    )
+    
+    return folder
+
