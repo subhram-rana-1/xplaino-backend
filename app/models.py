@@ -180,6 +180,12 @@ class SaveWordRequest(BaseModel):
     
     word: str = Field(..., min_length=1, max_length=32, description="Word to save (max 32 characters)")
     sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the word was found (max 1024 characters)")
+    contextual_meaning: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Contextual meaning or explanation of the word (max 1000 characters)"
+    )
 
 
 class SavedWordResponse(BaseModel):
@@ -190,6 +196,10 @@ class SavedWordResponse(BaseModel):
     sourceUrl: str = Field(..., description="Source URL where the word was found")
     userId: str = Field(..., description="User ID who saved the word (UUID)")
     createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
+    contextual_meaning: str = Field(
+        ...,
+        description="Contextual meaning or explanation of the word when it was saved"
+    )
 
 
 class GetSavedWordsResponse(BaseModel):

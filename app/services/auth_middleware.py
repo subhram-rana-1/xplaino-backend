@@ -169,9 +169,6 @@ async def authenticate(
     if authorization_header:
         if authorization_header.startswith("Bearer "):
             access_token = authorization_header[7:].strip()  # Remove "Bearer " prefix
-    
-    # Get API counter field and max limit for this endpoint
-    api_counter_field, max_limit = get_api_counter_field_and_limit(request)
 
     # Case 1: Access token header is available (authenticated user)
     if access_token:
@@ -232,6 +229,9 @@ async def authenticate(
         api_usage = get_unauthenticated_user_usage(db, unauthenticated_user_id)
         if not api_usage:
             raise_login_required()
+
+        # Get API counter field and max limit for this endpoint
+        api_counter_field, max_limit = get_api_counter_field_and_limit(request)
 
         # Now check if we can determine the API counter field and max limit
         if not api_counter_field or max_limit is None:
