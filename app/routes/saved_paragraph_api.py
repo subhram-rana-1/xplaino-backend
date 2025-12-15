@@ -22,7 +22,8 @@ from app.services.database_service import (
     create_saved_paragraph,
     delete_saved_paragraph_by_id_and_user_id,
     get_folder_by_id_and_user_id,
-    create_paragraph_folder
+    create_paragraph_folder,
+    delete_folder_by_id_and_user_id
 )
 
 logger = structlog.get_logger()
@@ -461,4 +462,102 @@ async def create_paragraph_folder_endpoint(
         created_at=folder_data["created_at"],
         updated_at=folder_data["updated_at"]
     )
+
+
+@router.delete(
+    "/folder/{folder_id}",
+    status_code=204,
+    summary="Delete a paragraph folder",
+    description="Delete a paragraph folder by ID. Only the owner can delete their own folders. The folder must be of type PARAGRAPH."
+)
+async def delete_paragraph_folder(
+    request: Request,
+    response: Response,
+    folder_id: str,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Delete a paragraph folder for the authenticated user."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Get folder to verify ownership and type
+    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
+    # Validate that the folder is of type PARAGRAPH
+    if folder.get("type") != "PARAGRAPH":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VAL_001",
+                "error_message": "Folder must be of type PARAGRAPH"
+            }
+        )
+    
+    # Delete folder
+    deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)
+    
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
+    logger.info(
+        "Deleted paragraph folder successfully",
+        folder_id=folder_id,
+        user_id=user_id
+    )
+    
+    return FastAPIResponse(status_code=204)
 

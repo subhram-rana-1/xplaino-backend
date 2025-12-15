@@ -967,7 +967,7 @@ def get_saved_words_by_user_id(
     # Get paginated words
     words_result = db.execute(
         text("""
-            SELECT id, word, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, user_id, created_at
             FROM saved_word
             WHERE user_id = :user_id
             ORDER BY created_at DESC
@@ -982,7 +982,7 @@ def get_saved_words_by_user_id(
     
     words = []
     for row in words_result:
-        word_id, word, source_url, user_id_val, created_at = row
+        word_id, word, contextual_meaning, source_url, user_id_val, created_at = row
         # Convert created_at to ISO format string
         if isinstance(created_at, datetime):
             created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
@@ -992,6 +992,7 @@ def get_saved_words_by_user_id(
         words.append({
             "id": word_id,
             "word": word,
+            "contextual_meaning": contextual_meaning,
             "source_url": source_url,
             "user_id": user_id_val,
             "created_at": created_at_str
@@ -1661,6 +1662,62 @@ def get_folder_by_id_and_user_id(
     )
     
     return folder
+
+
+def delete_folder_by_id_and_user_id(
+    db: Session,
+    folder_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a folder by ID if it belongs to the user.
+    
+    Args:
+        db: Database session
+        folder_id: Folder ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if folder was deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting folder by id and user_id",
+        function="delete_folder_by_id_and_user_id",
+        folder_id=folder_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM folder
+            WHERE id = :folder_id AND user_id = :user_id
+        """),
+        {
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount > 0:
+        logger.info(
+            "Deleted folder successfully",
+            function="delete_folder_by_id_and_user_id",
+            folder_id=folder_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return True
+    else:
+        logger.warning(
+            "Folder not found or doesn't belong to user",
+            function="delete_folder_by_id_and_user_id",
+            folder_id=folder_id,
+            user_id=user_id,
+            rows_deleted=result.rowcount
+        )
+        return False
 
 
 def create_paragraph_folder(

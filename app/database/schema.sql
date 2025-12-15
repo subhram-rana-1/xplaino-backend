@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS folder (
     INDEX idx_parent_id (parent_id),
     INDEX idx_user_parent (user_id, parent_id),
     FOREIGN KEY (user_id) REFERENCES user(id),
-    FOREIGN KEY (parent_id) REFERENCES folder(id)
+    FOREIGN KEY (parent_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Saved paragraph table
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS saved_paragraph (
     INDEX idx_folder_id (folder_id),
     INDEX idx_user_folder_created (user_id, folder_id, created_at),
     FOREIGN KEY (user_id) REFERENCES user(id),
-    FOREIGN KEY (folder_id) REFERENCES folder(id)
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Saved page table
@@ -118,6 +118,6 @@ CREATE TABLE IF NOT EXISTS saved_page (
     INDEX idx_folder_id (folder_id),
     INDEX idx_user_folder_created (user_id, folder_id, created_at),
     FOREIGN KEY (user_id) REFERENCES user(id),
-    FOREIGN KEY (folder_id) REFERENCES folder(id)
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

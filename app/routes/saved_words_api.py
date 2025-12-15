@@ -89,6 +89,7 @@ async def get_saved_words(
         SavedWordResponse(
             id=word["id"],
             word=word["word"],
+            contextual_meaning = word["contextual_meaning"],
             sourceUrl=word["source_url"],
             userId=word["user_id"],
             createdAt=word["created_at"]
