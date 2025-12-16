@@ -159,3 +159,21 @@ CREATE TABLE IF NOT EXISTS issue (
     FOREIGN KEY (closed_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Comments table
+CREATE TABLE IF NOT EXISTS comment (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    content VARCHAR(1024) NOT NULL,
+    entity_type ENUM('ISSUE') NOT NULL,
+    entity_id CHAR(36) NOT NULL,
+    parent_comment_id CHAR(36) NULL,
+    visibility ENUM('PUBLIC', 'INTERNAL') NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_entity (entity_type, entity_id),
+    INDEX idx_parent_comment (parent_comment_id),
+    INDEX idx_created_by (created_by),
+    FOREIGN KEY (parent_comment_id) REFERENCES comment(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

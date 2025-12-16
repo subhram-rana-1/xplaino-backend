@@ -376,3 +376,63 @@ class GetMyIssuesResponse(BaseModel):
     """Response model for getting user's issues."""
     
     issues: List[IssueResponse] = Field(..., description="List of issues")
+
+
+class CommentVisibility(str, Enum):
+    """Comment visibility enum."""
+    PUBLIC = "PUBLIC"
+    INTERNAL = "INTERNAL"
+
+
+class CreatedByUser(BaseModel):
+    """Model for user who created a comment."""
+    
+    id: str = Field(..., description="User ID (UUID)")
+    name: str = Field(..., description="User's full name")
+    role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
+
+
+class CommentResponse(BaseModel):
+    """Response model for a comment with nested child comments."""
+    
+    id: str = Field(..., description="Comment ID (UUID)")
+    content: str = Field(..., description="Comment content")
+    visibility: str = Field(..., description="Comment visibility (PUBLIC or INTERNAL)")
+    child_comments: List["CommentResponse"] = Field(default_factory=list, description="Nested child comments")
+    created_by: CreatedByUser = Field(..., description="User who created the comment")
+    created_at: str = Field(..., description="ISO format timestamp when the comment was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the comment was last updated")
+
+
+class GetCommentsResponse(BaseModel):
+    """Response model for getting comments by entity."""
+    
+    comments: List[CommentResponse] = Field(..., description="List of root comments with nested children")
+
+
+class CreateCommentRequest(BaseModel):
+    """Request model for creating a comment."""
+    
+    entity_type: EntityType = Field(..., description="Entity type (ISSUE)")
+    entity_id: str = Field(..., description="Entity ID (UUID)")
+    content: str = Field(..., min_length=1, max_length=1024, description="Comment content (max 1024 characters)")
+    visibility: CommentVisibility = Field(..., description="Comment visibility (PUBLIC or INTERNAL)")
+    parent_comment_id: Optional[str] = Field(default=None, description="Parent comment ID for nested replies (nullable)")
+
+
+class CreateCommentResponse(BaseModel):
+    """Response model for a created comment."""
+    
+    id: str = Field(..., description="Comment ID (UUID)")
+    content: str = Field(..., description="Comment content")
+    entity_type: str = Field(..., description="Entity type")
+    entity_id: str = Field(..., description="Entity ID (UUID)")
+    parent_comment_id: Optional[str] = Field(default=None, description="Parent comment ID (nullable)")
+    visibility: str = Field(..., description="Comment visibility (PUBLIC or INTERNAL)")
+    created_by: CreatedByUser = Field(..., description="User who created the comment")
+    created_at: str = Field(..., description="ISO format timestamp when the comment was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the comment was last updated")
+
+
+# Rebuild models to resolve forward references
+CommentResponse.model_rebuild()

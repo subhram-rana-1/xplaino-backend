@@ -2577,3 +2577,555 @@ def get_issues_by_user_id(
     
     return issues
 
+
+def get_user_role_by_user_id(
+    db: Session,
+    user_id: str
+) -> Optional[str]:
+    """
+    Get user role by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        User role (ADMIN, SUPER_ADMIN) or None if not found or no role
+    """
+    logger.info(
+        "Getting user role by user_id",
+        function="get_user_role_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("SELECT role FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "User not found",
+            function="get_user_role_by_user_id",
+            user_id=user_id
+        )
+        return None
+    
+    role = result[0]
+    
+    logger.info(
+        "User role retrieved successfully",
+        function="get_user_role_by_user_id",
+        user_id=user_id,
+        role=role
+    )
+    
+    return role
+
+
+def get_user_name_by_user_id(
+    db: Session,
+    user_id: str
+) -> Optional[str]:
+    """
+    Get user name by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        User's full name (given_name + family_name) or empty string if not found
+    """
+    logger.info(
+        "Getting user name by user_id",
+        function="get_user_name_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT given_name, family_name
+            FROM google_user_auth_info
+            WHERE user_id = :user_id
+            LIMIT 1
+        """),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "User name not found",
+            function="get_user_name_by_user_id",
+            user_id=user_id
+        )
+        return ""
+    
+    given_name, family_name = result
+    
+    # Construct full name
+    name_parts = []
+    if given_name:
+        name_parts.append(given_name)
+    if family_name:
+        name_parts.append(family_name)
+    name = " ".join(name_parts).strip() if name_parts else ""
+    
+    logger.info(
+        "User name retrieved successfully",
+        function="get_user_name_by_user_id",
+        user_id=user_id,
+        has_name=bool(name)
+    )
+    
+    return name
+
+
+def get_user_name_and_role_by_user_id(
+    db: Session,
+    user_id: str
+) -> Dict[str, Any]:
+    """
+    Get user name and role by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with 'name' (str) and 'role' (Optional[str])
+    """
+    logger.info(
+        "Getting user name and role by user_id",
+        function="get_user_name_and_role_by_user_id",
+        user_id=user_id
+    )
+    
+    # Get name from google_user_auth_info
+    name_result = db.execute(
+        text("""
+            SELECT given_name, family_name
+            FROM google_user_auth_info
+            WHERE user_id = :user_id
+            LIMIT 1
+        """),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    # Get role from user table
+    role_result = db.execute(
+        text("SELECT role FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    # Construct name
+    name = ""
+    if name_result:
+        given_name, family_name = name_result
+        name_parts = []
+        if given_name:
+            name_parts.append(given_name)
+        if family_name:
+            name_parts.append(family_name)
+        name = " ".join(name_parts).strip() if name_parts else ""
+    
+    # Get role
+    role = role_result[0] if role_result else None
+    
+    logger.info(
+        "User name and role retrieved successfully",
+        function="get_user_name_and_role_by_user_id",
+        user_id=user_id,
+        has_name=bool(name),
+        role=role
+    )
+    
+    return {
+        "name": name,
+        "role": role
+    }
+
+
+def get_comment_by_id(
+    db: Session,
+    comment_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get comment by ID.
+    
+    Args:
+        db: Database session
+        comment_id: Comment ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with comment data or None if not found
+    """
+    logger.info(
+        "Getting comment by id",
+        function="get_comment_by_id",
+        comment_id=comment_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, content, entity_type, entity_id, parent_comment_id, 
+                   visibility, created_by, created_at, updated_at
+            FROM comment
+            WHERE id = :comment_id
+        """),
+        {"comment_id": comment_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Comment not found",
+            function="get_comment_by_id",
+            comment_id=comment_id
+        )
+        return None
+    
+    (comment_id_val, content, entity_type, entity_id, parent_comment_id,
+     visibility, created_by, created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    comment = {
+        "id": comment_id_val,
+        "content": content,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "parent_comment_id": parent_comment_id,
+        "visibility": visibility,
+        "created_by": created_by,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Comment retrieved successfully",
+        function="get_comment_by_id",
+        comment_id=comment_id
+    )
+    
+    return comment
+
+
+def get_comments_by_entity(
+    db: Session,
+    entity_type: str,
+    entity_id: str,
+    count: int,
+    user_role: Optional[str]
+) -> List[Dict[str, Any]]:
+    """
+    Get comments by entity with hierarchical structure.
+    Fetches X root comments and all their nested children.
+    
+    Args:
+        db: Database session
+        entity_type: Entity type (ISSUE)
+        entity_id: Entity ID (CHAR(36) UUID)
+        count: Number of root comments to fetch
+        user_role: User role (ADMIN, SUPER_ADMIN, or None) for visibility filtering
+        
+    Returns:
+        List of dictionaries with comment data, including parent relationships
+    """
+    logger.info(
+        "Getting comments by entity",
+        function="get_comments_by_entity",
+        entity_type=entity_type,
+        entity_id=entity_id,
+        count=count,
+        user_role=user_role
+    )
+    
+    # Determine visibility filter
+    # ADMIN and SUPER_ADMIN can see all comments, others only PUBLIC
+    is_admin = user_role in ("ADMIN", "SUPER_ADMIN")
+    
+    # Build visibility filter
+    if is_admin:
+        visibility_filter = ""
+        visibility_params = {}
+    else:
+        visibility_filter = "AND visibility = 'PUBLIC'"
+        visibility_params = {}
+    
+    # First, get root comments (parent_comment_id IS NULL) ordered by created_at DESC
+    root_query = text(f"""
+        SELECT id, content, entity_type, entity_id, parent_comment_id, 
+               visibility, created_by, created_at, updated_at
+        FROM comment
+        WHERE entity_type = :entity_type 
+          AND entity_id = :entity_id 
+          AND parent_comment_id IS NULL
+          {visibility_filter}
+        ORDER BY created_at DESC
+        LIMIT :count
+    """)
+    
+    params = {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "count": count
+    }
+    params.update(visibility_params)
+    
+    root_comments = db.execute(root_query, params).fetchall()
+    
+    if not root_comments:
+        logger.info(
+            "No root comments found",
+            function="get_comments_by_entity",
+            entity_type=entity_type,
+            entity_id=entity_id
+        )
+        return []
+    
+    # Get all root comment IDs
+    root_comment_ids = [row[0] for row in root_comments]
+    
+    # Fetch all nested children recursively using a recursive CTE
+    # We'll fetch all comments for this entity and build the tree in Python
+    all_comments_query = text(f"""
+        SELECT id, content, entity_type, entity_id, parent_comment_id, 
+               visibility, created_by, created_at, updated_at
+        FROM comment
+        WHERE entity_type = :entity_type 
+          AND entity_id = :entity_id
+          {visibility_filter}
+    """)
+    
+    all_comments_result = db.execute(all_comments_query, {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        **visibility_params
+    }).fetchall()
+    
+    # Convert all comments to dictionaries
+    all_comments_dict = {}
+    for row in all_comments_result:
+        (comment_id, content, entity_type_val, entity_id_val, parent_comment_id,
+         visibility, created_by, created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        all_comments_dict[comment_id] = {
+            "id": comment_id,
+            "content": content,
+            "entity_type": entity_type_val,
+            "entity_id": entity_id_val,
+            "parent_comment_id": parent_comment_id,
+            "visibility": visibility,
+            "created_by": created_by,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+    
+    # Filter to only include root comments and their descendants
+    # Build a set of all comment IDs that are descendants of root comments
+    descendant_ids = set(root_comment_ids)
+    queue = list(root_comment_ids)
+    
+    while queue:
+        parent_id = queue.pop(0)
+        # Find all comments with this parent
+        for comment_id, comment_data in all_comments_dict.items():
+            if comment_data["parent_comment_id"] == parent_id:
+                if comment_id not in descendant_ids:
+                    descendant_ids.add(comment_id)
+                    queue.append(comment_id)
+    
+    # Return only root comments and their descendants
+    result = [all_comments_dict[cid] for cid in descendant_ids if cid in all_comments_dict]
+    
+    # Fetch user names and roles for all unique created_by values
+    unique_user_ids = set(comment["created_by"] for comment in result)
+    user_info_map = {}
+    for user_id in unique_user_ids:
+        user_info = get_user_name_and_role_by_user_id(db, user_id)
+        user_info_map[user_id] = user_info
+    
+    # Add user info to comments
+    for comment in result:
+        user_id = comment["created_by"]
+        user_info = user_info_map.get(user_id, {"name": "", "role": None})
+        comment["created_by_user"] = {
+            "id": user_id,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role")
+        }
+    
+    logger.info(
+        "Comments retrieved successfully",
+        function="get_comments_by_entity",
+        entity_type=entity_type,
+        entity_id=entity_id,
+        root_count=len(root_comment_ids),
+        total_count=len(result)
+    )
+    
+    return result
+
+
+def create_comment(
+    db: Session,
+    user_id: str,
+    entity_type: str,
+    entity_id: str,
+    content: str,
+    visibility: str,
+    parent_comment_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new comment.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID) who is creating the comment
+        entity_type: Entity type (ISSUE)
+        entity_id: Entity ID (CHAR(36) UUID)
+        content: Comment content (will be stripped and validated)
+        visibility: Comment visibility (PUBLIC or INTERNAL)
+        parent_comment_id: Optional parent comment ID for nested replies
+        
+    Returns:
+        Dictionary with created comment data
+        
+    Raises:
+        ValueError: If content is empty after stripping
+        Exception: If parent_comment_id is provided but doesn't exist
+    """
+    logger.info(
+        "Creating comment",
+        function="create_comment",
+        user_id=user_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        visibility=visibility,
+        has_parent=parent_comment_id is not None
+    )
+    
+    # Strip and validate content
+    content_stripped = content.strip()
+    if len(content_stripped) == 0:
+        logger.error(
+            "Comment content is empty after stripping",
+            function="create_comment",
+            user_id=user_id
+        )
+        raise ValueError("Comment content cannot be empty")
+    
+    # Validate parent_comment_id exists if provided
+    if parent_comment_id:
+        parent_comment = get_comment_by_id(db, parent_comment_id)
+        if not parent_comment:
+            logger.error(
+                "Parent comment not found",
+                function="create_comment",
+                parent_comment_id=parent_comment_id
+            )
+            raise Exception("Parent comment not found")
+    
+    # Generate UUID for the new comment
+    comment_id = str(uuid.uuid4())
+    
+    # Insert the new comment
+    db.execute(
+        text("""
+            INSERT INTO comment (id, content, entity_type, entity_id, parent_comment_id, visibility, created_by)
+            VALUES (:id, :content, :entity_type, :entity_id, :parent_comment_id, :visibility, :created_by)
+        """),
+        {
+            "id": comment_id,
+            "content": content_stripped,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "parent_comment_id": parent_comment_id,
+            "visibility": visibility,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, content, entity_type, entity_id, parent_comment_id, 
+                   visibility, created_by, created_at, updated_at
+            FROM comment
+            WHERE id = :id
+        """),
+        {"id": comment_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created comment",
+            function="create_comment",
+            comment_id=comment_id
+        )
+        raise Exception("Failed to retrieve created comment")
+    
+    (comment_id_val, content_val, entity_type_val, entity_id_val, parent_comment_id_val,
+     visibility_val, created_by_val, created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user name and role
+    user_info = get_user_name_and_role_by_user_id(db, created_by_val)
+    
+    comment = {
+        "id": comment_id_val,
+        "content": content_val,
+        "entity_type": entity_type_val,
+        "entity_id": entity_id_val,
+        "parent_comment_id": parent_comment_id_val,
+        "visibility": visibility_val,
+        "created_by": created_by_val,
+        "created_by_user": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Comment created successfully",
+        function="create_comment",
+        comment_id=comment_id,
+        user_id=user_id
+    )
+    
+    return comment
+
