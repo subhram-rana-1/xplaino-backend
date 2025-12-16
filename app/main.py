@@ -15,7 +15,7 @@ from app.exceptions import (
     general_exception_handler,
     http_exception_handler
 )
-from app.routes import v1_api, v2_api, health, auth_api
+from app.routes import v1_api, v2_api, health, auth_api, saved_words_api, saved_paragraph_api, saved_page_api, issue_api, comment_api
 from app.services.rate_limiter import rate_limiter
 
 # Configure structured logging
@@ -100,10 +100,10 @@ async def cors_preflight_handler(request: Request, call_next):
             # Fallback to wildcard only if no origin is present (shouldn't happen with credentials)
             response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, X-Forwarded-For, User-Agent, Origin, Referer, Cache-Control, Pragma, Content-Disposition, Content-Transfer-Encoding, X-File-Name, X-File-Size, X-File-Type, X-Access-Token, X-Unauthenticated-User-Id"
+        response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, X-Forwarded-For, User-Agent, Origin, Referer, Cache-Control, Pragma, Content-Disposition, Content-Transfer-Encoding, X-File-Name, X-File-Size, X-File-Type, X-Access-Token, X-Unauthenticated-User-Id, X-Source"
         response.headers["Access-Control-Max-Age"] = "300"  # Reduced from 3600 to 5 minutes for easier testing
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id"
+        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id, X-Source"
         return response
     
     response = await call_next(request)
@@ -132,7 +132,7 @@ async def cors_preflight_handler(request: Request, call_next):
         else:
             response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id"
+        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id, X-Source"
     
     return response
 
@@ -190,6 +190,11 @@ app.include_router(health.router)
 app.include_router(v1_api.router)
 app.include_router(v2_api.router)
 app.include_router(auth_api.router)
+app.include_router(saved_words_api.router)
+app.include_router(saved_paragraph_api.router)
+app.include_router(saved_page_api.router)
+app.include_router(issue_api.router)
+app.include_router(comment_api.router)
 
 
 @app.get("/metrics", include_in_schema=False)

@@ -38,8 +38,9 @@ class WordInfo(BaseModel):
     
     location: WordWithLocation = Field(..., description="Word location in original text")
     word: str = Field(..., description="The actual word")
-    meaning: str = Field(..., description="Simplified meaning of the word")
-    examples: List[str] = Field(..., min_items=2, max_items=2, description="Two example sentences")
+    raw_response: str = Field(..., description="Raw formatted response from OpenAI in the format: [[[WORD_MEANING]]]:{...}[[[EXAMPLES]]]:{[[ITEM]]{...}[[ITEM]]{...}}")
+    meaning: Optional[str] = Field(default=None, description="Simplified meaning of the word (deprecated - use raw_response)")
+    examples: Optional[List[str]] = Field(default=None, description="Two example sentences (deprecated - use raw_response)")
     languageCode: Optional[str] = Field(default=None, alias="language_code", description="ISO 639-1 language code (e.g., 'EN', 'ES', 'DE', 'FR')")
     
     model_config = ConfigDict(populate_by_name=True)
@@ -172,3 +173,280 @@ class RefreshTokenResponse(BaseModel):
     refreshTokenExpiresAt: int = Field(..., description="Unix timestamp when refresh token expires")
     userSessionPk: str = Field(..., description="User session primary key (ID from user_session table)")
     user: UserInfo = Field(..., description="User information")
+
+
+class SaveWordRequest(BaseModel):
+    """Request model for saving a word."""
+    
+    word: str = Field(..., min_length=1, max_length=32, description="Word to save (max 32 characters)")
+    sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the word was found (max 1024 characters)")
+    contextual_meaning: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Contextual meaning or explanation of the word (max 1000 characters)"
+    )
+
+
+class SavedWordResponse(BaseModel):
+    """Response model for a saved word."""
+    
+    id: str = Field(..., description="Saved word ID (UUID)")
+    word: str = Field(..., description="The saved word")
+    sourceUrl: str = Field(..., description="Source URL where the word was found")
+    userId: str = Field(..., description="User ID who saved the word (UUID)")
+    createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
+    contextual_meaning: str = Field(
+        ...,
+        description="Contextual meaning or explanation of the word when it was saved"
+    )
+
+
+class GetSavedWordsResponse(BaseModel):
+    """Response model for getting saved words with pagination."""
+    
+    words: List[SavedWordResponse] = Field(..., description="List of saved words")
+    total: int = Field(..., description="Total number of saved words for the user")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+
+
+class FolderType(str, Enum):
+    """Folder type enum."""
+    PAGE = "PAGE"
+    PARAGRAPH = "PARAGRAPH"
+
+
+class SaveParagraphRequest(BaseModel):
+    """Request model for saving a paragraph."""
+    
+    content: str = Field(..., min_length=1, description="Paragraph content")
+    source_url: str = Field(..., min_length=1, max_length=1024, description="Source URL where the paragraph was found (max 1024 characters)")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the paragraph in (nullable)")
+    name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the paragraph (max 50 characters)")
+
+
+class CreateParagraphFolderRequest(BaseModel):
+    """Request model for creating a paragraph folder."""
+    
+    parent_folder_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable for root folders)")
+    name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+
+
+class FolderResponse(BaseModel):
+    """Response model for a folder."""
+    
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    type: str = Field(..., description="Folder type (PAGE or PARAGRAPH)")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
+    user_id: str = Field(..., description="User ID who owns the folder (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the folder was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
+
+
+class SavedParagraphResponse(BaseModel):
+    """Response model for a saved paragraph."""
+    
+    id: str = Field(..., description="Saved paragraph ID (UUID)")
+    name: Optional[str] = Field(default=None, description="Optional name for the paragraph")
+    source_url: str = Field(..., description="Source URL where the paragraph was found")
+    content: str = Field(..., description="Paragraph content")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID the paragraph is saved in (nullable)")
+    user_id: str = Field(..., description="User ID who saved the paragraph (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the paragraph was saved")
+    updated_at: str = Field(..., description="ISO format timestamp when the paragraph was last updated")
+
+
+class GetAllSavedParagraphResponse(BaseModel):
+    """Response model for getting saved paragraphs with folders and pagination."""
+    
+    folder_id: Optional[str] = Field(default=None, description="Current folder ID (nullable for root)")
+    user_id: str = Field(..., description="User ID (UUID)")
+    sub_folders: List[FolderResponse] = Field(..., description="List of sub-folders in the current folder")
+    saved_paragraphs: List[SavedParagraphResponse] = Field(..., description="List of saved paragraphs")
+    total: int = Field(..., description="Total number of saved paragraphs for the user in this folder")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more paragraphs to fetch")
+
+
+class SavePageRequest(BaseModel):
+    """Request model for saving a page."""
+    
+    url: str = Field(..., min_length=1, max_length=1024, description="Page URL to save (max 1024 characters)")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the page in (nullable)")
+    name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the page (max 50 characters)")
+
+
+class SavedPageResponse(BaseModel):
+    """Response model for a saved page."""
+    
+    id: str = Field(..., description="Saved page ID (UUID)")
+    name: Optional[str] = Field(default=None, description="Optional name for the page")
+    url: str = Field(..., description="Page URL")
+    folder_id: Optional[str] = Field(default=None, description="Folder ID the page is saved in (nullable)")
+    user_id: str = Field(..., description="User ID who saved the page (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the page was saved")
+    updated_at: str = Field(..., description="ISO format timestamp when the page was last updated")
+
+
+class GetAllSavedPagesResponse(BaseModel):
+    """Response model for getting saved pages with folders and pagination."""
+    
+    folder_id: Optional[str] = Field(default=None, description="Current folder ID (nullable for root)")
+    user_id: str = Field(..., description="User ID (UUID)")
+    sub_folders: List[FolderResponse] = Field(..., description="List of sub-folders in the current folder")
+    saved_pages: List[SavedPageResponse] = Field(..., description="List of saved pages")
+    total: int = Field(..., description="Total number of saved pages for the user in this folder")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more pages to fetch")
+
+
+class CreatePageFolderRequest(BaseModel):
+    """Request model for creating a page folder."""
+    
+    parent_folder_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable for root folders)")
+    name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+
+
+class UserRole(str, Enum):
+    """User role enum."""
+    ADMIN = "ADMIN"
+    SUPER_ADMIN = "SUPER_ADMIN"
+
+
+class IssueType(str, Enum):
+    """Issue type enum."""
+    GLITCH = "GLITCH"
+    SUBSCRIPTION = "SUBSCRIPTION"
+    AUTHENTICATION = "AUTHENTICATION"
+    FEATURE_REQUEST = "FEATURE_REQUEST"
+    OTHERS = "OTHERS"
+
+
+class IssueStatus(str, Enum):
+    """Issue status enum."""
+    OPEN = "OPEN"
+    WORK_IN_PROGRESS = "WORK_IN_PROGRESS"
+    DISCARDED = "DISCARDED"
+    RESOLVED = "RESOLVED"
+
+
+class EntityType(str, Enum):
+    """Entity type enum for file uploads."""
+    ISSUE = "ISSUE"
+
+
+class FileType(str, Enum):
+    """File type enum for file uploads."""
+    IMAGE = "IMAGE"
+    PDF = "PDF"
+
+
+class FileUploadResponse(BaseModel):
+    """Response model for a file upload."""
+    
+    id: str = Field(..., description="File upload ID (UUID)")
+    file_name: str = Field(..., description="File name")
+    file_type: str = Field(..., description="File type (IMAGE or PDF)")
+    entity_type: str = Field(..., description="Entity type (ISSUE)")
+    entity_id: str = Field(..., description="Entity ID (UUID)")
+    s3_url: Optional[str] = Field(default=None, description="S3 URL for the file")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON")
+    created_at: str = Field(..., description="ISO format timestamp when the file was uploaded")
+    updated_at: str = Field(..., description="ISO format timestamp when the file was last updated")
+
+
+class ReportIssueRequest(BaseModel):
+    """Request model for reporting an issue."""
+    
+    type: IssueType = Field(..., description="Issue type (mandatory)")
+    heading: Optional[str] = Field(default=None, max_length=100, description="Issue heading (optional, max 100 characters)")
+    description: str = Field(..., min_length=1, description="Issue description (mandatory)")
+    webpage_url: Optional[str] = Field(default=None, max_length=1024, description="Webpage URL where the issue occurred (optional, max 1024 characters)")
+
+
+class IssueResponse(BaseModel):
+    """Response model for an issue."""
+    
+    id: str = Field(..., description="Issue ID (UUID)")
+    ticket_id: str = Field(..., description="14-character ticket ID")
+    type: str = Field(..., description="Issue type")
+    heading: Optional[str] = Field(default=None, description="Issue heading")
+    description: str = Field(..., description="Issue description")
+    webpage_url: Optional[str] = Field(default=None, description="Webpage URL where the issue occurred")
+    status: str = Field(..., description="Issue status")
+    created_by: str = Field(..., description="User ID who created the issue (UUID)")
+    closed_by: Optional[str] = Field(default=None, description="User ID who closed the issue (UUID)")
+    closed_at: Optional[str] = Field(default=None, description="ISO format timestamp when the issue was closed")
+    created_at: str = Field(..., description="ISO format timestamp when the issue was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the issue was last updated")
+    file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="List of file uploads associated with the issue")
+
+
+class GetMyIssuesResponse(BaseModel):
+    """Response model for getting user's issues."""
+    
+    issues: List[IssueResponse] = Field(..., description="List of issues")
+
+
+class CommentVisibility(str, Enum):
+    """Comment visibility enum."""
+    PUBLIC = "PUBLIC"
+    INTERNAL = "INTERNAL"
+
+
+class CreatedByUser(BaseModel):
+    """Model for user who created a comment."""
+    
+    id: str = Field(..., description="User ID (UUID)")
+    name: str = Field(..., description="User's full name")
+    role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
+
+
+class CommentResponse(BaseModel):
+    """Response model for a comment with nested child comments."""
+    
+    id: str = Field(..., description="Comment ID (UUID)")
+    content: str = Field(..., description="Comment content")
+    visibility: str = Field(..., description="Comment visibility (PUBLIC or INTERNAL)")
+    child_comments: List["CommentResponse"] = Field(default_factory=list, description="Nested child comments")
+    created_by: CreatedByUser = Field(..., description="User who created the comment")
+    created_at: str = Field(..., description="ISO format timestamp when the comment was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the comment was last updated")
+
+
+class GetCommentsResponse(BaseModel):
+    """Response model for getting comments by entity."""
+    
+    comments: List[CommentResponse] = Field(..., description="List of root comments with nested children")
+
+
+class CreateCommentRequest(BaseModel):
+    """Request model for creating a comment."""
+    
+    entity_type: EntityType = Field(..., description="Entity type (ISSUE)")
+    entity_id: str = Field(..., description="Entity ID (UUID)")
+    content: str = Field(..., min_length=1, max_length=1024, description="Comment content (max 1024 characters)")
+    visibility: CommentVisibility = Field(..., description="Comment visibility (PUBLIC or INTERNAL)")
+    parent_comment_id: Optional[str] = Field(default=None, description="Parent comment ID for nested replies (nullable)")
+
+
+class CreateCommentResponse(BaseModel):
+    """Response model for a created comment."""
+    
+    id: str = Field(..., description="Comment ID (UUID)")
+    content: str = Field(..., description="Comment content")
+    entity_type: str = Field(..., description="Entity type")
+    entity_id: str = Field(..., description="Entity ID (UUID)")
+    parent_comment_id: Optional[str] = Field(default=None, description="Parent comment ID (nullable)")
+    visibility: str = Field(..., description="Comment visibility (PUBLIC or INTERNAL)")
+    created_by: CreatedByUser = Field(..., description="User who created the comment")
+    created_at: str = Field(..., description="ISO format timestamp when the comment was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the comment was last updated")
+
+
+# Rebuild models to resolve forward references
+CommentResponse.model_rebuild()

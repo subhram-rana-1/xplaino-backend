@@ -42,6 +42,13 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     "/api/v2/summarise": "summarise_api_count_so_far",
     "/api/v2/web-search": "web_search_api_count_so_far",
     "/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
+    
+    # Saved words APIs
+    "/api/saved-words": "saved_words_api_count_so_far",
+    
+    # Saved paragraph APIs
+    "/api/saved-paragraph": "saved_paragraph_api_count_so_far",
+    "/api/saved-paragraph/folder": "saved_paragraph_folder_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping
@@ -65,6 +72,13 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     "/api/v2/summarise": "summarise_api_max_limit",
     "/api/v2/web-search": "web_search_api_max_limit",
     "/api/v2/web-search-stream": "web_search_stream_api_max_limit",
+    
+    # Saved words APIs
+    "/api/saved-words": "saved_words_api_max_limit",
+    
+    # Saved paragraph APIs
+    "/api/saved-paragraph": "saved_paragraph_api_max_limit",
+    "/api/saved-paragraph/folder": "saved_paragraph_folder_api_max_limit",
 }
 
 
@@ -155,9 +169,6 @@ async def authenticate(
     if authorization_header:
         if authorization_header.startswith("Bearer "):
             access_token = authorization_header[7:].strip()  # Remove "Bearer " prefix
-    
-    # Get API counter field and max limit for this endpoint
-    api_counter_field, max_limit = get_api_counter_field_and_limit(request)
 
     # Case 1: Access token header is available (authenticated user)
     if access_token:
@@ -218,6 +229,9 @@ async def authenticate(
         api_usage = get_unauthenticated_user_usage(db, unauthenticated_user_id)
         if not api_usage:
             raise_login_required()
+
+        # Get API counter field and max limit for this endpoint
+        api_counter_field, max_limit = get_api_counter_field_and_limit(request)
 
         # Now check if we can determine the API counter field and max limit
         if not api_counter_field or max_limit is None:

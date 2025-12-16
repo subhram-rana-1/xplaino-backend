@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     
     # Authentication Configuration
     google_oauth_client_id: str = Field(..., description="Google OAuth Client ID")
+    google_oauth_client_id_xplaino_web: str = Field(
+        default="355884005048-ad7r1e3hdmkehnq4qvmaa56c2f8gmqpd.apps.googleusercontent.com",
+        description="Google OAuth Client ID for XPLAINO_WEB source"
+    )
     jwt_secret_key: str = Field(..., description="JWT secret key for signing tokens")
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     access_token_expiry_hours: int = Field(default=24, description="Access token expiry in hours")
@@ -85,6 +89,13 @@ class Settings(BaseSettings):
     db_password: str = Field(default="", description="Database password")
     db_name: str = Field(..., description="Database name")
     db_port: int = Field(default=3306, description="Database port")
+    
+    # AWS S3 Configuration
+    aws_access_key_id: str = Field(..., description="AWS access key ID")
+    aws_secret_access_key: str = Field(..., description="AWS secret access key")
+    aws_region: str = Field(default="us-east-1", description="AWS region")
+    s3_bucket_name: str = Field(..., description="S3 bucket name")
+    s3_issue_files_prefix: str = Field(default="issues/", description="S3 prefix for issue files")
     
     # API Usage Limits for Unauthenticated Users
     # v1 API Limits
@@ -106,6 +117,9 @@ class Settings(BaseSettings):
     summarise_api_max_limit: int = Field(default=3, description="Max limit for summarise API")
     web_search_api_max_limit: int = Field(default=5, description="Max limit for web-search API")
     web_search_stream_api_max_limit: int = Field(default=5, description="Max limit for web-search-stream API")
+    saved_words_api_max_limit: int = Field(default=100, description="Max limit for saved-words API")
+    saved_paragraph_api_max_limit: int = Field(default=100, description="Max limit for saved-paragraph API")
+    saved_paragraph_folder_api_max_limit: int = Field(default=100, description="Max limit for saved-paragraph folder API")
     
     @property
     def database_url(self) -> str:
