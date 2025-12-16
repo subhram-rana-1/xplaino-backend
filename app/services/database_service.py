@@ -2352,7 +2352,7 @@ def create_issue(
     db: Session,
     user_id: str,
     issue_type: str,
-    heading: str,
+    heading: Optional[str],
     description: str,
     webpage_url: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -2363,7 +2363,7 @@ def create_issue(
         db: Database session
         user_id: User ID (CHAR(36) UUID) who is creating the issue
         issue_type: Issue type (GLITCH, SUBSCRIPTION, AUTHENTICATION, FEATURE_REQUEST, OTHERS)
-        heading: Issue heading (max 100 characters)
+        heading: Optional issue heading (max 100 characters)
         description: Issue description (TEXT)
         webpage_url: Optional webpage URL (max 1024 characters)
         
@@ -2375,9 +2375,10 @@ def create_issue(
         function="create_issue",
         user_id=user_id,
         issue_type=issue_type,
-        heading_length=len(heading),
+        heading_length=len(heading) if heading else 0,
         description_length=len(description),
-        has_webpage_url=webpage_url is not None
+        has_webpage_url=webpage_url is not None,
+        has_heading=heading is not None
     )
     
     # Generate UUID for the new issue
