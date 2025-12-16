@@ -1,23 +1,33 @@
 """API routes for issue management."""
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query, UploadFile, File, Form
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import structlog
+import io
+from PIL import Image
+import PyPDF2
 
 from app.models import (
     ReportIssueRequest,
     IssueResponse,
-    GetMyIssuesResponse
+    GetMyIssuesResponse,
+    FileUploadResponse,
+    FileType,
+    IssueType
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
     create_issue,
-    get_issues_by_user_id
+    get_issues_by_user_id,
+    create_file_upload,
+    get_file_uploads_by_entity
 )
+from app.services.s3_service import s3_service
+from app.exceptions import FileValidationError
 
 logger = structlog.get_logger()
 
@@ -83,24 +93,43 @@ async def get_my_issues(
     # Get issues for the user
     issues_data = get_issues_by_user_id(db, user_id, statuses)
     
-    # Convert to response models
-    issues = [
-        IssueResponse(
-            id=issue["id"],
-            ticket_id=issue["ticket_id"],
-            type=issue["type"],
-            heading=issue["heading"],
-            description=issue["description"],
-            webpage_url=issue["webpage_url"],
-            status=issue["status"],
-            created_by=issue["created_by"],
-            closed_by=issue["closed_by"],
-            closed_at=issue["closed_at"],
-            created_at=issue["created_at"],
-            updated_at=issue["updated_at"]
+    # Convert to response models with file_uploads
+    issues = []
+    for issue in issues_data:
+        # Fetch file_uploads for this issue
+        file_uploads_data = get_file_uploads_by_entity(db, "ISSUE", issue["id"])
+        file_uploads = [
+            FileUploadResponse(
+                id=fu["id"],
+                file_name=fu["file_name"],
+                file_type=fu["file_type"],
+                entity_type=fu["entity_type"],
+                entity_id=fu["entity_id"],
+                s3_url=fu["s3_url"],
+                metadata=fu["metadata"],
+                created_at=fu["created_at"],
+                updated_at=fu["updated_at"]
+            )
+            for fu in file_uploads_data
+        ]
+        
+        issues.append(
+            IssueResponse(
+                id=issue["id"],
+                ticket_id=issue["ticket_id"],
+                type=issue["type"],
+                heading=issue["heading"],
+                description=issue["description"],
+                webpage_url=issue["webpage_url"],
+                status=issue["status"],
+                created_by=issue["created_by"],
+                closed_by=issue["closed_by"],
+                closed_at=issue["closed_at"],
+                created_at=issue["created_at"],
+                updated_at=issue["updated_at"],
+                file_uploads=file_uploads
+            )
         )
-        for issue in issues_data
-    ]
     
     logger.info(
         "Retrieved issues successfully",
@@ -112,21 +141,94 @@ async def get_my_issues(
     return GetMyIssuesResponse(issues=issues)
 
 
+def _validate_file(file: UploadFile, max_size_bytes: int = 5 * 1024 * 1024) -> Tuple[str, bytes]:
+    """
+    Validate uploaded file (IMAGE or PDF).
+    
+    Args:
+        file: UploadFile object
+        max_size_bytes: Maximum file size in bytes (default 5MB)
+        
+    Returns:
+        Tuple of (file_type, file_data)
+        
+    Raises:
+        FileValidationError: If validation fails
+    """
+    if not file.filename:
+        raise FileValidationError("No file uploaded")
+    
+    # Read file data
+    file_data = file.file.read()
+    file.file.seek(0)  # Reset file pointer
+    
+    # Check file size
+    if len(file_data) > max_size_bytes:
+        file_size_mb = len(file_data) / (1024 * 1024)
+        max_size_mb = max_size_bytes / (1024 * 1024)
+        raise FileValidationError(
+            f"File size {file_size_mb:.2f}MB exceeds maximum allowed size of {max_size_mb}MB"
+        )
+    
+    # Extract file extension
+    file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+    
+    # Allowed image types
+    allowed_image_types = ['jpg', 'jpeg', 'png', 'heic']
+    # Allowed PDF types
+    allowed_pdf_types = ['pdf']
+    
+    file_type = None
+    
+    # Validate image files
+    if file_extension in allowed_image_types:
+        try:
+            # Validate that it's actually an image
+            image = Image.open(io.BytesIO(file_data))
+            image.verify()
+            file_type = FileType.IMAGE.value
+        except Exception as e:
+            raise FileValidationError(f"Invalid image file: {str(e)}")
+    
+    # Validate PDF files
+    elif file_extension in allowed_pdf_types:
+        try:
+            # Validate that it's actually a PDF
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_data))
+            if len(pdf_reader.pages) == 0:
+                raise FileValidationError("PDF file contains no pages")
+            file_type = FileType.PDF.value
+        except Exception as e:
+            raise FileValidationError(f"Invalid PDF file: {str(e)}")
+    
+    else:
+        raise FileValidationError(
+            f"File type '{file_extension}' not allowed. Supported types: "
+            f"Images: {', '.join(allowed_image_types)}; PDFs: {', '.join(allowed_pdf_types)}"
+        )
+    
+    return file_type, file_data
+
+
 @router.post(
     "/",
     response_model=IssueResponse,
     status_code=201,
     summary="Report an issue",
-    description="Create a new issue report for the authenticated user"
+    description="Create a new issue report for the authenticated user with optional file uploads (IMAGE: jpg, jpeg, png, heic; PDF: pdf; max 5MB per file)"
 )
 async def report_issue(
     request: Request,
     response: Response,
-    body: ReportIssueRequest,
+    type: IssueType = Form(..., description="Issue type (mandatory)"),
+    heading: Optional[str] = Form(default=None, description="Issue heading (optional, max 100 characters)"),
+    description: str = Form(..., description="Issue description (mandatory)"),
+    webpage_url: Optional[str] = Form(default=None, description="Webpage URL where the issue occurred (optional, max 1024 characters)"),
+    files: Optional[List[UploadFile]] = File(default=None, description="Optional files to upload (IMAGE or PDF, max 5MB each)"),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
-    """Report a new issue for the authenticated user."""
+    """Report a new issue for the authenticated user with optional file uploads."""
     # Verify user is authenticated
     if not auth_context.get("authenticated"):
         raise HTTPException(
@@ -170,7 +272,7 @@ async def report_issue(
         )
     
     # Validate input lengths
-    if body.heading and len(body.heading) > 100:
+    if heading and len(heading) > 100:
         raise HTTPException(
             status_code=422,
             detail={
@@ -179,7 +281,7 @@ async def report_issue(
             }
         )
     
-    if body.webpage_url and len(body.webpage_url) > 1024:
+    if webpage_url and len(webpage_url) > 1024:
         raise HTTPException(
             status_code=422,
             detail={
@@ -188,18 +290,107 @@ async def report_issue(
             }
         )
     
-    # Create issue
+    # Validate all files before creating issue
+    validated_files = []
+    max_file_size_bytes = 5 * 1024 * 1024  # 5MB
+    
+    # Handle optional files
+    files_list = files if files is not None else []
+    
+    for file in files_list:
+        file_type, file_data = _validate_file(file, max_file_size_bytes)
+        validated_files.append({
+            "file": file,
+            "file_type": file_type,
+            "file_data": file_data,
+            "file_name": file.filename
+        })
+    
+    # Create issue record first
     issue_data = create_issue(
-        db, user_id, body.type.value, body.heading, body.description, body.webpage_url
+        db, user_id, type.value, heading, description, webpage_url
     )
+    issue_id = issue_data["id"]
     
     logger.info(
         "Created issue successfully",
-        issue_id=issue_data["id"],
+        issue_id=issue_id,
         ticket_id=issue_data["ticket_id"],
         user_id=user_id,
-        issue_type=body.type.value
+        issue_type=type.value,
+        file_count=len(validated_files)
     )
+    
+    # Upload files to S3 and create file_upload records
+    file_uploads = []
+    for validated_file in validated_files:
+        try:
+            # Upload to S3
+            s3_url = s3_service.upload_file(
+                file_data=validated_file["file_data"],
+                file_name=validated_file["file_name"],
+                file_type=validated_file["file_type"],
+                issue_id=issue_id
+            )
+            
+            # Create file_upload record
+            file_upload_data = create_file_upload(
+                db=db,
+                file_name=validated_file["file_name"],
+                file_type=validated_file["file_type"],
+                entity_type="ISSUE",
+                entity_id=issue_id,
+                s3_url=s3_url,
+                metadata=None
+            )
+            
+            file_uploads.append(
+                FileUploadResponse(
+                    id=file_upload_data["id"],
+                    file_name=file_upload_data["file_name"],
+                    file_type=file_upload_data["file_type"],
+                    entity_type=file_upload_data["entity_type"],
+                    entity_id=file_upload_data["entity_id"],
+                    s3_url=file_upload_data["s3_url"],
+                    metadata=file_upload_data["metadata"],
+                    created_at=file_upload_data["created_at"],
+                    updated_at=file_upload_data["updated_at"]
+                )
+            )
+            
+            logger.info(
+                "File uploaded and record created",
+                file_upload_id=file_upload_data["id"],
+                file_name=validated_file["file_name"],
+                issue_id=issue_id
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Failed to upload file or create record",
+                error=str(e),
+                file_name=validated_file["file_name"],
+                issue_id=issue_id
+            )
+            # Continue with other files even if one fails
+            # In production, you might want to rollback the issue creation
+    
+    # Fetch all file_uploads for the issue (to ensure we return all, including any created outside this request)
+    all_file_uploads_data = get_file_uploads_by_entity(db, "ISSUE", issue_id)
+    all_file_uploads = [
+        FileUploadResponse(
+            id=fu["id"],
+            file_name=fu["file_name"],
+            file_type=fu["file_type"],
+            entity_type=fu["entity_type"],
+            entity_id=fu["entity_id"],
+            s3_url=fu["s3_url"],
+            metadata=fu["metadata"],
+            created_at=fu["created_at"],
+            updated_at=fu["updated_at"]
+        )
+        for fu in all_file_uploads_data
+    ]
     
     return IssueResponse(
         id=issue_data["id"],
@@ -213,6 +404,7 @@ async def report_issue(
         closed_by=issue_data["closed_by"],
         closed_at=issue_data["closed_at"],
         created_at=issue_data["created_at"],
-        updated_at=issue_data["updated_at"]
+        updated_at=issue_data["updated_at"],
+        file_uploads=all_file_uploads
     )
 

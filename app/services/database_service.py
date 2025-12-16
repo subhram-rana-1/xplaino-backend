@@ -3129,3 +3129,206 @@ def create_comment(
     
     return comment
 
+
+def create_file_upload(
+    db: Session,
+    file_name: str,
+    file_type: str,
+    entity_type: str,
+    entity_id: str,
+    s3_url: str,
+    metadata: Optional[dict] = None
+) -> Dict[str, Any]:
+    """
+    Create a new file_upload record.
+    
+    Args:
+        db: Database session
+        file_name: File name (max 50 characters)
+        file_type: File type (IMAGE or PDF)
+        entity_type: Entity type (ISSUE)
+        entity_id: Entity ID (CHAR(36) UUID)
+        s3_url: S3 URL for the file (max 2044 characters)
+        metadata: Optional metadata JSON
+        
+    Returns:
+        Dictionary with created file_upload data
+    """
+    logger.info(
+        "Creating file upload",
+        function="create_file_upload",
+        file_name=file_name,
+        file_type=file_type,
+        entity_type=entity_type,
+        entity_id=entity_id
+    )
+    
+    # Generate UUID for the new file_upload
+    file_upload_id = str(uuid.uuid4())
+    
+    # Prepare metadata JSON
+    metadata_json = json.dumps(metadata) if metadata else None
+    
+    # Insert the new file_upload
+    db.execute(
+        text("""
+            INSERT INTO file_upload (id, file_name, file_type, entity_type, entity_id, s3_url, metadata)
+            VALUES (:id, :file_name, :file_type, :entity_type, :entity_id, :s3_url, :metadata)
+        """),
+        {
+            "id": file_upload_id,
+            "file_name": file_name,
+            "file_type": file_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "s3_url": s3_url,
+            "metadata": metadata_json
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_url, metadata, created_at, updated_at
+            FROM file_upload
+            WHERE id = :id
+        """),
+        {"id": file_upload_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created file_upload",
+            function="create_file_upload",
+            file_upload_id=file_upload_id
+        )
+        raise Exception("Failed to retrieve created file_upload")
+    
+    (file_upload_id_val, file_name_val, file_type_val, entity_type_val, entity_id_val,
+     s3_url_val, metadata_val, created_at, updated_at) = result
+    
+    # Parse metadata JSON if present
+    metadata_dict = None
+    if metadata_val:
+        try:
+            metadata_dict = json.loads(metadata_val) if isinstance(metadata_val, str) else metadata_val
+        except (json.JSONDecodeError, TypeError):
+            metadata_dict = None
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    file_upload = {
+        "id": file_upload_id_val,
+        "file_name": file_name_val,
+        "file_type": file_type_val,
+        "entity_type": entity_type_val,
+        "entity_id": entity_id_val,
+        "s3_url": s3_url_val,
+        "metadata": metadata_dict,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "File upload created successfully",
+        function="create_file_upload",
+        file_upload_id=file_upload_id,
+        entity_id=entity_id
+    )
+    
+    return file_upload
+
+
+def get_file_uploads_by_entity(
+    db: Session,
+    entity_type: str,
+    entity_id: str
+) -> List[Dict[str, Any]]:
+    """
+    Get all file_uploads for a specific entity.
+    
+    Args:
+        db: Database session
+        entity_type: Entity type (ISSUE)
+        entity_id: Entity ID (CHAR(36) UUID)
+        
+    Returns:
+        List of dictionaries with file_upload data
+    """
+    logger.info(
+        "Getting file uploads by entity",
+        function="get_file_uploads_by_entity",
+        entity_type=entity_type,
+        entity_id=entity_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_url, metadata, created_at, updated_at
+            FROM file_upload
+            WHERE entity_type = :entity_type AND entity_id = :entity_id
+            ORDER BY created_at ASC
+        """),
+        {
+            "entity_type": entity_type,
+            "entity_id": entity_id
+        }
+    ).fetchall()
+    
+    file_uploads = []
+    for row in result:
+        (file_upload_id, file_name, file_type, entity_type_val, entity_id_val,
+         s3_url, metadata, created_at, updated_at) = row
+        
+        # Parse metadata JSON if present
+        metadata_dict = None
+        if metadata:
+            try:
+                metadata_dict = json.loads(metadata) if isinstance(metadata, str) else metadata
+            except (json.JSONDecodeError, TypeError):
+                metadata_dict = None
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        file_upload = {
+            "id": file_upload_id,
+            "file_name": file_name,
+            "file_type": file_type,
+            "entity_type": entity_type_val,
+            "entity_id": entity_id_val,
+            "s3_url": s3_url,
+            "metadata": metadata_dict,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        file_uploads.append(file_upload)
+    
+    logger.info(
+        "File uploads retrieved successfully",
+        function="get_file_uploads_by_entity",
+        entity_type=entity_type,
+        entity_id=entity_id,
+        count=len(file_uploads)
+    )
+    
+    return file_uploads
+

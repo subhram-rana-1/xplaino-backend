@@ -339,11 +339,24 @@ class EntityType(str, Enum):
     ISSUE = "ISSUE"
 
 
-class VendorType(str, Enum):
-    """Vendor type enum for file uploads."""
-    CLOUDINARY = "CLOUDINARY"
-    UPLOADCARE = "UPLOADCARE"
-    FREEIMAGE = "FREEIMAGE"
+class FileType(str, Enum):
+    """File type enum for file uploads."""
+    IMAGE = "IMAGE"
+    PDF = "PDF"
+
+
+class FileUploadResponse(BaseModel):
+    """Response model for a file upload."""
+    
+    id: str = Field(..., description="File upload ID (UUID)")
+    file_name: str = Field(..., description="File name")
+    file_type: str = Field(..., description="File type (IMAGE or PDF)")
+    entity_type: str = Field(..., description="Entity type (ISSUE)")
+    entity_id: str = Field(..., description="Entity ID (UUID)")
+    s3_url: Optional[str] = Field(default=None, description="S3 URL for the file")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON")
+    created_at: str = Field(..., description="ISO format timestamp when the file was uploaded")
+    updated_at: str = Field(..., description="ISO format timestamp when the file was last updated")
 
 
 class ReportIssueRequest(BaseModel):
@@ -370,6 +383,7 @@ class IssueResponse(BaseModel):
     closed_at: Optional[str] = Field(default=None, description="ISO format timestamp when the issue was closed")
     created_at: str = Field(..., description="ISO format timestamp when the issue was created")
     updated_at: str = Field(..., description="ISO format timestamp when the issue was last updated")
+    file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="List of file uploads associated with the issue")
 
 
 class GetMyIssuesResponse(BaseModel):
