@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     db_name: str = Field(..., description="Database name")
     db_port: int = Field(default=3306, description="Database port")
     
+    # AWS S3 Configuration
+    aws_access_key_id: str = Field(..., description="AWS access key ID")
+    aws_secret_access_key: str = Field(..., description="AWS secret access key")
+    aws_region: str = Field(default="us-east-1", description="AWS region")
+    s3_bucket_name: str = Field(..., description="S3 bucket name")
+    s3_issue_files_prefix: str = Field(default="issues/", description="S3 prefix for issue files")
+    
     # API Usage Limits for Unauthenticated Users
     # v1 API Limits
     image_to_text_api_max_limit: int = Field(default=10, description="Max limit for image-to-text API")
