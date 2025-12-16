@@ -5,6 +5,8 @@ from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import secrets
+import string
+import time
 import uuid
 import structlog
 import json
@@ -2274,4 +2276,303 @@ def create_page_folder(
     )
     
     return folder
+
+
+def generate_ticket_id(db: Session) -> str:
+    """
+    Generate a unique 14-character ticket ID using timestamp (base36) + random characters.
+    
+    Format: timestamp in base36 (8-9 chars) + random alphanumeric (5-6 chars)
+    Characters used: A-Z, 0-9
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        14-character ticket ID string (A-Z, 0-9)
+    """
+    logger.info(
+        "Generating ticket ID",
+        function="generate_ticket_id"
+    )
+    
+    # Base36 character set (0-9, A-Z)
+    base36_chars = string.digits + string.ascii_uppercase
+    
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        # Get current timestamp in milliseconds
+        timestamp_ms = int(time.time() * 1000)
+        
+        # Convert timestamp to base36 (8-9 characters)
+        timestamp_base36 = ""
+        temp = timestamp_ms
+        while temp > 0:
+            timestamp_base36 = base36_chars[temp % 36] + timestamp_base36
+            temp //= 36
+        
+        # Ensure timestamp part is at least 8 chars, pad with zeros if needed
+        # But we want total of 14, so if timestamp is longer, truncate
+        if len(timestamp_base36) > 9:
+            timestamp_base36 = timestamp_base36[-9:]
+        elif len(timestamp_base36) < 8:
+            timestamp_base36 = timestamp_base36.zfill(8)
+        
+        # Generate random suffix (5-6 characters to make total 14)
+        remaining_chars = 14 - len(timestamp_base36)
+        random_suffix = ''.join(secrets.choice(base36_chars) for _ in range(remaining_chars))
+        
+        ticket_id = timestamp_base36 + random_suffix
+        
+        # Check uniqueness
+        result = db.execute(
+            text("SELECT COUNT(*) FROM issue WHERE ticket_id = :ticket_id"),
+            {"ticket_id": ticket_id}
+        ).fetchone()
+        
+        if result and result[0] == 0:
+            logger.info(
+                "Generated unique ticket ID",
+                function="generate_ticket_id",
+                ticket_id=ticket_id,
+                attempt=attempt + 1
+            )
+            return ticket_id
+    
+    # If we couldn't generate a unique ID after max attempts, raise error
+    logger.error(
+        "Failed to generate unique ticket ID after max attempts",
+        function="generate_ticket_id",
+        max_attempts=max_attempts
+    )
+    raise Exception("Failed to generate unique ticket ID")
+
+
+def create_issue(
+    db: Session,
+    user_id: str,
+    issue_type: str,
+    heading: str,
+    description: str,
+    webpage_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new issue record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID) who is creating the issue
+        issue_type: Issue type (GLITCH, SUBSCRIPTION, AUTHENTICATION, FEATURE_REQUEST, OTHERS)
+        heading: Issue heading (max 100 characters)
+        description: Issue description (TEXT)
+        webpage_url: Optional webpage URL (max 1024 characters)
+        
+    Returns:
+        Dictionary with created issue data
+    """
+    logger.info(
+        "Creating issue",
+        function="create_issue",
+        user_id=user_id,
+        issue_type=issue_type,
+        heading_length=len(heading),
+        description_length=len(description),
+        has_webpage_url=webpage_url is not None
+    )
+    
+    # Generate UUID for the new issue
+    issue_id = str(uuid.uuid4())
+    
+    # Generate unique ticket_id
+    ticket_id = generate_ticket_id(db)
+    
+    # Insert the new issue
+    db.execute(
+        text("""
+            INSERT INTO issue (id, ticket_id, type, heading, description, webpage_url, status, created_by)
+            VALUES (:id, :ticket_id, :type, :heading, :description, :webpage_url, 'OPEN', :created_by)
+        """),
+        {
+            "id": issue_id,
+            "ticket_id": ticket_id,
+            "type": issue_type,
+            "heading": heading,
+            "description": description,
+            "webpage_url": webpage_url,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+                   created_by, closed_by, closed_at, created_at, updated_at
+            FROM issue
+            WHERE id = :id
+        """),
+        {"id": issue_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created issue",
+            function="create_issue",
+            issue_id=issue_id
+        )
+        raise Exception("Failed to retrieve created issue")
+    
+    (issue_id_val, ticket_id_val, type_val, heading_val, description_val, 
+     webpage_url_val, status_val, created_by_val, closed_by_val, closed_at_val, 
+     created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    closed_at_str = None
+    if closed_at_val:
+        if isinstance(closed_at_val, datetime):
+            closed_at_str = closed_at_val.isoformat() + "Z" if closed_at_val.tzinfo else closed_at_val.isoformat()
+        else:
+            closed_at_str = str(closed_at_val)
+    
+    issue = {
+        "id": issue_id_val,
+        "ticket_id": ticket_id_val,
+        "type": type_val,
+        "heading": heading_val,
+        "description": description_val,
+        "webpage_url": webpage_url_val,
+        "status": status_val,
+        "created_by": created_by_val,
+        "closed_by": closed_by_val,
+        "closed_at": closed_at_str,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created issue successfully",
+        function="create_issue",
+        issue_id=issue_id_val,
+        ticket_id=ticket_id_val,
+        user_id=user_id
+    )
+    
+    return issue
+
+
+def get_issues_by_user_id(
+    db: Session,
+    user_id: str,
+    statuses: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get issues for a user with optional status filter.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        statuses: Optional list of status values to filter by
+        
+    Returns:
+        List of dictionaries with issue data, ordered by created_at DESC
+    """
+    logger.info(
+        "Getting issues by user_id",
+        function="get_issues_by_user_id",
+        user_id=user_id,
+        has_status_filter=statuses is not None and len(statuses) > 0,
+        status_count=len(statuses) if statuses else 0
+    )
+    
+    # Build query based on whether statuses filter is provided
+    if statuses and len(statuses) > 0:
+        # Filter by statuses
+        placeholders = ",".join([f":status_{i}" for i in range(len(statuses))])
+        query = text(f"""
+            SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+                   created_by, closed_by, closed_at, created_at, updated_at
+            FROM issue
+            WHERE created_by = :user_id AND status IN ({placeholders})
+            ORDER BY created_at DESC
+        """)
+        
+        params = {"user_id": user_id}
+        for i, status in enumerate(statuses):
+            params[f"status_{i}"] = status
+        
+        result = db.execute(query, params)
+    else:
+        # Get all issues for user
+        result = db.execute(
+            text("""
+                SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+                       created_by, closed_by, closed_at, created_at, updated_at
+                FROM issue
+                WHERE created_by = :user_id
+                ORDER BY created_at DESC
+            """),
+            {"user_id": user_id}
+        )
+    
+    rows = result.fetchall()
+    
+    issues = []
+    for row in rows:
+        (issue_id, ticket_id, type_val, heading_val, description_val, 
+         webpage_url_val, status_val, created_by_val, closed_by_val, closed_at_val, 
+         created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        closed_at_str = None
+        if closed_at_val:
+            if isinstance(closed_at_val, datetime):
+                closed_at_str = closed_at_val.isoformat() + "Z" if closed_at_val.tzinfo else closed_at_val.isoformat()
+            else:
+                closed_at_str = str(closed_at_val)
+        
+        issue = {
+            "id": issue_id,
+            "ticket_id": ticket_id,
+            "type": type_val,
+            "heading": heading_val,
+            "description": description_val,
+            "webpage_url": webpage_url_val,
+            "status": status_val,
+            "created_by": created_by_val,
+            "closed_by": closed_by_val,
+            "closed_at": closed_at_str,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        issues.append(issue)
+    
+    logger.info(
+        "Retrieved issues successfully",
+        function="get_issues_by_user_id",
+        user_id=user_id,
+        issue_count=len(issues)
+    )
+    
+    return issues
 

@@ -309,3 +309,70 @@ class CreatePageFolderRequest(BaseModel):
     
     parent_folder_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable for root folders)")
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+
+
+class UserRole(str, Enum):
+    """User role enum."""
+    ADMIN = "ADMIN"
+    SUPER_ADMIN = "SUPER_ADMIN"
+
+
+class IssueType(str, Enum):
+    """Issue type enum."""
+    GLITCH = "GLITCH"
+    SUBSCRIPTION = "SUBSCRIPTION"
+    AUTHENTICATION = "AUTHENTICATION"
+    FEATURE_REQUEST = "FEATURE_REQUEST"
+    OTHERS = "OTHERS"
+
+
+class IssueStatus(str, Enum):
+    """Issue status enum."""
+    OPEN = "OPEN"
+    WORK_IN_PROGRESS = "WORK_IN_PROGRESS"
+    DISCARDED = "DISCARDED"
+    RESOLVED = "RESOLVED"
+
+
+class EntityType(str, Enum):
+    """Entity type enum for file uploads."""
+    ISSUE = "ISSUE"
+
+
+class VendorType(str, Enum):
+    """Vendor type enum for file uploads."""
+    CLOUDINARY = "CLOUDINARY"
+    UPLOADCARE = "UPLOADCARE"
+    FREEIMAGE = "FREEIMAGE"
+
+
+class ReportIssueRequest(BaseModel):
+    """Request model for reporting an issue."""
+    
+    type: IssueType = Field(..., description="Issue type (mandatory)")
+    heading: Optional[str] = Field(default=None, max_length=100, description="Issue heading (optional, max 100 characters)")
+    description: str = Field(..., min_length=1, description="Issue description (mandatory)")
+    webpage_url: Optional[str] = Field(default=None, max_length=1024, description="Webpage URL where the issue occurred (optional, max 1024 characters)")
+
+
+class IssueResponse(BaseModel):
+    """Response model for an issue."""
+    
+    id: str = Field(..., description="Issue ID (UUID)")
+    ticket_id: str = Field(..., description="14-character ticket ID")
+    type: str = Field(..., description="Issue type")
+    heading: Optional[str] = Field(default=None, description="Issue heading")
+    description: str = Field(..., description="Issue description")
+    webpage_url: Optional[str] = Field(default=None, description="Webpage URL where the issue occurred")
+    status: str = Field(..., description="Issue status")
+    created_by: str = Field(..., description="User ID who created the issue (UUID)")
+    closed_by: Optional[str] = Field(default=None, description="User ID who closed the issue (UUID)")
+    closed_at: Optional[str] = Field(default=None, description="ISO format timestamp when the issue was closed")
+    created_at: str = Field(..., description="ISO format timestamp when the issue was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the issue was last updated")
+
+
+class GetMyIssuesResponse(BaseModel):
+    """Response model for getting user's issues."""
+    
+    issues: List[IssueResponse] = Field(..., description="List of issues")

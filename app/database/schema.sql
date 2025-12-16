@@ -4,6 +4,7 @@
 -- User table
 CREATE TABLE IF NOT EXISTS user (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    role ENUM('ADMIN', 'SUPER_ADMIN') NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -119,5 +120,42 @@ CREATE TABLE IF NOT EXISTS saved_page (
     INDEX idx_user_folder_created (user_id, folder_id, created_at),
     FOREIGN KEY (user_id) REFERENCES user(id),
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- File upload table
+CREATE TABLE IF NOT EXISTS file_upload (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    file_name VARCHAR(50) NOT NULL,
+    entity_type ENUM('ISSUE') NOT NULL,
+    entity_id CHAR(36) NOT NULL,
+    vendor_type ENUM('CLOUDINARY', 'UPLOADCARE', 'FREEIMAGE'),
+    file_url VARCHAR(2044),
+    metadata JSON,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_entity_id (entity_id),
+    INDEX idx_entity_type (entity_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Issue table
+CREATE TABLE IF NOT EXISTS issue (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    ticket_id VARCHAR(14) NOT NULL UNIQUE,
+    type ENUM('GLITCH', 'SUBSCRIPTION', 'AUTHENTICATION', 'FEATURE_REQUEST', 'OTHERS') NOT NULL,
+    heading VARCHAR(100) NULL,
+    description TEXT NOT NULL,
+    webpage_url VARCHAR(1024),
+    status ENUM('OPEN', 'WORK_IN_PROGRESS', 'DISCARDED', 'RESOLVED') NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    closed_by CHAR(36) NULL,
+    closed_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_created_by (created_by),
+    INDEX idx_status (status),
+    INDEX idx_ticket_id (ticket_id),
+    INDEX idx_created_at (created_at),
+    FOREIGN KEY (created_by) REFERENCES user(id),
+    FOREIGN KEY (closed_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
