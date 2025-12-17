@@ -25,6 +25,7 @@ from app.services.database_service import (
     get_all_pricings,
     get_live_pricings,
     check_pricing_intersection,
+    check_pricing_intersection_excluding_self,
     check_pricing_has_subscriptions,
     get_pricing_by_id
 )
@@ -170,7 +171,8 @@ async def create_pricing_endpoint(
         body.recurring_period_count,
         activation_dt,
         expiry_dt,
-        body.status.value
+        body.status.value,
+        body.features
     )
     
     logger.info(
@@ -189,6 +191,7 @@ async def create_pricing_endpoint(
         activation=pricing_data["activation"],
         expiry=pricing_data["expiry"],
         status=pricing_data["status"],
+        features=pricing_data["features"],
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
@@ -327,6 +330,67 @@ async def update_pricing_endpoint(
                 }
             )
     
+    # Get existing pricing's recurring_period and recurring_period_count
+    # (these fields are not in UpdatePricingRequest, so always use existing values)
+    existing_recurring_period = existing_pricing["recurring_period"]
+    existing_recurring_period_count = existing_pricing["recurring_period_count"]
+    
+    # Determine final activation/expiry values
+    # If provided in request, use them; otherwise use existing values
+    if activation_dt is not None:
+        final_activation = activation_dt
+    else:
+        # Parse existing activation
+        try:
+            final_activation = datetime.fromisoformat(existing_pricing["activation"].replace('Z', '+00:00'))
+            if final_activation.tzinfo is None:
+                final_activation = final_activation.replace(tzinfo=timezone.utc)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "INTERNAL_ERROR",
+                    "error_message": f"Failed to parse existing activation timestamp: {str(e)}"
+                }
+            )
+    
+    if expiry_dt is not None:
+        final_expiry = expiry_dt
+    else:
+        # Parse existing expiry
+        try:
+            final_expiry = datetime.fromisoformat(existing_pricing["expiry"].replace('Z', '+00:00'))
+            if final_expiry.tzinfo is None:
+                final_expiry = final_expiry.replace(tzinfo=timezone.utc)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "INTERNAL_ERROR",
+                    "error_message": f"Failed to parse existing expiry timestamp: {str(e)}"
+                }
+            )
+    
+    # Check intersection only if activation OR expiry is being updated
+    if body.activation is not None or body.expiry is not None:
+        has_intersection = check_pricing_intersection_excluding_self(
+            db,
+            pricing_id,  # Exclude current pricing
+            existing_recurring_period,
+            existing_recurring_period_count,
+            final_activation,
+            final_expiry
+        )
+        
+        if has_intersection:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "PRICING_INTERSECTION",
+                    "error_message": f"Pricing period intersects with existing ENABLED pricing for {existing_recurring_period} recurring period with count {existing_recurring_period_count}"
+                }
+            )
+    
     # Update pricing
     pricing_data = update_pricing(
         db,
@@ -334,7 +398,8 @@ async def update_pricing_endpoint(
         name=body.name,
         activation=activation_dt,
         expiry=expiry_dt,
-        status=body.status.value if body.status is not None else None
+        status=body.status.value if body.status is not None else None,
+        features=body.features
     )
     
     logger.info(
@@ -352,6 +417,7 @@ async def update_pricing_endpoint(
         activation=pricing_data["activation"],
         expiry=pricing_data["expiry"],
         status=pricing_data["status"],
+        features=pricing_data["features"],
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
@@ -481,6 +547,7 @@ async def get_live_pricings_endpoint(
                 activation=pricing_data["activation"],
                 expiry=pricing_data["expiry"],
                 status=pricing_data["status"],
+                features=pricing_data["features"],
                 created_by=CreatedByUser(
                     id=pricing_data["created_by"]["id"],
                     name=pricing_data["created_by"]["name"],
@@ -571,6 +638,7 @@ async def get_all_pricings_endpoint(
                 activation=pricing_data["activation"],
                 expiry=pricing_data["expiry"],
                 status=pricing_data["status"],
+                features=pricing_data["features"],
                 created_by=CreatedByUser(
                     id=pricing_data["created_by"]["id"],
                     name=pricing_data["created_by"]["name"],

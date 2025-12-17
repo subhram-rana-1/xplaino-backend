@@ -133,6 +133,7 @@ class UserInfo(BaseModel):
     lastName: Optional[str] = Field(default=None, description="User's last name")
     email: str = Field(..., description="User's email address")
     picture: Optional[str] = Field(default=None, description="User's profile picture URL")
+    role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
 
 
 class LoginResponse(BaseModel):
@@ -334,6 +335,11 @@ class IssueStatus(str, Enum):
     RESOLVED = "RESOLVED"
 
 
+class UpdateIssueRequest(BaseModel):
+    """Request model for updating an issue (PATCH)."""
+    status: IssueStatus = Field(..., description="Issue status (OPEN, WORK_IN_PROGRESS, DISCARDED, RESOLVED)")
+
+
 class EntityType(str, Enum):
     """Entity type enum for file uploads."""
     ISSUE = "ISSUE"
@@ -390,6 +396,16 @@ class GetMyIssuesResponse(BaseModel):
     """Response model for getting user's issues."""
     
     issues: List[IssueResponse] = Field(..., description="List of issues")
+
+
+class GetAllIssuesResponse(BaseModel):
+    """Response model for getting all issues (admin endpoint)."""
+    
+    issues: List[IssueResponse] = Field(..., description="List of all issues")
+    total: int = Field(..., description="Total number of issues matching the filters")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more issues to fetch")
 
 
 class CommentVisibility(str, Enum):
@@ -473,6 +489,7 @@ class CreatePricingRequest(BaseModel):
     activation: str = Field(..., description="Activation timestamp (ISO format)")
     expiry: str = Field(..., description="Expiry timestamp (ISO format)")
     status: PricingStatus = Field(..., description="Pricing status (ENABLED or DISABLED)")
+    features: str = Field(..., min_length=1, description="Pricing features (TEXT, not null)")
 
 
 class UpdatePricingRequest(BaseModel):
@@ -482,6 +499,7 @@ class UpdatePricingRequest(BaseModel):
     activation: Optional[str] = Field(default=None, description="Activation timestamp (ISO format)")
     expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
     status: Optional[PricingStatus] = Field(default=None, description="Pricing status (ENABLED or DISABLED)")
+    features: Optional[str] = Field(default=None, min_length=1, description="Pricing features (TEXT, not null)")
 
 
 class PricingResponse(BaseModel):
@@ -494,6 +512,7 @@ class PricingResponse(BaseModel):
     activation: str = Field(..., description="Activation timestamp (ISO format)")
     expiry: str = Field(..., description="Expiry timestamp (ISO format)")
     status: str = Field(..., description="Pricing status (ENABLED or DISABLED)")
+    features: str = Field(..., description="Pricing features")
     created_by: CreatedByUser = Field(..., description="User who created the pricing")
     created_at: str = Field(..., description="ISO format timestamp when the pricing was created")
     updated_at: str = Field(..., description="ISO format timestamp when the pricing was last updated")
