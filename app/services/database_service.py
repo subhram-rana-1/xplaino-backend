@@ -3903,7 +3903,9 @@ def create_pricing(
     activation: datetime,
     expiry: datetime,
     status: str,
-    features: str
+    features: str,
+    currency: str,
+    amount: float
 ) -> Dict[str, Any]:
     """
     Create a new pricing record.
@@ -3918,6 +3920,8 @@ def create_pricing(
         expiry: Expiry timestamp
         status: Pricing status (ENABLED or DISABLED)
         features: Pricing features (TEXT)
+        currency: Currency (USD)
+        amount: Pricing amount (FLOAT)
         
     Returns:
         Dictionary with created pricing data including user info
@@ -3929,7 +3933,9 @@ def create_pricing(
         name=name,
         recurring_period=recurring_period,
         recurring_period_count=recurring_period_count,
-        status=status
+        status=status,
+        currency=currency,
+        amount=amount
     )
     
     # Generate UUID for the new pricing
@@ -3938,8 +3944,8 @@ def create_pricing(
     # Insert the new pricing
     db.execute(
         text("""
-            INSERT INTO pricing (id, name, recurring_period, recurring_period_count, activation, expiry, status, features, created_by)
-            VALUES (:id, :name, :recurring_period, :recurring_period_count, :activation, :expiry, :status, :features, :created_by)
+            INSERT INTO pricing (id, name, recurring_period, recurring_period_count, activation, expiry, status, features, currency, amount, created_by)
+            VALUES (:id, :name, :recurring_period, :recurring_period_count, :activation, :expiry, :status, :features, :currency, :amount, :created_by)
         """),
         {
             "id": pricing_id,
@@ -3950,6 +3956,8 @@ def create_pricing(
             "expiry": expiry,
             "status": status,
             "features": features,
+            "currency": currency,
+            "amount": amount,
             "created_by": user_id
         }
     )
@@ -3982,7 +3990,7 @@ def get_pricing_by_id(
     result = db.execute(
         text("""
             SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
-                   created_by, created_at, updated_at
+                   currency, amount, created_by, created_at, updated_at
             FROM pricing
             WHERE id = :id
         """),
@@ -3998,7 +4006,8 @@ def get_pricing_by_id(
         return None
     
     (pricing_id_val, name_val, recurring_period_val, recurring_period_count_val,
-     activation_val, expiry_val, status_val, features_val, created_by_val, created_at, updated_at) = result
+     activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
+     created_by_val, created_at, updated_at) = result
     
     # Convert timestamps to ISO format strings
     if isinstance(activation_val, datetime):
@@ -4033,6 +4042,8 @@ def get_pricing_by_id(
         "expiry": expiry_str,
         "status": status_val,
         "features": features_val,
+        "currency": currency_val,
+        "amount": float(amount_val),
         "created_by": {
             "id": created_by_val,
             "name": user_info.get("name", ""),
@@ -4058,7 +4069,9 @@ def update_pricing(
     activation: Optional[datetime] = None,
     expiry: Optional[datetime] = None,
     status: Optional[str] = None,
-    features: Optional[str] = None
+    features: Optional[str] = None,
+    currency: Optional[str] = None,
+    amount: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Update a pricing record (partial update - only non-null fields).
@@ -4071,6 +4084,8 @@ def update_pricing(
         expiry: Optional expiry timestamp
         status: Optional pricing status
         features: Optional pricing features
+        currency: Optional currency (USD)
+        amount: Optional pricing amount
         
     Returns:
         Dictionary with updated pricing data including user info
@@ -4083,7 +4098,9 @@ def update_pricing(
         has_activation=activation is not None,
         has_expiry=expiry is not None,
         has_status=status is not None,
-        has_features=features is not None
+        has_features=features is not None,
+        has_currency=currency is not None,
+        has_amount=amount is not None
     )
     
     # Build dynamic UPDATE query
@@ -4109,6 +4126,14 @@ def update_pricing(
     if features is not None:
         update_fields.append("features = :features")
         params["features"] = features
+    
+    if currency is not None:
+        update_fields.append("currency = :currency")
+        params["currency"] = currency
+    
+    if amount is not None:
+        update_fields.append("amount = :amount")
+        params["amount"] = amount
     
     if not update_fields:
         # No fields to update, just return existing record
@@ -4185,7 +4210,7 @@ def get_all_pricings(
     result = db.execute(
         text("""
             SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
-                   created_by, created_at, updated_at
+                   currency, amount, created_by, created_at, updated_at
             FROM pricing
             ORDER BY created_at DESC
         """)
@@ -4194,7 +4219,8 @@ def get_all_pricings(
     pricings = []
     for row in result:
         (pricing_id, name_val, recurring_period_val, recurring_period_count_val,
-         activation_val, expiry_val, status_val, features_val, created_by_val, created_at, updated_at) = row
+         activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
+         created_by_val, created_at, updated_at) = row
         
         # Convert timestamps to ISO format strings
         if isinstance(activation_val, datetime):
@@ -4229,6 +4255,8 @@ def get_all_pricings(
             "expiry": expiry_str,
             "status": status_val,
             "features": features_val,
+            "currency": currency_val,
+            "amount": float(amount_val),
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),
@@ -4270,7 +4298,7 @@ def get_live_pricings(
     result = db.execute(
         text("""
             SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
-                   created_by, created_at, updated_at
+                   currency, amount, created_by, created_at, updated_at
             FROM pricing
             WHERE status = 'ENABLED'
             AND activation < :current_time
@@ -4283,7 +4311,8 @@ def get_live_pricings(
     pricings = []
     for row in result:
         (pricing_id, name_val, recurring_period_val, recurring_period_count_val,
-         activation_val, expiry_val, status_val, features_val, created_by_val, created_at, updated_at) = row
+         activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
+         created_by_val, created_at, updated_at) = row
         
         # Convert timestamps to ISO format strings
         if isinstance(activation_val, datetime):
@@ -4318,6 +4347,8 @@ def get_live_pricings(
             "expiry": expiry_str,
             "status": status_val,
             "features": features_val,
+            "currency": currency_val,
+            "amount": float(amount_val),
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),

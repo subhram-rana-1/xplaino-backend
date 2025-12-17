@@ -172,7 +172,9 @@ async def create_pricing_endpoint(
         activation_dt,
         expiry_dt,
         body.status.value,
-        body.features
+        body.features,
+        body.currency.value,
+        body.amount
     )
     
     logger.info(
@@ -192,6 +194,8 @@ async def create_pricing_endpoint(
         expiry=pricing_data["expiry"],
         status=pricing_data["status"],
         features=pricing_data["features"],
+        currency=pricing_data["currency"],
+        amount=pricing_data["amount"],
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
@@ -399,7 +403,9 @@ async def update_pricing_endpoint(
         activation=activation_dt,
         expiry=expiry_dt,
         status=body.status.value if body.status is not None else None,
-        features=body.features
+        features=body.features,
+        currency=body.currency.value if body.currency is not None else None,
+        amount=body.amount
     )
     
     logger.info(
@@ -418,6 +424,8 @@ async def update_pricing_endpoint(
         expiry=pricing_data["expiry"],
         status=pricing_data["status"],
         features=pricing_data["features"],
+        currency=pricing_data["currency"],
+        amount=pricing_data["amount"],
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
@@ -548,6 +556,8 @@ async def get_live_pricings_endpoint(
                 expiry=pricing_data["expiry"],
                 status=pricing_data["status"],
                 features=pricing_data["features"],
+                currency=pricing_data["currency"],
+                amount=pricing_data["amount"],
                 created_by=CreatedByUser(
                     id=pricing_data["created_by"]["id"],
                     name=pricing_data["created_by"]["name"],
@@ -639,6 +649,8 @@ async def get_all_pricings_endpoint(
                 expiry=pricing_data["expiry"],
                 status=pricing_data["status"],
                 features=pricing_data["features"],
+                currency=pricing_data["currency"],
+                amount=pricing_data["amount"],
                 created_by=CreatedByUser(
                     id=pricing_data["created_by"]["id"],
                     name=pricing_data["created_by"]["name"],

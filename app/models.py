@@ -480,6 +480,11 @@ class PricingStatus(str, Enum):
     DISABLED = "DISABLED"
 
 
+class Currency(str, Enum):
+    """Currency enum."""
+    USD = "USD"
+
+
 class CreatePricingRequest(BaseModel):
     """Request model for creating a pricing."""
     
@@ -490,6 +495,8 @@ class CreatePricingRequest(BaseModel):
     expiry: str = Field(..., description="Expiry timestamp (ISO format)")
     status: PricingStatus = Field(..., description="Pricing status (ENABLED or DISABLED)")
     features: str = Field(..., min_length=1, description="Pricing features (TEXT, not null)")
+    currency: Currency = Field(..., description="Currency (USD)")
+    amount: float = Field(..., gt=0, description="Pricing amount (must be > 0)")
 
 
 class UpdatePricingRequest(BaseModel):
@@ -500,6 +507,8 @@ class UpdatePricingRequest(BaseModel):
     expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
     status: Optional[PricingStatus] = Field(default=None, description="Pricing status (ENABLED or DISABLED)")
     features: Optional[str] = Field(default=None, min_length=1, description="Pricing features (TEXT, not null)")
+    currency: Optional[Currency] = Field(default=None, description="Currency (USD)")
+    amount: Optional[float] = Field(default=None, gt=0, description="Pricing amount (must be > 0)")
 
 
 class PricingResponse(BaseModel):
@@ -513,6 +522,8 @@ class PricingResponse(BaseModel):
     expiry: str = Field(..., description="Expiry timestamp (ISO format)")
     status: str = Field(..., description="Pricing status (ENABLED or DISABLED)")
     features: str = Field(..., description="Pricing features")
+    currency: str = Field(..., description="Currency (USD)")
+    amount: float = Field(..., description="Pricing amount")
     created_by: CreatedByUser = Field(..., description="User who created the pricing")
     created_at: str = Field(..., description="ISO format timestamp when the pricing was created")
     updated_at: str = Field(..., description="ISO format timestamp when the pricing was last updated")
