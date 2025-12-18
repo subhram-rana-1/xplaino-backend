@@ -1,9 +1,10 @@
 """API routes for issue management."""
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query, UploadFile, File, Form, Path
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List, Tuple
+from datetime import datetime, timezone
 import structlog
 import io
 from PIL import Image
@@ -13,16 +14,23 @@ from app.models import (
     ReportIssueRequest,
     IssueResponse,
     GetMyIssuesResponse,
+    GetAllIssuesResponse,
+    UpdateIssueRequest,
     FileUploadResponse,
     FileType,
-    IssueType
+    IssueType,
+    IssueStatus
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
+    get_user_role_by_user_id,
     create_issue,
     get_issues_by_user_id,
+    get_all_issues,
+    get_issue_by_id,
+    update_issue,
     create_file_upload,
     get_file_uploads_by_entity
 )
@@ -139,6 +147,295 @@ async def get_my_issues(
     )
     
     return GetMyIssuesResponse(issues=issues)
+
+
+@router.get(
+    "/all",
+    response_model=GetAllIssuesResponse,
+    summary="Get all issues (Admin only)",
+    description="Get paginated list of all issues with optional filters. Only ADMIN and SUPER_ADMIN users can access this endpoint. Results ordered by created_at ASC (oldest first)."
+)
+async def get_all_issues_endpoint(
+    request: Request,
+    response: Response,
+    ticket_id: Optional[str] = Query(default=None, description="Filter by exact ticket_id"),
+    type: Optional[str] = Query(default=None, description="Filter by issue type (GLITCH, SUBSCRIPTION, AUTHENTICATION, FEATURE_REQUEST, OTHERS)"),
+    status: Optional[str] = Query(default=None, description="Filter by status (OPEN, WORK_IN_PROGRESS, DISCARDED, RESOLVED)"),
+    closed_by: Optional[str] = Query(default=None, description="Filter by closed_by user ID (UUID)"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    limit: int = Query(default=20, ge=1, le=100, description="Pagination limit (max 100)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Get all issues with optional filters. Admin only."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Check admin role
+    user_role = get_user_role_by_user_id(db, user_id)
+    if user_role not in ("ADMIN", "SUPER_ADMIN"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "PERMISSION_DENIED",
+                "error_message": "Only ADMIN and SUPER_ADMIN users can access this endpoint"
+            }
+        )
+    
+    # Get all issues with filters and pagination
+    issues_data, total_count = get_all_issues(
+        db,
+        ticket_id=ticket_id,
+        issue_type=type,
+        status=status,
+        closed_by=closed_by,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Convert to response models with file_uploads
+    issues = []
+    for issue in issues_data:
+        # Fetch file_uploads for this issue
+        file_uploads_data = get_file_uploads_by_entity(db, "ISSUE", issue["id"])
+        file_uploads = [
+            FileUploadResponse(
+                id=fu["id"],
+                file_name=fu["file_name"],
+                file_type=fu["file_type"],
+                entity_type=fu["entity_type"],
+                entity_id=fu["entity_id"],
+                s3_url=fu["s3_url"],
+                metadata=fu["metadata"],
+                created_at=fu["created_at"],
+                updated_at=fu["updated_at"]
+            )
+            for fu in file_uploads_data
+        ]
+        
+        issues.append(
+            IssueResponse(
+                id=issue["id"],
+                ticket_id=issue["ticket_id"],
+                type=issue["type"],
+                heading=issue["heading"],
+                description=issue["description"],
+                webpage_url=issue["webpage_url"],
+                status=issue["status"],
+                created_by=issue["created_by"],
+                closed_by=issue["closed_by"],
+                closed_at=issue["closed_at"],
+                created_at=issue["created_at"],
+                updated_at=issue["updated_at"],
+                file_uploads=file_uploads
+            )
+        )
+    
+    # Calculate has_next
+    has_next = (offset + limit) < total_count
+    
+    logger.info(
+        "Retrieved all issues successfully (admin)",
+        user_id=user_id,
+        issue_count=len(issues),
+        total_count=total_count,
+        offset=offset,
+        limit=limit,
+        has_next=has_next,
+        has_ticket_id_filter=ticket_id is not None,
+        has_type_filter=type is not None,
+        has_status_filter=status is not None,
+        has_closed_by_filter=closed_by is not None
+    )
+    
+    return GetAllIssuesResponse(
+        issues=issues,
+        total=total_count,
+        offset=offset,
+        limit=limit,
+        has_next=has_next
+    )
+
+
+@router.patch(
+    "/{issue_id}",
+    response_model=IssueResponse,
+    summary="Update issue (Admin only)",
+    description="Update an issue's status. Only ADMIN and SUPER_ADMIN users can access this endpoint. When status changes to RESOLVED or DISCARDED, closed_by and closed_at are automatically set."
+)
+async def update_issue_endpoint(
+    request: Request,
+    response: Response,
+    issue_id: str = Path(..., description="Issue ID (UUID)"),
+    body: UpdateIssueRequest = ...,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Update an issue's status. Admin only."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Check admin role
+    user_role = get_user_role_by_user_id(db, user_id)
+    if user_role not in ("ADMIN", "SUPER_ADMIN"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "PERMISSION_DENIED",
+                "error_message": "Only ADMIN and SUPER_ADMIN users can access this endpoint"
+            }
+        )
+    
+    # Check if issue exists
+    existing_issue = get_issue_by_id(db, issue_id)
+    if not existing_issue:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "ISSUE_NOT_FOUND",
+                "error_message": f"Issue with ID {issue_id} not found"
+            }
+        )
+    
+    # Determine closed_by and closed_at based on status
+    new_status = body.status.value
+    closed_by = None
+    closed_at = None
+    
+    if new_status in (IssueStatus.RESOLVED.value, IssueStatus.DISCARDED.value):
+        # Set closed_by and closed_at when closing an issue
+        closed_by = user_id
+        closed_at = datetime.now(timezone.utc)
+    # For OPEN or WORK_IN_PROGRESS, closed_by and closed_at remain None (clearing them)
+    
+    # Update the issue
+    updated_issue = update_issue(
+        db,
+        issue_id=issue_id,
+        status=new_status,
+        closed_by=closed_by,
+        closed_at=closed_at
+    )
+    
+    # Fetch file_uploads for the issue
+    file_uploads_data = get_file_uploads_by_entity(db, "ISSUE", issue_id)
+    file_uploads = [
+        FileUploadResponse(
+            id=fu["id"],
+            file_name=fu["file_name"],
+            file_type=fu["file_type"],
+            entity_type=fu["entity_type"],
+            entity_id=fu["entity_id"],
+            s3_url=fu["s3_url"],
+            metadata=fu["metadata"],
+            created_at=fu["created_at"],
+            updated_at=fu["updated_at"]
+        )
+        for fu in file_uploads_data
+    ]
+    
+    logger.info(
+        "Issue updated successfully",
+        user_id=user_id,
+        issue_id=issue_id,
+        new_status=new_status,
+        closed_by=closed_by,
+        has_closed_at=closed_at is not None
+    )
+    
+    return IssueResponse(
+        id=updated_issue["id"],
+        ticket_id=updated_issue["ticket_id"],
+        type=updated_issue["type"],
+        heading=updated_issue["heading"],
+        description=updated_issue["description"],
+        webpage_url=updated_issue["webpage_url"],
+        status=updated_issue["status"],
+        created_by=updated_issue["created_by"],
+        closed_by=updated_issue["closed_by"],
+        closed_at=updated_issue["closed_at"],
+        created_at=updated_issue["created_at"],
+        updated_at=updated_issue["updated_at"],
+        file_uploads=file_uploads
+    )
 
 
 def _validate_file(file: UploadFile, max_size_bytes: int = 5 * 1024 * 1024) -> Tuple[str, bytes]:

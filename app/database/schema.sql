@@ -177,3 +177,42 @@ CREATE TABLE IF NOT EXISTS comment (
     FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Pricing table
+CREATE TABLE IF NOT EXISTS pricing (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    name VARCHAR(30) NOT NULL,
+    recurring_period ENUM('MONTH', 'YEAR') NOT NULL,
+    recurring_period_count INT NOT NULL,
+    activation TIMESTAMP NOT NULL,
+    expiry TIMESTAMP NOT NULL,
+    status ENUM('ENABLED', 'DISABLED') NOT NULL,
+    features TEXT NOT NULL,
+    currency ENUM('USD') NOT NULL,
+    amount FLOAT NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_recurring_period (recurring_period),
+    INDEX idx_recurring_period_count (recurring_period_count),
+    INDEX idx_status (status),
+    INDEX idx_activation (activation),
+    INDEX idx_expiry (expiry),
+    INDEX idx_recurring_combo (recurring_period, recurring_period_count),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Subscription table
+CREATE TABLE IF NOT EXISTS subscription (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    pricing_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    starts_at TIMESTAMP NOT NULL,
+    ends_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_pricing_id (pricing_id),
+    INDEX idx_user_id (user_id),
+    FOREIGN KEY (pricing_id) REFERENCES pricing(id) ON DELETE RESTRICT,
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

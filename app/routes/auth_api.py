@@ -18,7 +18,8 @@ from app.services.database_service import (
     invalidate_user_session,
     get_user_info_by_sub,
     get_user_session_by_id,
-    update_user_session_refresh_token
+    update_user_session_refresh_token,
+    get_user_role_by_user_id
 )
 from app.exceptions import CatenException
 
@@ -175,6 +176,9 @@ async def login(
                 refresh_token_expires_at=int(refresh_token_expires_at.timestamp()) if refresh_token_expires_at else None
             )
             
+            # Get user role
+            user_role = get_user_role_by_user_id(db, user_id)
+            
             # Construct user info
             user_info = UserInfo(
                 id=user_id,
@@ -182,7 +186,8 @@ async def login(
                 firstName=given_name if given_name else None,
                 lastName=family_name if family_name else None,
                 email=google_data.get('email', ''),
-                picture=google_data.get('picture')
+                picture=google_data.get('picture'),
+                role=user_role
             )
             
             # Prepare response with refresh token in payload
@@ -746,6 +751,10 @@ async def refresh_access_token(
             email=user_data.get('email')
         )
         
+        # Get user role
+        user_id = user_data.get('user_id')
+        user_role = get_user_role_by_user_id(db, user_id) if user_id else None
+        
         # Construct user info to match login response structure
         user_info = UserInfo(
             id=user_data.get('user_id'),
@@ -753,7 +762,8 @@ async def refresh_access_token(
             firstName=user_data.get('first_name'),
             lastName=user_data.get('last_name'),
             email=user_data.get('email', ''),
-            picture=user_data.get('picture')
+            picture=user_data.get('picture'),
+            role=user_role
         )
         
         # Prepare response with same structure as login response

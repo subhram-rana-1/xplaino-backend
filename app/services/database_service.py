@@ -2578,6 +2578,288 @@ def get_issues_by_user_id(
     return issues
 
 
+def get_all_issues(
+    db: Session,
+    ticket_id: Optional[str] = None,
+    issue_type: Optional[str] = None,
+    status: Optional[str] = None,
+    closed_by: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get all issues with optional filters and pagination, ordered by created_at ASC.
+    
+    Args:
+        db: Database session
+        ticket_id: Optional ticket_id to filter by (exact match)
+        issue_type: Optional issue type to filter by (GLITCH, SUBSCRIPTION, etc.)
+        status: Optional status to filter by (OPEN, WORK_IN_PROGRESS, etc.)
+        closed_by: Optional closed_by user ID to filter by
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of issue dictionaries, total count)
+    """
+    logger.info(
+        "Getting all issues with filters",
+        function="get_all_issues",
+        has_ticket_id=ticket_id is not None,
+        has_issue_type=issue_type is not None,
+        has_status=status is not None,
+        has_closed_by=closed_by is not None,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Build conditions and params for WHERE clause
+    conditions = []
+    params = {}
+    
+    if ticket_id is not None:
+        conditions.append("ticket_id = :ticket_id")
+        params["ticket_id"] = ticket_id
+    
+    if issue_type is not None:
+        conditions.append("type = :issue_type")
+        params["issue_type"] = issue_type
+    
+    if status is not None:
+        conditions.append("status = :status")
+        params["status"] = status
+    
+    if closed_by is not None:
+        conditions.append("closed_by = :closed_by")
+        params["closed_by"] = closed_by
+    
+    # Build WHERE clause
+    where_clause = ""
+    if conditions:
+        where_clause = " WHERE " + " AND ".join(conditions)
+    
+    # Get total count
+    count_query = f"SELECT COUNT(*) FROM issue{where_clause}"
+    count_result = db.execute(text(count_query), params).fetchone()
+    total_count = count_result[0] if count_result else 0
+    
+    # Build paginated query
+    base_query = f"""
+        SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+               created_by, closed_by, closed_at, created_at, updated_at
+        FROM issue{where_clause}
+        ORDER BY created_at ASC
+        LIMIT :limit OFFSET :offset
+    """
+    
+    # Add pagination params
+    params["limit"] = limit
+    params["offset"] = offset
+    
+    result = db.execute(text(base_query), params)
+    rows = result.fetchall()
+    
+    issues = []
+    for row in rows:
+        (issue_id, ticket_id_val, type_val, heading_val, description_val, 
+         webpage_url_val, status_val, created_by_val, closed_by_val, closed_at_val, 
+         created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        closed_at_str = None
+        if closed_at_val:
+            if isinstance(closed_at_val, datetime):
+                closed_at_str = closed_at_val.isoformat() + "Z" if closed_at_val.tzinfo else closed_at_val.isoformat()
+            else:
+                closed_at_str = str(closed_at_val)
+        
+        issue = {
+            "id": issue_id,
+            "ticket_id": ticket_id_val,
+            "type": type_val,
+            "heading": heading_val,
+            "description": description_val,
+            "webpage_url": webpage_url_val,
+            "status": status_val,
+            "created_by": created_by_val,
+            "closed_by": closed_by_val,
+            "closed_at": closed_at_str,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        issues.append(issue)
+    
+    logger.info(
+        "Retrieved all issues successfully",
+        function="get_all_issues",
+        issue_count=len(issues),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return issues, total_count
+
+
+def get_issue_by_id(
+    db: Session,
+    issue_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get an issue by its ID.
+    
+    Args:
+        db: Database session
+        issue_id: Issue ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with issue data or None if not found
+    """
+    logger.info(
+        "Getting issue by id",
+        function="get_issue_by_id",
+        issue_id=issue_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+                   created_by, closed_by, closed_at, created_at, updated_at
+            FROM issue
+            WHERE id = :issue_id
+        """),
+        {"issue_id": issue_id}
+    )
+    
+    row = result.fetchone()
+    
+    if not row:
+        logger.info(
+            "Issue not found",
+            function="get_issue_by_id",
+            issue_id=issue_id
+        )
+        return None
+    
+    (issue_id_val, ticket_id, type_val, heading_val, description_val, 
+     webpage_url_val, status_val, created_by_val, closed_by_val, closed_at_val, 
+     created_at, updated_at) = row
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    closed_at_str = None
+    if closed_at_val:
+        if isinstance(closed_at_val, datetime):
+            closed_at_str = closed_at_val.isoformat() + "Z" if closed_at_val.tzinfo else closed_at_val.isoformat()
+        else:
+            closed_at_str = str(closed_at_val)
+    
+    issue = {
+        "id": issue_id_val,
+        "ticket_id": ticket_id,
+        "type": type_val,
+        "heading": heading_val,
+        "description": description_val,
+        "webpage_url": webpage_url_val,
+        "status": status_val,
+        "created_by": created_by_val,
+        "closed_by": closed_by_val,
+        "closed_at": closed_at_str,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved issue successfully",
+        function="get_issue_by_id",
+        issue_id=issue_id
+    )
+    
+    return issue
+
+
+def update_issue(
+    db: Session,
+    issue_id: str,
+    status: str,
+    closed_by: Optional[str] = None,
+    closed_at: Optional[datetime] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Update an issue's status and optionally closed_by/closed_at fields.
+    
+    Args:
+        db: Database session
+        issue_id: Issue ID (CHAR(36) UUID)
+        status: New status value
+        closed_by: User ID who closed the issue (optional)
+        closed_at: Timestamp when the issue was closed (optional)
+        
+    Returns:
+        Dictionary with updated issue data or None if not found
+    """
+    logger.info(
+        "Updating issue",
+        function="update_issue",
+        issue_id=issue_id,
+        status=status,
+        has_closed_by=closed_by is not None,
+        has_closed_at=closed_at is not None
+    )
+    
+    # Check if issue exists
+    existing = get_issue_by_id(db, issue_id)
+    if not existing:
+        return None
+    
+    # Update the issue
+    db.execute(
+        text("""
+            UPDATE issue
+            SET status = :status, closed_by = :closed_by, closed_at = :closed_at
+            WHERE id = :issue_id
+        """),
+        {
+            "issue_id": issue_id,
+            "status": status,
+            "closed_by": closed_by,
+            "closed_at": closed_at
+        }
+    )
+    db.commit()
+    
+    # Fetch and return updated issue
+    updated_issue = get_issue_by_id(db, issue_id)
+    
+    logger.info(
+        "Issue updated successfully",
+        function="update_issue",
+        issue_id=issue_id,
+        new_status=status
+    )
+    
+    return updated_issue
+
+
 def get_user_role_by_user_id(
     db: Session,
     user_id: str
@@ -3331,4 +3613,757 @@ def get_file_uploads_by_entity(
     )
     
     return file_uploads
+
+
+def check_pricing_has_subscriptions(
+    db: Session,
+    pricing_id: str
+) -> bool:
+    """
+    Check if a pricing has any child subscription records.
+    
+    Args:
+        db: Database session
+        pricing_id: Pricing ID (CHAR(36) UUID)
+        
+    Returns:
+        True if pricing has subscriptions, False otherwise
+    """
+    logger.info(
+        "Checking if pricing has subscriptions",
+        function="check_pricing_has_subscriptions",
+        pricing_id=pricing_id
+    )
+    
+    result = db.execute(
+        text("SELECT COUNT(*) FROM subscription WHERE pricing_id = :pricing_id"),
+        {"pricing_id": pricing_id}
+    ).fetchone()
+    
+    has_subscriptions = result[0] > 0 if result else False
+    
+    logger.info(
+        "Pricing subscription check completed",
+        function="check_pricing_has_subscriptions",
+        pricing_id=pricing_id,
+        has_subscriptions=has_subscriptions
+    )
+    
+    return has_subscriptions
+
+
+def get_enabled_pricings_for_validation(
+    db: Session,
+    recurring_period: str,
+    recurring_period_count: int
+) -> List[Dict[str, Any]]:
+    """
+    Get ENABLED pricings for intersection validation.
+    Gets all ENABLED pricings with the same recurring_period and recurring_period_count.
+    
+    Args:
+        db: Database session
+        recurring_period: Recurring period (MONTH or YEAR)
+        recurring_period_count: Recurring period count
+        
+    Returns:
+        List of dictionaries with pricing data (id, activation, expiry)
+    """
+    logger.info(
+        "Getting ENABLED pricings for validation",
+        function="get_enabled_pricings_for_validation",
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, activation, expiry
+            FROM pricing
+            WHERE status = 'ENABLED'
+            AND recurring_period = :recurring_period
+            AND recurring_period_count = :recurring_period_count
+        """),
+        {
+            "recurring_period": recurring_period,
+            "recurring_period_count": recurring_period_count
+        }
+    ).fetchall()
+    
+    pricings = []
+    for row in result:
+        pricing_id, activation, expiry = row
+        pricings.append({
+            "id": pricing_id,
+            "activation": activation,
+            "expiry": expiry
+        })
+    
+    logger.info(
+        "ENABLED pricings retrieved for validation",
+        function="get_enabled_pricings_for_validation",
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count,
+        count=len(pricings)
+    )
+    
+    return pricings
+
+
+def check_pricing_intersection(
+    db: Session,
+    recurring_period: str,
+    recurring_period_count: int,
+    activation: datetime,
+    expiry: datetime
+) -> bool:
+    """
+    Check if a new pricing period intersects with existing ENABLED pricings
+    that have the same recurring_period and recurring_period_count.
+    
+    Args:
+        db: Database session
+        recurring_period: Recurring period (MONTH or YEAR)
+        recurring_period_count: Recurring period count
+        activation: New pricing activation timestamp
+        expiry: New pricing expiry timestamp
+        
+    Returns:
+        True if intersection exists, False otherwise
+    """
+    logger.info(
+        "Checking pricing intersection",
+        function="check_pricing_intersection",
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count,
+        activation=activation.isoformat(),
+        expiry=expiry.isoformat()
+    )
+    
+    # Get ENABLED pricings with same recurring_period and recurring_period_count
+    enabled_pricings = get_enabled_pricings_for_validation(
+        db, recurring_period, recurring_period_count
+    )
+    
+    # Check for intersection: (new_activation < existing_expiry) AND (new_expiry > existing_activation)
+    for pricing in enabled_pricings:
+        existing_activation = pricing["activation"]
+        existing_expiry = pricing["expiry"]
+        
+        # Ensure timezone awareness
+        if isinstance(existing_activation, datetime):
+            if existing_activation.tzinfo is None:
+                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
+        else:
+            existing_activation = datetime.fromisoformat(str(existing_activation).replace('Z', '+00:00'))
+            if existing_activation.tzinfo is None:
+                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
+        
+        if isinstance(existing_expiry, datetime):
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
+        else:
+            existing_expiry = datetime.fromisoformat(str(existing_expiry).replace('Z', '+00:00'))
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
+        
+        # Ensure new timestamps are timezone aware
+        if activation.tzinfo is None:
+            activation = activation.replace(tzinfo=timezone.utc)
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        
+        # Check intersection
+        if (activation < existing_expiry) and (expiry > existing_activation):
+            logger.warning(
+                "Pricing intersection found",
+                function="check_pricing_intersection",
+                existing_pricing_id=pricing["id"],
+                new_activation=activation.isoformat(),
+                new_expiry=expiry.isoformat(),
+                existing_activation=existing_activation.isoformat(),
+                existing_expiry=existing_expiry.isoformat()
+            )
+            return True
+    
+    logger.info(
+        "No pricing intersection found",
+        function="check_pricing_intersection",
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count
+    )
+    
+    return False
+
+
+def check_pricing_intersection_excluding_self(
+    db: Session,
+    exclude_pricing_id: str,
+    recurring_period: str,
+    recurring_period_count: int,
+    activation: datetime,
+    expiry: datetime
+) -> bool:
+    """
+    Check if a pricing period intersects with existing ENABLED pricings
+    that have the same recurring_period and recurring_period_count,
+    excluding a specific pricing by ID.
+    
+    Args:
+        db: Database session
+        exclude_pricing_id: Pricing ID to exclude from intersection check
+        recurring_period: Recurring period (MONTH or YEAR)
+        recurring_period_count: Recurring period count
+        activation: Pricing activation timestamp
+        expiry: Pricing expiry timestamp
+        
+    Returns:
+        True if intersection exists with any other ENABLED pricing (excluding the specified one), False otherwise
+    """
+    logger.info(
+        "Checking pricing intersection excluding self",
+        function="check_pricing_intersection_excluding_self",
+        exclude_pricing_id=exclude_pricing_id,
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count,
+        activation=activation.isoformat(),
+        expiry=expiry.isoformat()
+    )
+    
+    # Get ENABLED pricings with same recurring_period and recurring_period_count
+    enabled_pricings = get_enabled_pricings_for_validation(
+        db, recurring_period, recurring_period_count
+    )
+    
+    # Filter out the pricing to exclude
+    filtered_pricings = [
+        pricing for pricing in enabled_pricings
+        if pricing["id"] != exclude_pricing_id
+    ]
+    
+    # Ensure new timestamps are timezone aware
+    if activation.tzinfo is None:
+        activation = activation.replace(tzinfo=timezone.utc)
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    
+    # Check for intersection: (new_activation < existing_expiry) AND (new_expiry > existing_activation)
+    for pricing in filtered_pricings:
+        existing_activation = pricing["activation"]
+        existing_expiry = pricing["expiry"]
+        
+        # Ensure timezone awareness
+        if isinstance(existing_activation, datetime):
+            if existing_activation.tzinfo is None:
+                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
+        else:
+            existing_activation = datetime.fromisoformat(str(existing_activation).replace('Z', '+00:00'))
+            if existing_activation.tzinfo is None:
+                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
+        
+        if isinstance(existing_expiry, datetime):
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
+        else:
+            existing_expiry = datetime.fromisoformat(str(existing_expiry).replace('Z', '+00:00'))
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
+        
+        # Check intersection
+        if (activation < existing_expiry) and (expiry > existing_activation):
+            logger.warning(
+                "Pricing intersection found",
+                function="check_pricing_intersection_excluding_self",
+                existing_pricing_id=pricing["id"],
+                exclude_pricing_id=exclude_pricing_id,
+                new_activation=activation.isoformat(),
+                new_expiry=expiry.isoformat(),
+                existing_activation=existing_activation.isoformat(),
+                existing_expiry=existing_expiry.isoformat()
+            )
+            return True
+    
+    logger.info(
+        "No pricing intersection found",
+        function="check_pricing_intersection_excluding_self",
+        exclude_pricing_id=exclude_pricing_id,
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count
+    )
+    
+    return False
+
+
+def create_pricing(
+    db: Session,
+    user_id: str,
+    name: str,
+    recurring_period: str,
+    recurring_period_count: int,
+    activation: datetime,
+    expiry: datetime,
+    status: str,
+    features: str,
+    currency: str,
+    amount: float
+) -> Dict[str, Any]:
+    """
+    Create a new pricing record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID) who is creating the pricing
+        name: Pricing name (VARCHAR(30))
+        recurring_period: Recurring period (MONTH or YEAR)
+        recurring_period_count: Recurring period count (INT)
+        activation: Activation timestamp
+        expiry: Expiry timestamp
+        status: Pricing status (ENABLED or DISABLED)
+        features: Pricing features (TEXT)
+        currency: Currency (USD)
+        amount: Pricing amount (FLOAT)
+        
+    Returns:
+        Dictionary with created pricing data including user info
+    """
+    logger.info(
+        "Creating pricing",
+        function="create_pricing",
+        user_id=user_id,
+        name=name,
+        recurring_period=recurring_period,
+        recurring_period_count=recurring_period_count,
+        status=status,
+        currency=currency,
+        amount=amount
+    )
+    
+    # Generate UUID for the new pricing
+    pricing_id = str(uuid.uuid4())
+    
+    # Insert the new pricing
+    db.execute(
+        text("""
+            INSERT INTO pricing (id, name, recurring_period, recurring_period_count, activation, expiry, status, features, currency, amount, created_by)
+            VALUES (:id, :name, :recurring_period, :recurring_period_count, :activation, :expiry, :status, :features, :currency, :amount, :created_by)
+        """),
+        {
+            "id": pricing_id,
+            "name": name,
+            "recurring_period": recurring_period,
+            "recurring_period_count": recurring_period_count,
+            "activation": activation,
+            "expiry": expiry,
+            "status": status,
+            "features": features,
+            "currency": currency,
+            "amount": amount,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    return get_pricing_by_id(db, pricing_id)
+
+
+def get_pricing_by_id(
+    db: Session,
+    pricing_id: str
+) -> Dict[str, Any]:
+    """
+    Get pricing by ID with user info.
+    
+    Args:
+        db: Database session
+        pricing_id: Pricing ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with pricing data including created_by user info
+    """
+    logger.info(
+        "Getting pricing by ID",
+        function="get_pricing_by_id",
+        pricing_id=pricing_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
+                   currency, amount, created_by, created_at, updated_at
+            FROM pricing
+            WHERE id = :id
+        """),
+        {"id": pricing_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Pricing not found",
+            function="get_pricing_by_id",
+            pricing_id=pricing_id
+        )
+        return None
+    
+    (pricing_id_val, name_val, recurring_period_val, recurring_period_count_val,
+     activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
+     created_by_val, created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(activation_val, datetime):
+        activation_str = activation_val.isoformat() + "Z" if activation_val.tzinfo else activation_val.isoformat()
+    else:
+        activation_str = str(activation_val)
+    
+    if isinstance(expiry_val, datetime):
+        expiry_str = expiry_val.isoformat() + "Z" if expiry_val.tzinfo else expiry_val.isoformat()
+    else:
+        expiry_str = str(expiry_val)
+    
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user name and role
+    user_info = get_user_name_and_role_by_user_id(db, created_by_val)
+    
+    pricing = {
+        "id": pricing_id_val,
+        "name": name_val,
+        "recurring_period": recurring_period_val,
+        "recurring_period_count": recurring_period_count_val,
+        "activation": activation_str,
+        "expiry": expiry_str,
+        "status": status_val,
+        "features": features_val,
+        "currency": currency_val,
+        "amount": float(amount_val),
+        "created_by": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Pricing retrieved successfully",
+        function="get_pricing_by_id",
+        pricing_id=pricing_id_val
+    )
+    
+    return pricing
+
+
+def update_pricing(
+    db: Session,
+    pricing_id: str,
+    name: Optional[str] = None,
+    activation: Optional[datetime] = None,
+    expiry: Optional[datetime] = None,
+    status: Optional[str] = None,
+    features: Optional[str] = None,
+    currency: Optional[str] = None,
+    amount: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Update a pricing record (partial update - only non-null fields).
+    
+    Args:
+        db: Database session
+        pricing_id: Pricing ID (CHAR(36) UUID)
+        name: Optional pricing name
+        activation: Optional activation timestamp
+        expiry: Optional expiry timestamp
+        status: Optional pricing status
+        features: Optional pricing features
+        currency: Optional currency (USD)
+        amount: Optional pricing amount
+        
+    Returns:
+        Dictionary with updated pricing data including user info
+    """
+    logger.info(
+        "Updating pricing",
+        function="update_pricing",
+        pricing_id=pricing_id,
+        has_name=name is not None,
+        has_activation=activation is not None,
+        has_expiry=expiry is not None,
+        has_status=status is not None,
+        has_features=features is not None,
+        has_currency=currency is not None,
+        has_amount=amount is not None
+    )
+    
+    # Build dynamic UPDATE query
+    update_fields = []
+    params = {"id": pricing_id}
+    
+    if name is not None:
+        update_fields.append("name = :name")
+        params["name"] = name
+    
+    if activation is not None:
+        update_fields.append("activation = :activation")
+        params["activation"] = activation
+    
+    if expiry is not None:
+        update_fields.append("expiry = :expiry")
+        params["expiry"] = expiry
+    
+    if status is not None:
+        update_fields.append("status = :status")
+        params["status"] = status
+    
+    if features is not None:
+        update_fields.append("features = :features")
+        params["features"] = features
+    
+    if currency is not None:
+        update_fields.append("currency = :currency")
+        params["currency"] = currency
+    
+    if amount is not None:
+        update_fields.append("amount = :amount")
+        params["amount"] = amount
+    
+    if not update_fields:
+        # No fields to update, just return existing record
+        return get_pricing_by_id(db, pricing_id)
+    
+    # Add updated_at
+    update_fields.append("updated_at = CURRENT_TIMESTAMP")
+    
+    query = f"""
+        UPDATE pricing
+        SET {', '.join(update_fields)}
+        WHERE id = :id
+    """
+    
+    db.execute(text(query), params)
+    db.commit()
+    
+    # Fetch the updated record
+    return get_pricing_by_id(db, pricing_id)
+
+
+def delete_pricing(
+    db: Session,
+    pricing_id: str
+) -> bool:
+    """
+    Delete a pricing record.
+    
+    Args:
+        db: Database session
+        pricing_id: Pricing ID (CHAR(36) UUID)
+        
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    logger.info(
+        "Deleting pricing",
+        function="delete_pricing",
+        pricing_id=pricing_id
+    )
+    
+    db.execute(
+        text("DELETE FROM pricing WHERE id = :id"),
+        {"id": pricing_id}
+    )
+    db.commit()
+    
+    logger.info(
+        "Pricing deleted successfully",
+        function="delete_pricing",
+        pricing_id=pricing_id
+    )
+    
+    return True
+
+
+def get_all_pricings(
+    db: Session
+) -> List[Dict[str, Any]]:
+    """
+    Get all pricing records with user info.
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        List of dictionaries with pricing data including created_by user info
+    """
+    logger.info(
+        "Getting all pricings",
+        function="get_all_pricings"
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
+                   currency, amount, created_by, created_at, updated_at
+            FROM pricing
+            ORDER BY created_at DESC
+        """)
+    ).fetchall()
+    
+    pricings = []
+    for row in result:
+        (pricing_id, name_val, recurring_period_val, recurring_period_count_val,
+         activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
+         created_by_val, created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(activation_val, datetime):
+            activation_str = activation_val.isoformat() + "Z" if activation_val.tzinfo else activation_val.isoformat()
+        else:
+            activation_str = str(activation_val)
+        
+        if isinstance(expiry_val, datetime):
+            expiry_str = expiry_val.isoformat() + "Z" if expiry_val.tzinfo else expiry_val.isoformat()
+        else:
+            expiry_str = str(expiry_val)
+        
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        # Get user name and role
+        user_info = get_user_name_and_role_by_user_id(db, created_by_val)
+        
+        pricing = {
+            "id": pricing_id,
+            "name": name_val,
+            "recurring_period": recurring_period_val,
+            "recurring_period_count": recurring_period_count_val,
+            "activation": activation_str,
+            "expiry": expiry_str,
+            "status": status_val,
+            "features": features_val,
+            "currency": currency_val,
+            "amount": float(amount_val),
+            "created_by": {
+                "id": created_by_val,
+                "name": user_info.get("name", ""),
+                "role": user_info.get("role")
+            },
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        pricings.append(pricing)
+    
+    logger.info(
+        "All pricings retrieved successfully",
+        function="get_all_pricings",
+        count=len(pricings)
+    )
+    
+    return pricings
+
+
+def get_live_pricings(
+    db: Session
+) -> List[Dict[str, Any]]:
+    """
+    Get live pricing records (activation < current_time < expiry AND status=ENABLED).
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        List of dictionaries with pricing data including created_by user info
+    """
+    logger.info(
+        "Getting live pricings",
+        function="get_live_pricings"
+    )
+    
+    current_time = datetime.now(timezone.utc)
+    
+    result = db.execute(
+        text("""
+            SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
+                   currency, amount, created_by, created_at, updated_at
+            FROM pricing
+            WHERE status = 'ENABLED'
+            AND activation < :current_time
+            AND expiry > :current_time
+            ORDER BY created_at DESC
+        """),
+        {"current_time": current_time}
+    ).fetchall()
+    
+    pricings = []
+    for row in result:
+        (pricing_id, name_val, recurring_period_val, recurring_period_count_val,
+         activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
+         created_by_val, created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(activation_val, datetime):
+            activation_str = activation_val.isoformat() + "Z" if activation_val.tzinfo else activation_val.isoformat()
+        else:
+            activation_str = str(activation_val)
+        
+        if isinstance(expiry_val, datetime):
+            expiry_str = expiry_val.isoformat() + "Z" if expiry_val.tzinfo else expiry_val.isoformat()
+        else:
+            expiry_str = str(expiry_val)
+        
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        # Get user name and role
+        user_info = get_user_name_and_role_by_user_id(db, created_by_val)
+        
+        pricing = {
+            "id": pricing_id,
+            "name": name_val,
+            "recurring_period": recurring_period_val,
+            "recurring_period_count": recurring_period_count_val,
+            "activation": activation_str,
+            "expiry": expiry_str,
+            "status": status_val,
+            "features": features_val,
+            "currency": currency_val,
+            "amount": float(amount_val),
+            "created_by": {
+                "id": created_by_val,
+                "name": user_info.get("name", ""),
+                "role": user_info.get("role")
+            },
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        pricings.append(pricing)
+    
+    logger.info(
+        "Live pricings retrieved successfully",
+        function="get_live_pricings",
+        count=len(pricings)
+    )
+    
+    return pricings
 
