@@ -1,5 +1,6 @@
 from typing import List, Dict
 from fastapi import Request
+import re
 
 
 def get_start_index_and_length_for_words_from_text(
@@ -58,3 +59,54 @@ def get_client_ip(request: Request) -> str:
     
     # Last resort fallback
     return "unknown"
+
+
+def validate_domain_url(url: str) -> bool:
+    """Validate domain URL format.
+    
+    Rules:
+    - No 'www.' prefix
+    - No 'http://' or 'https://' protocol
+    - No paths (no '/' character)
+    - Valid domain format: allows subdomains and multi-level TLDs
+    - Examples: 'example.com', 'sub.example.com', 'example.co.uk', 'my-domain.us'
+    
+    Args:
+        url: Domain URL to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Check for www prefix
+    if url.lower().startswith('www.'):
+        return False
+    
+    # Check for http/https protocol
+    if url.lower().startswith('http://') or url.lower().startswith('https://'):
+        return False
+    
+    # Check for paths (forward slash)
+    if '/' in url:
+        return False
+    
+    # Validate domain format using regex
+    # Pattern allows: alphanumeric, hyphens, dots
+    # Each label: 1-63 chars, starts/ends with alphanumeric, can have hyphens in between
+    # Allows multiple labels separated by dots
+    domain_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+    
+    if not re.match(domain_pattern, url):
+        return False
+    
+    # Additional check: must have at least one dot (TLD)
+    if '.' not in url:
+        return False
+    
+    # Check length (max 100 chars as per schema)
+    if len(url) > 100:
+        return False
+    
+    return True

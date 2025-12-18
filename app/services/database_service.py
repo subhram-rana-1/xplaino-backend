@@ -3028,6 +3028,74 @@ def get_user_name_and_role_by_user_id(
     }
 
 
+def get_user_info_with_email_by_user_id(
+    db: Session,
+    user_id: str
+) -> Dict[str, Any]:
+    """
+    Get user information including name, role, and email by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with 'name' (str), 'role' (Optional[str]), and 'email' (Optional[str])
+    """
+    logger.info(
+        "Getting user info with email by user_id",
+        function="get_user_info_with_email_by_user_id",
+        user_id=user_id
+    )
+    
+    # Get name and email from google_user_auth_info
+    name_result = db.execute(
+        text("""
+            SELECT given_name, family_name, email
+            FROM google_user_auth_info
+            WHERE user_id = :user_id
+            LIMIT 1
+        """),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    # Get role from user table
+    role_result = db.execute(
+        text("SELECT role FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    # Construct name
+    name = ""
+    email = None
+    if name_result:
+        given_name, family_name, email = name_result
+        name_parts = []
+        if given_name:
+            name_parts.append(given_name)
+        if family_name:
+            name_parts.append(family_name)
+        name = " ".join(name_parts).strip() if name_parts else ""
+    
+    # Get role
+    role = role_result[0] if role_result else None
+    
+    logger.info(
+        "User info with email retrieved successfully",
+        function="get_user_info_with_email_by_user_id",
+        user_id=user_id,
+        has_name=bool(name),
+        has_email=bool(email),
+        role=role
+    )
+    
+    return {
+        "name": name,
+        "role": role,
+        "email": email
+    }
+
+
 def get_comment_by_id(
     db: Session,
     comment_id: str
@@ -4366,4 +4434,404 @@ def get_live_pricings(
     )
     
     return pricings
+
+
+def create_domain(
+    db: Session,
+    user_id: str,
+    url: str,
+    status: str = "ALLOWED"
+) -> Dict[str, Any]:
+    """
+    Create a new domain record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID) who is creating the domain
+        url: Domain URL (VARCHAR(100))
+        status: Domain status (ALLOWED or BANNED, defaults to ALLOWED)
+        
+    Returns:
+        Dictionary with created domain data
+    """
+    logger.info(
+        "Creating domain",
+        function="create_domain",
+        user_id=user_id,
+        url=url,
+        status=status
+    )
+    
+    # Generate UUID for the new domain
+    domain_id = str(uuid.uuid4())
+    
+    # Insert the new domain
+    db.execute(
+        text("""
+            INSERT INTO domain (id, url, status, created_by)
+            VALUES (:id, :url, :status, :created_by)
+        """),
+        {
+            "id": domain_id,
+            "url": url,
+            "status": status,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, url, status, created_by, created_at, updated_at
+            FROM domain
+            WHERE id = :id
+        """),
+        {"id": domain_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created domain",
+            function="create_domain",
+            domain_id=domain_id
+        )
+        raise Exception("Failed to retrieve created domain")
+    
+    (domain_id_val, url_val, status_val, created_by_val, created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user info with email
+    user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+    
+    domain = {
+        "id": domain_id_val,
+        "url": url_val,
+        "status": status_val,
+        "created_by": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role"),
+            "email": user_info.get("email")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created domain successfully",
+        function="create_domain",
+        domain_id=domain_id_val,
+        user_id=user_id
+    )
+    
+    return domain
+
+
+def get_all_domains(
+    db: Session,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get all domains with optional pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        offset: Pagination offset (optional, if None no pagination is applied)
+        limit: Pagination limit (optional, if None no pagination is applied)
+        
+    Returns:
+        Tuple of (list of domain dictionaries, total count)
+    """
+    logger.info(
+        "Getting all domains",
+        function="get_all_domains",
+        offset=offset,
+        limit=limit,
+        pagination_used=offset is not None and limit is not None
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM domain")
+    ).fetchone()
+    total_count = count_result[0] if count_result else 0
+    
+    # Build query based on whether pagination is requested
+    if offset is not None and limit is not None:
+        # Get paginated results
+        result = db.execute(
+            text("""
+                SELECT id, url, status, created_by, created_at, updated_at
+                FROM domain
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "limit": limit,
+                "offset": offset
+            }
+        )
+    else:
+        # Get all results without pagination
+        result = db.execute(
+            text("""
+                SELECT id, url, status, created_by, created_at, updated_at
+                FROM domain
+                ORDER BY created_at DESC
+            """)
+        )
+    
+    rows = result.fetchall()
+    
+    domains = []
+    for row in rows:
+        (domain_id, url_val, status_val, created_by_val, created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        # Get user info with email
+        user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+        
+        domain = {
+            "id": domain_id,
+            "url": url_val,
+            "status": status_val,
+            "created_by": {
+                "id": created_by_val,
+                "name": user_info.get("name", ""),
+                "role": user_info.get("role"),
+                "email": user_info.get("email")
+            },
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        domains.append(domain)
+    
+    logger.info(
+        "Retrieved all domains successfully",
+        function="get_all_domains",
+        domain_count=len(domains),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return domains, total_count
+
+
+def get_domain_by_id(
+    db: Session,
+    domain_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a domain by its ID.
+    
+    Args:
+        db: Database session
+        domain_id: Domain ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with domain data or None if not found
+    """
+    logger.info(
+        "Getting domain by id",
+        function="get_domain_by_id",
+        domain_id=domain_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, url, status, created_by, created_at, updated_at
+            FROM domain
+            WHERE id = :domain_id
+        """),
+        {"domain_id": domain_id}
+    )
+    
+    row = result.fetchone()
+    
+    if not row:
+        logger.info(
+            "Domain not found",
+            function="get_domain_by_id",
+            domain_id=domain_id
+        )
+        return None
+    
+    (domain_id_val, url_val, status_val, created_by_val, created_at, updated_at) = row
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user info with email
+    user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+    
+    domain = {
+        "id": domain_id_val,
+        "url": url_val,
+        "status": status_val,
+        "created_by": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role"),
+            "email": user_info.get("email")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved domain successfully",
+        function="get_domain_by_id",
+        domain_id=domain_id
+    )
+    
+    return domain
+
+
+def update_domain(
+    db: Session,
+    domain_id: str,
+    url: Optional[str] = None,
+    status: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a domain's url and/or status.
+    
+    Args:
+        db: Database session
+        domain_id: Domain ID (CHAR(36) UUID)
+        url: New URL value (optional)
+        status: New status value (optional)
+        
+    Returns:
+        Dictionary with updated domain data or None if not found
+    """
+    logger.info(
+        "Updating domain",
+        function="update_domain",
+        domain_id=domain_id,
+        has_url=url is not None,
+        has_status=status is not None
+    )
+    
+    # Check if domain exists
+    existing = get_domain_by_id(db, domain_id)
+    if not existing:
+        return None
+    
+    # Build update query dynamically based on provided fields
+    update_fields = []
+    params = {"domain_id": domain_id}
+    
+    if url is not None:
+        update_fields.append("url = :url")
+        params["url"] = url
+    
+    if status is not None:
+        update_fields.append("status = :status")
+        params["status"] = status
+    
+    if not update_fields:
+        # No fields to update, return existing domain
+        return existing
+    
+    # Update the domain
+    update_query = f"""
+        UPDATE domain
+        SET {', '.join(update_fields)}
+        WHERE id = :domain_id
+    """
+    
+    db.execute(text(update_query), params)
+    db.commit()
+    
+    # Fetch and return updated domain
+    updated_domain = get_domain_by_id(db, domain_id)
+    
+    logger.info(
+        "Updated domain successfully",
+        function="update_domain",
+        domain_id=domain_id
+    )
+    
+    return updated_domain
+
+
+def delete_domain(
+    db: Session,
+    domain_id: str
+) -> bool:
+    """
+    Delete a domain by its ID.
+    
+    Args:
+        db: Database session
+        domain_id: Domain ID (CHAR(36) UUID)
+        
+    Returns:
+        True if domain was deleted, False if not found
+    """
+    logger.info(
+        "Deleting domain",
+        function="delete_domain",
+        domain_id=domain_id
+    )
+    
+    # Check if domain exists
+    existing = get_domain_by_id(db, domain_id)
+    if not existing:
+        logger.info(
+            "Domain not found for deletion",
+            function="delete_domain",
+            domain_id=domain_id
+        )
+        return False
+    
+    # Delete the domain
+    db.execute(
+        text("""
+            DELETE FROM domain
+            WHERE id = :domain_id
+        """),
+        {"domain_id": domain_id}
+    )
+    db.commit()
+    
+    logger.info(
+        "Deleted domain successfully",
+        function="delete_domain",
+        domain_id=domain_id
+    )
+    
+    return True
 

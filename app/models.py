@@ -422,6 +422,15 @@ class CreatedByUser(BaseModel):
     role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
 
 
+class DomainCreatedByUser(BaseModel):
+    """Model for user who created a domain."""
+    
+    id: str = Field(..., description="User ID (UUID)")
+    name: str = Field(..., description="User's full name")
+    role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
+    email: Optional[str] = Field(default=None, description="User's email address")
+
+
 class CommentResponse(BaseModel):
     """Response model for a comment with nested child comments."""
     
@@ -539,3 +548,44 @@ class GetLivePricingsResponse(BaseModel):
     """Response model for getting live pricings."""
     
     pricings: List[PricingResponse] = Field(..., description="List of live pricings")
+
+
+class DomainStatus(str, Enum):
+    """Domain status enum."""
+    ALLOWED = "ALLOWED"
+    BANNED = "BANNED"
+
+
+class CreateDomainRequest(BaseModel):
+    """Request model for creating a domain."""
+    
+    url: str = Field(..., min_length=1, max_length=100, description="Domain URL (max 100 characters, no www, http/https, or paths)")
+    status: Optional[DomainStatus] = Field(default=DomainStatus.ALLOWED, description="Domain status (ALLOWED or BANNED, defaults to ALLOWED)")
+
+
+class UpdateDomainRequest(BaseModel):
+    """Request model for updating a domain (PATCH - all fields optional)."""
+    
+    url: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Domain URL (max 100 characters, no www, http/https, or paths)")
+    status: Optional[DomainStatus] = Field(default=None, description="Domain status (ALLOWED or BANNED)")
+
+
+class DomainResponse(BaseModel):
+    """Response model for a domain."""
+    
+    id: str = Field(..., description="Domain ID (UUID)")
+    url: str = Field(..., description="Domain URL")
+    status: str = Field(..., description="Domain status (ALLOWED or BANNED)")
+    created_by: DomainCreatedByUser = Field(..., description="User who created the domain")
+    created_at: str = Field(..., description="ISO format timestamp when the domain was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the domain was last updated")
+
+
+class GetAllDomainsResponse(BaseModel):
+    """Response model for getting all domains."""
+    
+    domains: List[DomainResponse] = Field(..., description="List of all domains")
+    total: int = Field(..., description="Total number of domains")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more domains to fetch")
