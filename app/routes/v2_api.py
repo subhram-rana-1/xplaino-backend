@@ -202,6 +202,44 @@ class WebSearchResponse(BaseModel):
     error: Optional[Dict[str, str]] = Field(default=None, description="Error information if search failed")
 
 
+class SynonymsRequest(BaseModel):
+    """Request model for synonyms API."""
+    
+    words: List[str] = Field(..., min_items=1, max_items=20, description="List of words to get synonyms for (max 20)")
+
+
+class WordSynonyms(BaseModel):
+    """Model for word synonyms."""
+    
+    word: str = Field(..., description="The original word")
+    synonyms: List[str] = Field(..., description="List of synonyms (up to 3, at least 1 if available)")
+
+
+class SynonymsResponse(BaseModel):
+    """Response model for synonyms API."""
+    
+    results: List[WordSynonyms] = Field(..., description="List of word synonyms")
+
+
+class AntonymsRequest(BaseModel):
+    """Request model for antonyms API."""
+    
+    words: List[str] = Field(..., min_items=1, max_items=20, description="List of words to get antonyms for (max 20)")
+
+
+class WordAntonyms(BaseModel):
+    """Model for word antonyms."""
+    
+    word: str = Field(..., description="The original word")
+    antonyms: List[str] = Field(..., description="List of antonyms (up to 2, at least 1 if available)")
+
+
+class AntonymsResponse(BaseModel):
+    """Response model for antonyms API."""
+    
+    results: List[WordAntonyms] = Field(..., description="List of word antonyms")
+
+
 async def get_client_id(request: Request) -> str:
     """Get client identifier for rate limiting."""
     # Use IP address as client ID (in production, you might use authenticated user ID)
@@ -1014,3 +1052,119 @@ async def web_search_stream_v2(
         media_type="text/event-stream",
         headers=headers
     )
+
+
+@router.post(
+    "/synonyms",
+    response_model=SynonymsResponse,
+    summary="Get synonyms for words (v2)",
+    description="Get synonyms for a list of words (up to 20 words). Returns up to 3 synonyms for each word, at least 1 if available. If a word has no synonyms, returns an empty array for that word."
+)
+async def get_synonyms_v2(
+    request: Request,
+    response: Response,
+    body: SynonymsRequest,
+    auth_context: dict = Depends(authenticate)
+):
+    """Get synonyms for multiple words concurrently."""
+    client_id = await get_client_id(request)
+    await rate_limiter.check_rate_limit(client_id, "synonyms")
+    
+    # Validate words are not empty
+    if any(not word.strip() for word in body.words):
+        raise HTTPException(
+            status_code=400,
+            detail="Words cannot be empty strings"
+        )
+    
+    # Validate word lengths
+    for word in body.words:
+        if len(word) > 100:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Word '{word}' exceeds maximum length of 100 characters"
+            )
+    
+    logger.info("Processing synonyms request", words_count=len(body.words))
+    
+    # Process words concurrently
+    async def get_synonyms_for_word(word: str) -> WordSynonyms:
+        """Get synonyms for a single word, returning empty array if not found."""
+        try:
+            synonyms = await text_service.get_synonyms_of_word(word.strip())
+            return WordSynonyms(word=word, synonyms=synonyms)
+        except Exception as e:
+            logger.warning("Failed to get synonyms for word", word=word, error=str(e))
+            # Return empty array if synonyms not found
+            return WordSynonyms(word=word, synonyms=[])
+    
+    # Process all words concurrently
+    tasks = [get_synonyms_for_word(word) for word in body.words]
+    results = await asyncio.gather(*tasks)
+    
+    logger.info("Successfully processed synonyms request", 
+               words_count=len(body.words),
+               successful_count=sum(1 for r in results if r.synonyms))
+    
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return SynonymsResponse(results=list(results))
+
+
+@router.post(
+    "/antonyms",
+    response_model=AntonymsResponse,
+    summary="Get antonyms for words (v2)",
+    description="Get antonyms (opposites) for a list of words (up to 20 words). Returns up to 2 antonyms for each word, at least 1 if available. If a word has no antonyms, returns an empty array for that word."
+)
+async def get_antonyms_v2(
+    request: Request,
+    response: Response,
+    body: AntonymsRequest,
+    auth_context: dict = Depends(authenticate)
+):
+    """Get antonyms for multiple words concurrently."""
+    client_id = await get_client_id(request)
+    await rate_limiter.check_rate_limit(client_id, "antonyms")
+    
+    # Validate words are not empty
+    if any(not word.strip() for word in body.words):
+        raise HTTPException(
+            status_code=400,
+            detail="Words cannot be empty strings"
+        )
+    
+    # Validate word lengths
+    for word in body.words:
+        if len(word) > 100:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Word '{word}' exceeds maximum length of 100 characters"
+            )
+    
+    logger.info("Processing antonyms request", words_count=len(body.words))
+    
+    # Process words concurrently
+    async def get_antonyms_for_word(word: str) -> WordAntonyms:
+        """Get antonyms for a single word, returning empty array if not found."""
+        try:
+            antonyms = await text_service.get_opposite_of_word(word.strip())
+            return WordAntonyms(word=word, antonyms=antonyms)
+        except Exception as e:
+            logger.warning("Failed to get antonyms for word", word=word, error=str(e))
+            # Return empty array if antonyms not found
+            return WordAntonyms(word=word, antonyms=[])
+    
+    # Process all words concurrently
+    tasks = [get_antonyms_for_word(word) for word in body.words]
+    results = await asyncio.gather(*tasks)
+    
+    logger.info("Successfully processed antonyms request", 
+               words_count=len(body.words),
+               successful_count=sum(1 for r in results if r.antonyms))
+    
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return AntonymsResponse(results=list(results))

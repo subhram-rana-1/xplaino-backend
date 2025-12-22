@@ -420,6 +420,147 @@ class OpenAIService:
                 raise
             raise LLMServiceError(f"Failed to generate more examples for word '{word}': {str(e)}")
 
+    async def get_synonyms_of_word(self, word: str) -> List[str]:
+        """Get up to 3 accurate synonyms for a word. Returns at least 1 synonym."""
+        try:
+            prompt = f"""Find accurate synonyms for the word "{word}".
+
+            Word: "{word}"
+            
+            CRITICAL REQUIREMENTS - ACCURACY IS PARAMOUNT:
+            - Provide up to 3 synonyms (at least 1 is required)
+            - Prioritize accuracy over quantity - only include synonyms that are truly accurate
+            - Synonyms must be words that can be used in the same context as the given word
+            - Do not include words that are only loosely related - they must be true synonyms
+            - Return as a JSON array of strings
+            - If you can only find 1 accurate synonym, return an array with just that one word
+            - If you find 2 accurate synonyms, return an array with those 2 words
+            - If you find 3 accurate synonyms, return an array with those 3 words
+            - Maximum 3 synonyms, minimum 1 synonym
+            
+            Return only the JSON array, no additional text or explanation."""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature
+            )
+
+            result = response.choices[0].message.content.strip()
+            logger.debug("Raw response from OpenAI for synonyms", word=word, result=result)
+
+            # Strip Markdown code block (e.g., ```json\n...\n```)
+            if result.startswith("```"):
+                result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+
+            # Parse the JSON response
+            synonyms = json.loads(result)
+
+            if not isinstance(synonyms, list):
+                logger.warning("Invalid response format from OpenAI", word=word, result=result)
+                raise ValueError("Expected JSON array")
+
+            # Validate that all items are strings
+            if not all(isinstance(syn, str) for syn in synonyms):
+                logger.warning("Invalid response format - not all items are strings", word=word, result=result)
+                raise ValueError("All items in the array must be strings")
+
+            # Validate count (1-3 synonyms)
+            if len(synonyms) == 0:
+                logger.warning("No synonyms returned", word=word, result=result)
+                raise ValueError("At least 1 synonym is required")
+            
+            if len(synonyms) > 3:
+                logger.warning("Too many synonyms returned, truncating to 3", word=word, count=len(synonyms))
+                synonyms = synonyms[:3]
+
+            # Filter out empty strings
+            synonyms = [syn.strip() for syn in synonyms if syn.strip()]
+
+            if len(synonyms) == 0:
+                logger.warning("No valid synonyms after filtering", word=word, result=result)
+                raise ValueError("At least 1 valid synonym is required")
+
+            logger.info("Successfully got synonyms", word=word, count=len(synonyms))
+            return synonyms
+
+        except Exception as e:
+            logger.error("Failed to get synonyms", word=word, error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to get synonyms for word '{word}': {str(e)}")
+
+    async def get_opposite_of_word(self, word: str) -> List[str]:
+        """Get up to 2 accurate antonyms (opposites) for a word. Returns at least 1 antonym."""
+        try:
+            prompt = f"""Find accurate antonyms (opposites) for the word "{word}".
+
+            Word: "{word}"
+            
+            CRITICAL REQUIREMENTS - ACCURACY IS PARAMOUNT:
+            - Provide up to 2 antonyms (at least 1 is required)
+            - Prioritize accuracy over quantity - only include antonyms that are truly accurate
+            - Antonyms must be words that are direct opposites of the given word
+            - Do not include words that are only loosely related - they must be true antonyms
+            - Return as a JSON array of strings
+            - If you can only find 1 accurate antonym, return an array with just that one word
+            - If you find 2 accurate antonyms, return an array with those 2 words
+            - Maximum 2 antonyms, minimum 1 antonym
+            
+            Return only the JSON array, no additional text or explanation."""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature
+            )
+
+            result = response.choices[0].message.content.strip()
+            logger.debug("Raw response from OpenAI for antonyms", word=word, result=result)
+
+            # Strip Markdown code block (e.g., ```json\n...\n```)
+            if result.startswith("```"):
+                result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+
+            # Parse the JSON response
+            antonyms = json.loads(result)
+
+            if not isinstance(antonyms, list):
+                logger.warning("Invalid response format from OpenAI", word=word, result=result)
+                raise ValueError("Expected JSON array")
+
+            # Validate that all items are strings
+            if not all(isinstance(ant, str) for ant in antonyms):
+                logger.warning("Invalid response format - not all items are strings", word=word, result=result)
+                raise ValueError("All items in the array must be strings")
+
+            # Validate count (1-2 antonyms)
+            if len(antonyms) == 0:
+                logger.warning("No antonyms returned", word=word, result=result)
+                raise ValueError("At least 1 antonym is required")
+            
+            if len(antonyms) > 2:
+                logger.warning("Too many antonyms returned, truncating to 2", word=word, count=len(antonyms))
+                antonyms = antonyms[:2]
+
+            # Filter out empty strings
+            antonyms = [ant.strip() for ant in antonyms if ant.strip()]
+
+            if len(antonyms) == 0:
+                logger.warning("No valid antonyms after filtering", word=word, result=result)
+                raise ValueError("At least 1 valid antonym is required")
+
+            logger.info("Successfully got antonyms", word=word, count=len(antonyms))
+            return antonyms
+
+        except Exception as e:
+            logger.error("Failed to get antonyms", word=word, error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to get antonyms for word '{word}': {str(e)}")
+
     async def generate_random_paragraph(self, word_count: int, difficulty_percentage: int) -> str:
         """Generate a random paragraph with specified word count and difficulty level."""
         try:

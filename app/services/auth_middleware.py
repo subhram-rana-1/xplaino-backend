@@ -253,6 +253,7 @@ async def authenticate(
     # Case 3: Neither header present (new unauthenticated user)
     else:
         # CRITICAL STEP: Create new unauthenticated user record
+        api_counter_field, max_limit = get_api_counter_field_and_limit(request)
         new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
         return {
             "authenticated": False,
