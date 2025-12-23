@@ -1565,6 +1565,241 @@ Word for pronunciation:"""
                 raise
             raise LLMServiceError(f"Failed to transcribe audio: {str(e)}")
 
+    async def translate_single_text(self, text: str, target_language_code: str) -> str:
+        """Translate a single text to the target language using OpenAI.
+        
+        Args:
+            text: Text to translate
+            target_language_code: ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI', 'JA', 'ZH')
+        
+        Returns:
+            Translated text
+        """
+        try:
+            if not text or not text.strip():
+                return ""
+            
+            # Map language codes to full language names for better translation
+            language_map = {
+                "EN": "English",
+                "ES": "Spanish",
+                "FR": "French",
+                "DE": "German",
+                "HI": "Hindi",
+                "JA": "Japanese",
+                "ZH": "Chinese",
+                "AR": "Arabic",
+                "IT": "Italian",
+                "PT": "Portuguese",
+                "RU": "Russian",
+                "KO": "Korean",
+                "NL": "Dutch",
+                "PL": "Polish",
+                "TR": "Turkish",
+                "VI": "Vietnamese",
+                "TH": "Thai",
+                "ID": "Indonesian",
+                "CS": "Czech",
+                "SV": "Swedish",
+                "DA": "Danish",
+                "NO": "Norwegian",
+                "FI": "Finnish",
+                "EL": "Greek",
+                "HE": "Hebrew",
+                "UK": "Ukrainian",
+                "RO": "Romanian",
+                "HU": "Hungarian",
+            }
+            
+            target_language = language_map.get(target_language_code.upper(), target_language_code.upper())
+            
+            prompt = f"""Translate the following text to {target_language}. 
+
+Text to translate:
+{text}
+
+CRITICAL REQUIREMENTS:
+- Translate the text accurately to {target_language}
+- Preserve the meaning and context
+- Return ONLY the translated text
+- Do NOT include any additional text, explanations, or formatting
+- Do NOT wrap the response in quotes or JSON
+
+Translated text:"""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=0.3
+            )
+
+            translated_text = response.choices[0].message.content.strip()
+            
+            logger.info(
+                "Successfully translated single text",
+                input_length=len(text),
+                output_length=len(translated_text),
+                target_language=target_language,
+                target_language_code=target_language_code
+            )
+            
+            return translated_text
+                
+        except Exception as e:
+            logger.error("Failed to translate text", error=str(e), target_language_code=target_language_code)
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to translate text: {str(e)}")
+
+    async def translate_batch_with_ids(
+        self, 
+        items: List[Dict[str, str]], 
+        target_language_code: str
+    ) -> List[Dict[str, str]]:
+        """Translate multiple text items with IDs in a single API call.
+        
+        Args:
+            items: List of dicts with 'id' and 'text' keys
+            target_language_code: ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI', 'JA', 'ZH')
+        
+        Returns:
+            List of dicts with 'id' and 'translatedText' keys (same order as input)
+        """
+        try:
+            if not items:
+                return []
+            
+            # Map language codes to full language names for better translation
+            language_map = {
+                "EN": "English",
+                "ES": "Spanish",
+                "FR": "French",
+                "DE": "German",
+                "HI": "Hindi",
+                "JA": "Japanese",
+                "ZH": "Chinese",
+                "AR": "Arabic",
+                "IT": "Italian",
+                "PT": "Portuguese",
+                "RU": "Russian",
+                "KO": "Korean",
+                "NL": "Dutch",
+                "PL": "Polish",
+                "TR": "Turkish",
+                "VI": "Vietnamese",
+                "TH": "Thai",
+                "ID": "Indonesian",
+                "CS": "Czech",
+                "SV": "Swedish",
+                "DA": "Danish",
+                "NO": "Norwegian",
+                "FI": "Finnish",
+                "EL": "Greek",
+                "HE": "Hebrew",
+                "UK": "Ukrainian",
+                "RO": "Romanian",
+                "HU": "Hungarian",
+            }
+            
+            target_language = language_map.get(target_language_code.upper(), target_language_code.upper())
+            
+            # Create JSON input for the batch
+            items_json = json.dumps(items, ensure_ascii=False)
+            
+            prompt = f"""Translate the following text items to {target_language}. 
+
+Input (JSON array of objects with 'id' and 'text' fields):
+{items_json}
+
+CRITICAL REQUIREMENTS:
+- Translate the 'text' field of each object accurately to {target_language}
+- Preserve the meaning and context of each text
+- Return ONLY a JSON array of objects with 'id' and 'translatedText' fields
+- Each object in the output array MUST have:
+  * "id": THE EXACT SAME ID from the input - DO NOT MODIFY OR CHANGE THE ID IN ANY WAY
+  * "translatedText": the translated version of the corresponding input text
+- Maintain the same order as the input items
+- Do NOT include any additional text, explanations, markdown formatting, or code blocks
+- Return the result as a pure JSON array: [{{"id": "...", "translatedText": "..."}}, ...]
+
+IMPORTANT: The IDs must be EXACTLY the same as in the input. Do not change, modify, or regenerate them.
+
+Translated items (JSON array only):"""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=0.3
+            )
+
+            result = response.choices[0].message.content.strip()
+            
+            # Parse the JSON response
+            try:
+                # Strip Markdown code block if present
+                if result.startswith("```"):
+                    result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+                
+                translated_items = json.loads(result)
+                
+                if not isinstance(translated_items, list):
+                    raise ValueError("Expected JSON array")
+                
+                # Validate all input IDs are present in output
+                input_ids = {item["id"] for item in items}
+                output_ids = {item.get("id") for item in translated_items}
+                
+                if input_ids != output_ids:
+                    logger.warning(
+                        "ID mismatch in batch translation",
+                        input_ids=input_ids,
+                        output_ids=output_ids,
+                        missing_ids=input_ids - output_ids,
+                        extra_ids=output_ids - input_ids
+                    )
+                
+                # Ensure we have the same number of translations as inputs
+                if len(translated_items) != len(items):
+                    logger.warning(
+                        "Translation count mismatch in batch", 
+                        input_count=len(items),
+                        output_count=len(translated_items)
+                    )
+                
+                # Create a mapping of id to translatedText for reliable ordering
+                translation_map = {item.get("id"): item.get("translatedText", "") for item in translated_items}
+                
+                # Rebuild results in the same order as input
+                ordered_results = []
+                for input_item in items:
+                    item_id = input_item["id"]
+                    translated_text = translation_map.get(item_id, "")
+                    ordered_results.append({
+                        "id": item_id,
+                        "translatedText": translated_text
+                    })
+                
+                logger.info(
+                    "Successfully translated batch with IDs",
+                    batch_size=len(items),
+                    target_language=target_language,
+                    target_language_code=target_language_code
+                )
+                
+                return ordered_results
+                
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse batch translation response as JSON", error=str(e), response=result[:500])
+                raise LLMServiceError("Failed to parse batch translation response")
+                
+        except Exception as e:
+            logger.error("Failed to translate batch with IDs", error=str(e), target_language_code=target_language_code)
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to translate batch: {str(e)}")
+
     async def translate_texts(self, texts: List[str], target_language_code: str) -> List[str]:
         """Translate multiple texts to the target language using OpenAI.
         
