@@ -181,11 +181,10 @@ class SaveWordRequest(BaseModel):
     
     word: str = Field(..., min_length=1, max_length=32, description="Word to save (max 32 characters)")
     sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the word was found (max 1024 characters)")
-    contextual_meaning: str = Field(
-        ...,
-        min_length=1,
+    contextual_meaning: Optional[str] = Field(
+        None,
         max_length=1000,
-        description="Contextual meaning or explanation of the word (max 1000 characters)"
+        description="Contextual meaning or explanation of the word (max 1000 characters, optional)"
     )
 
 
@@ -197,9 +196,9 @@ class SavedWordResponse(BaseModel):
     sourceUrl: str = Field(..., description="Source URL where the word was found")
     userId: str = Field(..., description="User ID who saved the word (UUID)")
     createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
-    contextual_meaning: str = Field(
-        ...,
-        description="Contextual meaning or explanation of the word when it was saved"
+    contextual_meaning: Optional[str] = Field(
+        None,
+        description="Contextual meaning or explanation of the word when it was saved (optional)"
     )
 
 
@@ -310,6 +309,27 @@ class CreatePageFolderRequest(BaseModel):
     
     parent_folder_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable for root folders)")
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+
+
+class FolderWithSubFoldersResponse(BaseModel):
+    """Response model for a folder with nested sub-folders (recursive structure)."""
+    
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    created_at: str = Field(..., description="ISO format timestamp when the folder was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
+    subFolders: List["FolderWithSubFoldersResponse"] = Field(default_factory=list, description="List of sub-folders (recursive)")
+
+
+class GetAllFoldersResponse(BaseModel):
+    """Response model for getting all folders in hierarchical structure."""
+    
+    type: str = Field(..., description="Folder type (PAGE or PARAGRAPH)")
+    folders: List[FolderWithSubFoldersResponse] = Field(..., description="List of root folders with nested sub-folders")
+
+
+# Update forward reference for recursive model
+FolderWithSubFoldersResponse.model_rebuild()
 
 
 class UserRole(str, Enum):

@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS saved_word (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     word VARCHAR(32) NOT NULL,
     source_url VARCHAR(1024) NOT NULL,
-    contextual_meaning VARCHAR(1000) NOT NULL,
+    contextual_meaning VARCHAR(1000) NULL,
     user_id CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),

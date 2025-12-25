@@ -25,94 +25,172 @@ from app.services.database_service import (
 
 logger = structlog.get_logger()
 
-# API endpoint to counter field name mapping
+# API endpoint to counter field name mapping (METHOD:URL format)
 API_ENDPOINT_TO_COUNTER_FIELD = {
     # v1 APIs
-    "/api/v1/image-to-text": "image_to_text_api_count_so_far",
-    "/api/v1/pdf-to-text": "pdf_to_text_api_count_so_far",
-    "/api/v1/important-words-from-text": "important_words_from_text_v1_api_count_so_far",
-    "/api/v1/words-explanation": "words_explanation_v1_api_count_so_far",
-    "/api/v1/get-more-explanations": "get_more_explanations_api_count_so_far",
-    "/api/v1/get-random-paragraph": "get_random_paragraph_api_count_so_far",
+    "POST:/api/v1/image-to-text": "image_to_text_api_count_so_far",
+    "POST:/api/v1/pdf-to-text": "pdf_to_text_api_count_so_far",
+    "POST:/api/v1/important-words-from-text": "important_words_from_text_v1_api_count_so_far",
+    "POST:/api/v1/words-explanation": "words_explanation_v1_api_count_so_far",
+    "POST:/api/v1/get-more-explanations": "get_more_explanations_api_count_so_far",
+    "GET:/api/v1/get-random-paragraph": "get_random_paragraph_api_count_so_far",
     
     # v2 APIs
-    "/api/v2/words-explanation": "words_explanation_api_count_so_far",
-    "/api/v2/simplify": "simplify_api_count_so_far",
-    "/api/v2/important-words-from-text": "important_words_from_text_v2_api_count_so_far",
-    "/api/v2/ask": "ask_api_count_so_far",
-    "/api/v2/pronunciation": "pronunciation_api_count_so_far",
-    "/api/v2/voice-to-text": "voice_to_text_api_count_so_far",
-    "/api/v2/translate": "translate_api_count_so_far",
-    "/api/v2/summarise": "summarise_api_count_so_far",
-    "/api/v2/web-search": "web_search_api_count_so_far",
-    "/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
+    "POST:/api/v2/words-explanation": "words_explanation_api_count_so_far",
+    "POST:/api/v2/simplify": "simplify_api_count_so_far",
+    "POST:/api/v2/important-words-from-text": "important_words_from_text_v2_api_count_so_far",
+    "POST:/api/v2/ask": "ask_api_count_so_far",
+    "POST:/api/v2/pronunciation": "pronunciation_api_count_so_far",
+    "POST:/api/v2/voice-to-text": "voice_to_text_api_count_so_far",
+    "POST:/api/v2/translate": "translate_api_count_so_far",
+    "POST:/api/v2/summarise": "summarise_api_count_so_far",
+    "POST:/api/v2/web-search": "web_search_api_count_so_far",
+    "POST:/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
+    "POST:/api/v2/synonyms": "synonyms_api_count_so_far",
+    "POST:/api/v2/antonyms": "antonyms_api_count_so_far",
     
-    # Saved words APIs
-    "/api/saved-words": "saved_words_api_count_so_far",
+    # Saved words APIs (method-specific)
+    "GET:/api/saved-words": "saved_words_get_api_count_so_far",
+    "GET:/api/saved-words/": "saved_words_get_api_count_so_far",
+    "POST:/api/saved-words": "saved_words_post_api_count_so_far",
+    "POST:/api/saved-words/": "saved_words_post_api_count_so_far",
+    "DELETE:/api/saved-words": "saved_words_delete_api_count_so_far",
+    "DELETE:/api/saved-words/": "saved_words_delete_api_count_so_far",
     
-    # Saved paragraph APIs
-    "/api/saved-paragraph": "saved_paragraph_api_count_so_far",
-    "/api/saved-paragraph/folder": "saved_paragraph_folder_api_count_so_far",
+    # Saved paragraph APIs (method-specific)
+    "GET:/api/saved-paragraph": "saved_paragraph_get_api_count_so_far",
+    "GET:/api/saved-paragraph/": "saved_paragraph_get_api_count_so_far",
+    "POST:/api/saved-paragraph": "saved_paragraph_post_api_count_so_far",
+    "POST:/api/saved-paragraph/": "saved_paragraph_post_api_count_so_far",
+    "DELETE:/api/saved-paragraph": "saved_paragraph_delete_api_count_so_far",
+    "DELETE:/api/saved-paragraph/": "saved_paragraph_delete_api_count_so_far",
+    "POST:/api/saved-paragraph/folder": "saved_paragraph_folder_post_api_count_so_far",
+    "DELETE:/api/saved-paragraph/folder": "saved_paragraph_folder_delete_api_count_so_far",
+    
+    # Saved page APIs (method-specific)
+    "GET:/api/saved-page": "saved_page_get_api_count_so_far",
+    "GET:/api/saved-page/": "saved_page_get_api_count_so_far",
+    "POST:/api/saved-page": "saved_page_post_api_count_so_far",
+    "POST:/api/saved-page/": "saved_page_post_api_count_so_far",
+    "DELETE:/api/saved-page": "saved_page_delete_api_count_so_far",
+    "DELETE:/api/saved-page/": "saved_page_delete_api_count_so_far",
+    "POST:/api/saved-page/folder": "saved_page_folder_post_api_count_so_far",
+    "DELETE:/api/saved-page/folder": "saved_page_folder_delete_api_count_so_far",
+    
+    # Folders APIs (method-specific)
+    "GET:/api/folders": "folders_get_api_count_so_far",
 }
 
-# API endpoint to max limit config mapping
+# API endpoint to max limit config mapping (METHOD:URL format)
 API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     # v1 APIs
-    "/api/v1/image-to-text": "image_to_text_api_max_limit",
-    "/api/v1/pdf-to-text": "pdf_to_text_api_max_limit",
-    "/api/v1/important-words-from-text": "important_words_from_text_v1_api_max_limit",
-    "/api/v1/words-explanation": "words_explanation_v1_api_max_limit",
-    "/api/v1/get-more-explanations": "get_more_explanations_api_max_limit",
-    "/api/v1/get-random-paragraph": "get_random_paragraph_api_max_limit",
+    "POST:/api/v1/image-to-text": "image_to_text_api_max_limit",
+    "POST:/api/v1/pdf-to-text": "pdf_to_text_api_max_limit",
+    "POST:/api/v1/important-words-from-text": "important_words_from_text_v1_api_max_limit",
+    "POST:/api/v1/words-explanation": "words_explanation_v1_api_max_limit",
+    "POST:/api/v1/get-more-explanations": "get_more_explanations_api_max_limit",
+    "GET:/api/v1/get-random-paragraph": "get_random_paragraph_api_max_limit",
     
     # v2 APIs
-    "/api/v2/words-explanation": "words_explanation_api_max_limit",
-    "/api/v2/simplify": "simplify_api_max_limit",
-    "/api/v2/important-words-from-text": "important_words_from_text_v2_api_max_limit",
-    "/api/v2/ask": "ask_api_max_limit",
-    "/api/v2/pronunciation": "pronunciation_api_max_limit",
-    "/api/v2/voice-to-text": "voice_to_text_api_max_limit",
-    "/api/v2/translate": "translate_api_max_limit",
-    "/api/v2/summarise": "summarise_api_max_limit",
-    "/api/v2/web-search": "web_search_api_max_limit",
-    "/api/v2/web-search-stream": "web_search_stream_api_max_limit",
+    "POST:/api/v2/words-explanation": "words_explanation_api_max_limit",
+    "POST:/api/v2/simplify": "simplify_api_max_limit",
+    "POST:/api/v2/important-words-from-text": "important_words_from_text_v2_api_max_limit",
+    "POST:/api/v2/ask": "ask_api_max_limit",
+    "POST:/api/v2/pronunciation": "pronunciation_api_max_limit",
+    "POST:/api/v2/voice-to-text": "voice_to_text_api_max_limit",
+    "POST:/api/v2/translate": "translate_api_max_limit",
+    "POST:/api/v2/summarise": "summarise_api_max_limit",
+    "POST:/api/v2/web-search": "web_search_api_max_limit",
+    "POST:/api/v2/web-search-stream": "web_search_stream_api_max_limit",
+    "POST:/api/v2/synonyms": "synonyms_api_max_limit",
+    "POST:/api/v2/antonyms": "antonyms_api_max_limit",
     
-    # Saved words APIs
-    "/api/saved-words": "saved_words_api_max_limit",
+    # Saved words APIs (method-specific)
+    "GET:/api/saved-words": "saved_words_get_api_max_limit",
+    "GET:/api/saved-words/": "saved_words_get_api_max_limit",
+    "POST:/api/saved-words": "saved_words_post_api_max_limit",
+    "POST:/api/saved-words/": "saved_words_post_api_max_limit",
+    "DELETE:/api/saved-words": "saved_words_delete_api_max_limit",
+    "DELETE:/api/saved-words/": "saved_words_delete_api_max_limit",
     
-    # Saved paragraph APIs
-    "/api/saved-paragraph": "saved_paragraph_api_max_limit",
-    "/api/saved-paragraph/folder": "saved_paragraph_folder_api_max_limit",
+    # Saved paragraph APIs (method-specific)
+    "GET:/api/saved-paragraph": "saved_paragraph_get_api_max_limit",
+    "GET:/api/saved-paragraph/": "saved_paragraph_get_api_max_limit",
+    "POST:/api/saved-paragraph": "saved_paragraph_post_api_max_limit",
+    "POST:/api/saved-paragraph/": "saved_paragraph_post_api_max_limit",
+    "DELETE:/api/saved-paragraph": "saved_paragraph_delete_api_max_limit",
+    "DELETE:/api/saved-paragraph/": "saved_paragraph_delete_api_max_limit",
+    "POST:/api/saved-paragraph/folder": "saved_paragraph_folder_post_api_max_limit",
+    "DELETE:/api/saved-paragraph/folder": "saved_paragraph_folder_delete_api_max_limit",
+    
+    # Saved page APIs (method-specific)
+    "GET:/api/saved-page": "saved_page_get_api_max_limit",
+    "GET:/api/saved-page/": "saved_page_get_api_max_limit",
+    "POST:/api/saved-page": "saved_page_post_api_max_limit",
+    "POST:/api/saved-page/": "saved_page_post_api_max_limit",
+    "DELETE:/api/saved-page": "saved_page_delete_api_max_limit",
+    "DELETE:/api/saved-page/": "saved_page_delete_api_max_limit",
+    "POST:/api/saved-page/folder": "saved_page_folder_post_api_max_limit",
+    "DELETE:/api/saved-page/folder": "saved_page_folder_delete_api_max_limit",
+    
+    # Folders APIs (method-specific)
+    "GET:/api/folders": "folders_get_api_max_limit",
 }
 
-# API endpoint to authenticated max limit config mapping
+# API endpoint to authenticated max limit config mapping (METHOD:URL format)
 API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     # v1 APIs
-    "/api/v1/image-to-text": "authenticated_image_to_text_api_max_limit",
-    "/api/v1/pdf-to-text": "authenticated_pdf_to_text_api_max_limit",
-    "/api/v1/important-words-from-text": "authenticated_important_words_from_text_v1_api_max_limit",
-    "/api/v1/words-explanation": "authenticated_words_explanation_v1_api_max_limit",
-    "/api/v1/get-more-explanations": "authenticated_get_more_explanations_api_max_limit",
-    "/api/v1/get-random-paragraph": "authenticated_get_random_paragraph_api_max_limit",
+    "POST:/api/v1/image-to-text": "authenticated_image_to_text_api_max_limit",
+    "POST:/api/v1/pdf-to-text": "authenticated_pdf_to_text_api_max_limit",
+    "POST:/api/v1/important-words-from-text": "authenticated_important_words_from_text_v1_api_max_limit",
+    "POST:/api/v1/words-explanation": "authenticated_words_explanation_v1_api_max_limit",
+    "POST:/api/v1/get-more-explanations": "authenticated_get_more_explanations_api_max_limit",
+    "GET:/api/v1/get-random-paragraph": "authenticated_get_random_paragraph_api_max_limit",
     
     # v2 APIs
-    "/api/v2/words-explanation": "authenticated_words_explanation_api_max_limit",
-    "/api/v2/simplify": "authenticated_simplify_api_max_limit",
-    "/api/v2/important-words-from-text": "authenticated_important_words_from_text_v2_api_max_limit",
-    "/api/v2/ask": "authenticated_ask_api_max_limit",
-    "/api/v2/pronunciation": "authenticated_pronunciation_api_max_limit",
-    "/api/v2/voice-to-text": "authenticated_voice_to_text_api_max_limit",
-    "/api/v2/translate": "authenticated_translate_api_max_limit",
-    "/api/v2/summarise": "authenticated_summarise_api_max_limit",
-    "/api/v2/web-search": "authenticated_web_search_api_max_limit",
-    "/api/v2/web-search-stream": "authenticated_web_search_stream_api_max_limit",
+    "POST:/api/v2/words-explanation": "authenticated_words_explanation_api_max_limit",
+    "POST:/api/v2/simplify": "authenticated_simplify_api_max_limit",
+    "POST:/api/v2/important-words-from-text": "authenticated_important_words_from_text_v2_api_max_limit",
+    "POST:/api/v2/ask": "authenticated_ask_api_max_limit",
+    "POST:/api/v2/pronunciation": "authenticated_pronunciation_api_max_limit",
+    "POST:/api/v2/voice-to-text": "authenticated_voice_to_text_api_max_limit",
+    "POST:/api/v2/translate": "authenticated_translate_api_max_limit",
+    "POST:/api/v2/summarise": "authenticated_summarise_api_max_limit",
+    "POST:/api/v2/web-search": "authenticated_web_search_api_max_limit",
+    "POST:/api/v2/web-search-stream": "authenticated_web_search_stream_api_max_limit",
+    "POST:/api/v2/synonyms": "authenticated_synonyms_api_max_limit",
+    "POST:/api/v2/antonyms": "authenticated_antonyms_api_max_limit",
     
-    # Saved words APIs
-    "/api/saved-words": "authenticated_saved_words_api_max_limit",
+    # Saved words APIs (method-specific)
+    "GET:/api/saved-words": "authenticated_saved_words_get_api_max_limit",
+    "GET:/api/saved-words/": "authenticated_saved_words_get_api_max_limit",
+    "POST:/api/saved-words": "authenticated_saved_words_post_api_max_limit",
+    "POST:/api/saved-words/": "authenticated_saved_words_post_api_max_limit",
+    "DELETE:/api/saved-words": "authenticated_saved_words_delete_api_max_limit",
+    "DELETE:/api/saved-words/": "authenticated_saved_words_delete_api_max_limit",
     
-    # Saved paragraph APIs
-    "/api/saved-paragraph": "authenticated_saved_paragraph_api_max_limit",
-    "/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_api_max_limit",
+    # Saved paragraph APIs (method-specific)
+    "GET:/api/saved-paragraph": "authenticated_saved_paragraph_get_api_max_limit",
+    "GET:/api/saved-paragraph/": "authenticated_saved_paragraph_get_api_max_limit",
+    "POST:/api/saved-paragraph": "authenticated_saved_paragraph_post_api_max_limit",
+    "POST:/api/saved-paragraph/": "authenticated_saved_paragraph_post_api_max_limit",
+    "DELETE:/api/saved-paragraph": "authenticated_saved_paragraph_delete_api_max_limit",
+    "DELETE:/api/saved-paragraph/": "authenticated_saved_paragraph_delete_api_max_limit",
+    "POST:/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_post_api_max_limit",
+    "DELETE:/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_delete_api_max_limit",
+    
+    # Saved page APIs (method-specific)
+    "GET:/api/saved-page": "authenticated_saved_page_get_api_max_limit",
+    "GET:/api/saved-page/": "authenticated_saved_page_get_api_max_limit",
+    "POST:/api/saved-page": "authenticated_saved_page_post_api_max_limit",
+    "POST:/api/saved-page/": "authenticated_saved_page_post_api_max_limit",
+    "DELETE:/api/saved-page": "authenticated_saved_page_delete_api_max_limit",
+    "DELETE:/api/saved-page/": "authenticated_saved_page_delete_api_max_limit",
+    "POST:/api/saved-page/folder": "authenticated_saved_page_folder_post_api_max_limit",
+    "DELETE:/api/saved-page/folder": "authenticated_saved_page_folder_delete_api_max_limit",
+    
+    # Folders APIs (method-specific)
+    "GET:/api/folders": "authenticated_folders_get_api_max_limit",
 }
 
 
@@ -126,20 +204,38 @@ def get_api_counter_field_and_limit(request: Request) -> tuple[Optional[str], Op
     Returns:
         Tuple of (counter_field_name, max_limit) or (None, None) if not found
     """
+    method = request.method
     path = request.url.path
+    lookup_key = f"{method}:{path}"
     
     # Try exact match first
-    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(path)
+    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(lookup_key)
+    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(lookup_key)
+    
+    # If no exact match, try pattern matching for paths with parameters
+    if counter_field is None or limit_config is None:
+        # Handle DELETE endpoints with path parameters
+        # e.g., DELETE:/api/saved-words/abc-123 -> DELETE:/api/saved-words
+        if method == "DELETE":
+            # Try removing the last path segment (the ID parameter)
+            path_parts = path.rstrip('/').split('/')
+            if len(path_parts) > 0:
+                # Try base path without the ID
+                base_path = '/'.join(path_parts[:-1])
+                if base_path:
+                    base_lookup_key = f"{method}:{base_path}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(base_lookup_key)
+                    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(base_lookup_key)
+    
     if counter_field is None:
-        raise Exception(f"API counter field not found for: {path}")
+        raise Exception(f"API counter field not found for: {lookup_key}")
 
-    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(path)
     if limit_config is None:
-        raise Exception(f"API limit config not found for: {path}")
+        raise Exception(f"API limit config not found for: {lookup_key}")
     
     max_limit = getattr(settings, limit_config, None)
     if max_limit is None:
-        raise Exception(f"API maximum limit not found for: {path}")
+        raise Exception(f"API maximum limit not found for: {lookup_key}")
 
     return counter_field, max_limit
 
@@ -174,20 +270,38 @@ def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Opt
     Returns:
         Tuple of (counter_field_name, max_limit) or (None, None) if not found
     """
+    method = request.method
     path = request.url.path
+    lookup_key = f"{method}:{path}"
     
     # Try exact match first
-    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(path)
+    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(lookup_key)
+    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(lookup_key)
+    
+    # If no exact match, try pattern matching for paths with parameters
+    if counter_field is None or limit_config is None:
+        # Handle DELETE endpoints with path parameters
+        # e.g., DELETE:/api/saved-words/abc-123 -> DELETE:/api/saved-words
+        if method == "DELETE":
+            # Try removing the last path segment (the ID parameter)
+            path_parts = path.rstrip('/').split('/')
+            if len(path_parts) > 0:
+                # Try base path without the ID
+                base_path = '/'.join(path_parts[:-1])
+                if base_path:
+                    base_lookup_key = f"{method}:{base_path}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(base_lookup_key)
+                    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(base_lookup_key)
+    
     if counter_field is None:
-        raise Exception(f"API counter field not found for: {path}")
+        raise Exception(f"API counter field not found for: {lookup_key}")
 
-    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(path)
     if limit_config is None:
-        raise Exception(f"API authenticated limit config not found for: {path}")
+        raise Exception(f"API authenticated limit config not found for: {lookup_key}")
     
     max_limit = getattr(settings, limit_config, None)
     if max_limit is None:
-        raise Exception(f"API authenticated maximum limit not found for: {path}")
+        raise Exception(f"API authenticated maximum limit not found for: {lookup_key}")
 
     return counter_field, max_limit
 
@@ -327,7 +441,7 @@ async def authenticate(
         except HTTPException:
             raise
         except Exception as e:
-            raise_login_required("Invalid access token, please login")
+            raise_login_required(f"Invalid access token, please login: {e}")
     
     # Case 2: Unauthenticated user ID header is available
     elif unauthenticated_user_id:
@@ -357,8 +471,14 @@ async def authenticate(
     
     # Case 3: Neither header present (new unauthenticated user)
     else:
+        print('else:')
         # CRITICAL STEP: Create new unauthenticated user record
         api_counter_field, max_limit = get_api_counter_field_and_limit(request)
+        
+        # If max_limit is 0, this API doesn't allow unauthenticated access
+        if max_limit == 0:
+            raise_login_required()
+        
         new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
         return {
             "authenticated": False,

@@ -630,7 +630,26 @@ def create_unauthenticated_user_usage(
         "translate_api_count_so_far": 0,
         "web_search_api_count_so_far": 0,
         "web_search_stream_api_count_so_far": 0,
-        "saved_words_api_count_so_far": 0
+        "synonyms_api_count_so_far": 0,
+        "antonyms_api_count_so_far": 0,
+        # Method-specific counters for saved words
+        "saved_words_get_api_count_so_far": 0,
+        "saved_words_post_api_count_so_far": 0,
+        "saved_words_delete_api_count_so_far": 0,
+        # Method-specific counters for saved paragraph
+        "saved_paragraph_get_api_count_so_far": 0,
+        "saved_paragraph_post_api_count_so_far": 0,
+        "saved_paragraph_delete_api_count_so_far": 0,
+        "saved_paragraph_folder_post_api_count_so_far": 0,
+        "saved_paragraph_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for saved page
+        "saved_page_get_api_count_so_far": 0,
+        "saved_page_post_api_count_so_far": 0,
+        "saved_page_delete_api_count_so_far": 0,
+        "saved_page_folder_post_api_count_so_far": 0,
+        "saved_page_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for folders
+        "folders_get_api_count_so_far": 0
     }
     
     # Set the current API count to 1 (this API was just called)
@@ -805,9 +824,26 @@ def create_authenticated_user_api_usage(
         "translate_api_count_so_far": 0,
         "web_search_api_count_so_far": 0,
         "web_search_stream_api_count_so_far": 0,
-        "saved_words_api_count_so_far": 0,
-        "saved_paragraph_api_count_so_far": 0,
-        "saved_paragraph_folder_api_count_so_far": 0
+        "synonyms_api_count_so_far": 0,
+        "antonyms_api_count_so_far": 0,
+        # Method-specific counters for saved words
+        "saved_words_get_api_count_so_far": 0,
+        "saved_words_post_api_count_so_far": 0,
+        "saved_words_delete_api_count_so_far": 0,
+        # Method-specific counters for saved paragraph
+        "saved_paragraph_get_api_count_so_far": 0,
+        "saved_paragraph_post_api_count_so_far": 0,
+        "saved_paragraph_delete_api_count_so_far": 0,
+        "saved_paragraph_folder_post_api_count_so_far": 0,
+        "saved_paragraph_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for saved page
+        "saved_page_get_api_count_so_far": 0,
+        "saved_page_post_api_count_so_far": 0,
+        "saved_page_delete_api_count_so_far": 0,
+        "saved_page_folder_post_api_count_so_far": 0,
+        "saved_page_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for folders
+        "folders_get_api_count_so_far": 0
     }
     
     # Ensure the api_name field exists (initialize to 0, will be incremented by caller)
@@ -1161,7 +1197,8 @@ def create_saved_word(
     db: Session,
     user_id: str,
     word: str,
-    source_url: str
+    source_url: str,
+    contextual_meaning: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new saved word for a user.
@@ -1171,6 +1208,7 @@ def create_saved_word(
         user_id: User ID (CHAR(36) UUID)
         word: Word to save (max 32 characters)
         source_url: Source URL (max 1024 characters)
+        contextual_meaning: Optional contextual meaning (max 1000 characters)
         
     Returns:
         Dictionary with created saved word data
@@ -1180,7 +1218,8 @@ def create_saved_word(
         function="create_saved_word",
         user_id=user_id,
         word=word,
-        source_url_length=len(source_url)
+        source_url_length=len(source_url),
+        has_contextual_meaning=contextual_meaning is not None
     )
     
     # Generate UUID for the new saved word
@@ -1189,14 +1228,15 @@ def create_saved_word(
     # Insert the new saved word
     db.execute(
         text("""
-            INSERT INTO saved_word (id, word, source_url, user_id)
-            VALUES (:id, :word, :source_url, :user_id)
+            INSERT INTO saved_word (id, word, source_url, user_id, contextual_meaning)
+            VALUES (:id, :word, :source_url, :user_id, :contextual_meaning)
         """),
         {
             "id": word_id,
             "word": word,
             "source_url": source_url,
-            "user_id": user_id
+            "user_id": user_id,
+            "contextual_meaning": contextual_meaning
         }
     )
     db.commit()
@@ -1204,7 +1244,7 @@ def create_saved_word(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, word, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, user_id, created_at
             FROM saved_word
             WHERE id = :id
         """),
@@ -1219,7 +1259,7 @@ def create_saved_word(
         )
         raise Exception("Failed to retrieve created saved word")
     
-    word_id_val, word_val, source_url_val, user_id_val, created_at = result
+    word_id_val, word_val, contextual_meaning_val, source_url_val, user_id_val, created_at = result
     
     # Convert created_at to ISO format string
     if isinstance(created_at, datetime):
@@ -1230,6 +1270,7 @@ def create_saved_word(
     saved_word = {
         "id": word_id_val,
         "word": word_val,
+        "contextual_meaning": contextual_meaning_val,
         "source_url": source_url_val,
         "user_id": user_id_val,
         "created_at": created_at_str
@@ -1270,7 +1311,7 @@ def get_saved_word_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, word, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, user_id, created_at
             FROM saved_word
             WHERE id = :word_id AND user_id = :user_id
         """),
@@ -1289,7 +1330,7 @@ def get_saved_word_by_id_and_user_id(
         )
         return None
     
-    word_id_val, word, source_url, user_id_val, created_at = result
+    word_id_val, word, contextual_meaning, source_url, user_id_val, created_at = result
     
     # Convert created_at to ISO format string
     if isinstance(created_at, datetime):
@@ -1300,6 +1341,7 @@ def get_saved_word_by_id_and_user_id(
     saved_word = {
         "id": word_id_val,
         "word": word,
+        "contextual_meaning": contextual_meaning,
         "source_url": source_url,
         "user_id": user_id_val,
         "created_at": created_at_str
@@ -2048,6 +2090,79 @@ def get_folders_by_user_id_and_parent_id_and_type(
         function="get_folders_by_user_id_and_parent_id_and_type",
         user_id=user_id,
         parent_id=parent_id,
+        folder_type=folder_type,
+        folders_count=len(folders)
+    )
+    
+    return folders
+
+
+def get_all_folders_by_user_id_and_type(
+    db: Session,
+    user_id: str,
+    folder_type: str
+) -> List[Dict[str, Any]]:
+    """
+    Get all folders for a user with a specific type (regardless of parent_id).
+    This is used to build hierarchical structures.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_type: Folder type ('PAGE' or 'PARAGRAPH')
+        
+    Returns:
+        List of folder dictionaries
+    """
+    logger.info(
+        "Getting all folders by user_id and type",
+        function="get_all_folders_by_user_id_and_type",
+        user_id=user_id,
+        folder_type=folder_type
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE user_id = :user_id AND type = :folder_type
+            ORDER BY created_at DESC
+        """),
+        {
+            "user_id": user_id,
+            "folder_type": folder_type
+        }
+    ).fetchall()
+    
+    folders = []
+    for row in result:
+        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        folders.append({
+            "id": folder_id,
+            "name": name,
+            "type": folder_type_val,
+            "parent_id": parent_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved all folders successfully",
+        function="get_all_folders_by_user_id_and_type",
+        user_id=user_id,
         folder_type=folder_type,
         folders_count=len(folders)
     )
