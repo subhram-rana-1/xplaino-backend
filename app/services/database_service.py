@@ -742,6 +742,152 @@ def check_api_usage_limit(
     return current_count >= max_limit
 
 
+def get_authenticated_user_api_usage(
+    db: Session,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get authenticated user API usage record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (UUID) - foreign key to user table
+        
+    Returns:
+        Dictionary with api_usage JSON data or None if not found
+    """
+    result = db.execute(
+        text("SELECT api_usage FROM unsubscribed_user_api_usage WHERE user_id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        return None
+    
+    api_usage_json = result[0]
+    if isinstance(api_usage_json, str):
+        api_usage = json.loads(api_usage_json)
+    else:
+        api_usage = api_usage_json
+    
+    return api_usage
+
+
+def create_authenticated_user_api_usage(
+    db: Session,
+    user_id: str,
+    api_name: str
+) -> None:
+    """
+    Create a new authenticated user API usage record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (UUID) - foreign key to user table
+        api_name: Name of the API being called (used to initialize counter)
+    """
+    # Initialize API usage JSON with all counters set to 0
+    # Note: We initialize to 0 because the caller will increment it after creation
+    api_usage = {
+        "words_explanation_api_count_so_far": 0,
+        "get_more_explanations_api_count_so_far": 0,
+        "ask_api_count_so_far": 0,
+        "simplify_api_count_so_far": 0,
+        "summarise_api_count_so_far": 0,
+        "image_to_text_api_count_so_far": 0,
+        "pdf_to_text_api_count_so_far": 0,
+        "important_words_from_text_v1_api_count_so_far": 0,
+        "words_explanation_v1_api_count_so_far": 0,
+        "get_random_paragraph_api_count_so_far": 0,
+        "important_words_from_text_v2_api_count_so_far": 0,
+        "pronunciation_api_count_so_far": 0,
+        "voice_to_text_api_count_so_far": 0,
+        "translate_api_count_so_far": 0,
+        "web_search_api_count_so_far": 0,
+        "web_search_stream_api_count_so_far": 0,
+        "saved_words_api_count_so_far": 0,
+        "saved_paragraph_api_count_so_far": 0,
+        "saved_paragraph_folder_api_count_so_far": 0
+    }
+    
+    # Ensure the api_name field exists (initialize to 0, will be incremented by caller)
+    if api_name not in api_usage:
+        logger.warning(
+            "API name not found in api_usage dictionary, adding it",
+            api_name=api_name
+        )
+        api_usage[api_name] = 0
+    
+    db.execute(
+        text("""
+            INSERT INTO unsubscribed_user_api_usage 
+            (user_id, api_usage)
+            VALUES 
+            (:user_id, :api_usage)
+        """),
+        {
+            "user_id": user_id,
+            "api_usage": json.dumps(api_usage)
+        }
+    )
+    db.commit()
+    
+    logger.info("Created authenticated user API usage record", user_id=user_id, api_name=api_name)
+
+
+def increment_authenticated_api_usage(
+    db: Session,
+    user_id: str,
+    api_name: str
+) -> None:
+    """
+    Increment the API usage counter for a specific API for authenticated user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (UUID) - foreign key to user table
+        api_name: Name of the API counter field to increment
+    """
+    # Get current usage
+    result = db.execute(
+        text("SELECT api_usage FROM unsubscribed_user_api_usage WHERE user_id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning("Authenticated user usage record not found", user_id=user_id)
+        return
+    
+    api_usage_json = result[0]
+    if isinstance(api_usage_json, str):
+        api_usage = json.loads(api_usage_json)
+    else:
+        api_usage = api_usage_json
+    
+    # Increment the counter
+    if api_name in api_usage:
+        api_usage[api_name] = api_usage.get(api_name, 0) + 1
+    else:
+        api_usage[api_name] = 1
+    
+    # Update the record
+    db.execute(
+        text("""
+            UPDATE unsubscribed_user_api_usage 
+            SET api_usage = :api_usage,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = :user_id
+        """),
+        {
+            "user_id": user_id,
+            "api_usage": json.dumps(api_usage)
+        }
+    )
+    db.commit()
+    
+    logger.info("Incremented authenticated API usage", user_id=user_id, api_name=api_name, count=api_usage[api_name])
+
+
 def get_user_session_by_id(
     db: Session,
     session_id: str

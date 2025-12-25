@@ -16,7 +16,11 @@ from app.services.database_service import (
     get_unauthenticated_user_usage,
     create_unauthenticated_user_usage,
     increment_api_usage,
-    check_api_usage_limit
+    check_api_usage_limit,
+    get_authenticated_user_api_usage,
+    create_authenticated_user_api_usage,
+    increment_authenticated_api_usage,
+    get_user_id_by_auth_vendor_id
 )
 
 logger = structlog.get_logger()
@@ -81,6 +85,36 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     "/api/saved-paragraph/folder": "saved_paragraph_folder_api_max_limit",
 }
 
+# API endpoint to authenticated max limit config mapping
+API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
+    # v1 APIs
+    "/api/v1/image-to-text": "authenticated_image_to_text_api_max_limit",
+    "/api/v1/pdf-to-text": "authenticated_pdf_to_text_api_max_limit",
+    "/api/v1/important-words-from-text": "authenticated_important_words_from_text_v1_api_max_limit",
+    "/api/v1/words-explanation": "authenticated_words_explanation_v1_api_max_limit",
+    "/api/v1/get-more-explanations": "authenticated_get_more_explanations_api_max_limit",
+    "/api/v1/get-random-paragraph": "authenticated_get_random_paragraph_api_max_limit",
+    
+    # v2 APIs
+    "/api/v2/words-explanation": "authenticated_words_explanation_api_max_limit",
+    "/api/v2/simplify": "authenticated_simplify_api_max_limit",
+    "/api/v2/important-words-from-text": "authenticated_important_words_from_text_v2_api_max_limit",
+    "/api/v2/ask": "authenticated_ask_api_max_limit",
+    "/api/v2/pronunciation": "authenticated_pronunciation_api_max_limit",
+    "/api/v2/voice-to-text": "authenticated_voice_to_text_api_max_limit",
+    "/api/v2/translate": "authenticated_translate_api_max_limit",
+    "/api/v2/summarise": "authenticated_summarise_api_max_limit",
+    "/api/v2/web-search": "authenticated_web_search_api_max_limit",
+    "/api/v2/web-search-stream": "authenticated_web_search_stream_api_max_limit",
+    
+    # Saved words APIs
+    "/api/saved-words": "authenticated_saved_words_api_max_limit",
+    
+    # Saved paragraph APIs
+    "/api/saved-paragraph": "authenticated_saved_paragraph_api_max_limit",
+    "/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_api_max_limit",
+}
+
 
 def get_api_counter_field_and_limit(request: Request) -> tuple[Optional[str], Optional[int]]:
     """
@@ -118,6 +152,44 @@ def raise_login_required(status_code: int = 401, reason: str = "Please login") -
             "message": reason
         }
     )
+
+
+def raise_subscription_required(reason: str = "API usage limit exceeded. Please subscribe to continue.") -> None:
+    raise HTTPException(
+        status_code=429,
+        detail={
+            "errorCode": "SUBSCRIPTION_REQUIRED",
+            "message": reason
+        }
+    )
+
+
+def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Optional[str], Optional[int]]:
+    """
+    Get the API counter field name and authenticated max limit for the current request.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Tuple of (counter_field_name, max_limit) or (None, None) if not found
+    """
+    path = request.url.path
+    
+    # Try exact match first
+    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(path)
+    if counter_field is None:
+        raise Exception(f"API counter field not found for: {path}")
+
+    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(path)
+    if limit_config is None:
+        raise Exception(f"API authenticated limit config not found for: {path}")
+    
+    max_limit = getattr(settings, limit_config, None)
+    if max_limit is None:
+        raise Exception(f"API authenticated maximum limit not found for: {path}")
+
+    return counter_field, max_limit
 
 
 async def authenticate(
@@ -212,6 +284,39 @@ async def authenticate(
                             "reason": "Please refresh the access token with refresh token"
                         }
                     )
+
+            # CRITICAL STEP: Get user_id from session
+            auth_vendor_id = session_data.get("auth_vendor_id")
+            if not auth_vendor_id:
+                raise_login_required()
+            
+            user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+            if not user_id:
+                raise_login_required()
+
+            # CRITICAL STEP: Get API counter field and authenticated max limit
+            api_counter_field, max_limit = get_api_counter_field_and_authenticated_limit(request)
+            
+            if not api_counter_field or max_limit is None:
+                raise_subscription_required()
+
+            # CRITICAL STEP: Get or create authenticated user API usage record
+            api_usage = get_authenticated_user_api_usage(db, user_id)
+            if not api_usage:
+                # Create new record with all counters initialized to 0
+                create_authenticated_user_api_usage(db, user_id, api_counter_field)
+                # Re-fetch to get the newly created record
+                api_usage = get_authenticated_user_api_usage(db, user_id)
+                if not api_usage:
+                    raise_subscription_required()
+
+            # CRITICAL STEP: Check if limit exceeded (before incrementing)
+            current_count = api_usage.get(api_counter_field, 0)
+            if current_count >= max_limit:
+                raise_subscription_required()
+            
+            # CRITICAL STEP: Increment usage counter
+            increment_authenticated_api_usage(db, user_id, api_counter_field)
 
             return {
                 "authenticated": True,
