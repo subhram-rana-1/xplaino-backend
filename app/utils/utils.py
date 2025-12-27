@@ -1,5 +1,6 @@
 from typing import List, Dict
 from fastapi import Request
+from urllib.parse import urlparse
 import re
 
 
@@ -110,3 +111,66 @@ def validate_domain_url(url: str) -> bool:
         return False
     
     return True
+
+
+def detect_link_type_from_url(url: str) -> str:
+    """
+    Detect link type from URL based on domain patterns.
+    
+    Supported types:
+    - YOUTUBE: youtube.com, youtu.be, www.youtube.com, m.youtube.com
+    - LINKEDIN: linkedin.com, www.linkedin.com
+    - TWITTER: x.com, twitter.com, www.x.com, www.twitter.com
+    - REDDIT: reddit.com, www.reddit.com
+    - FACEBOOK: facebook.com, fb.com, www.facebook.com, m.facebook.com
+    - INSTAGRAM: instagram.com, www.instagram.com
+    - WEBPAGE: default for all other URLs
+    
+    Args:
+        url: URL string to analyze
+        
+    Returns:
+        Link type string (WEBPAGE, YOUTUBE, LINKEDIN, TWITTER, REDDIT, FACEBOOK, INSTAGRAM)
+    """
+    if not url or not isinstance(url, str):
+        return 'WEBPAGE'
+    
+    try:
+        # Parse the URL to extract domain
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        
+        # Remove 'www.' prefix if present for consistent matching
+        if domain.startswith('www.'):
+            domain = domain[4:]
+        
+        # Check for YouTube domains
+        if 'youtube.com' in domain or domain == 'youtu.be':
+            return 'YOUTUBE'
+        
+        # Check for LinkedIn domain
+        if domain == 'linkedin.com':
+            return 'LINKEDIN'
+        
+        # Check for Twitter/X domains
+        if domain == 'x.com' or domain == 'twitter.com':
+            return 'TWITTER'
+        
+        # Check for Reddit domain
+        if domain == 'reddit.com':
+            return 'REDDIT'
+        
+        # Check for Facebook domains
+        if domain == 'facebook.com' or domain == 'fb.com':
+            return 'FACEBOOK'
+        
+        # Check for Instagram domain
+        if domain == 'instagram.com':
+            return 'INSTAGRAM'
+        
+        # Default to WEBPAGE for all other URLs
+        return 'WEBPAGE'
+        
+    except Exception:
+        # If URL parsing fails, default to WEBPAGE
+        return 'WEBPAGE'

@@ -642,12 +642,12 @@ def create_unauthenticated_user_usage(
         "saved_paragraph_delete_api_count_so_far": 0,
         "saved_paragraph_folder_post_api_count_so_far": 0,
         "saved_paragraph_folder_delete_api_count_so_far": 0,
-        # Method-specific counters for saved page
-        "saved_page_get_api_count_so_far": 0,
-        "saved_page_post_api_count_so_far": 0,
-        "saved_page_delete_api_count_so_far": 0,
-        "saved_page_folder_post_api_count_so_far": 0,
-        "saved_page_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for saved link
+        "saved_link_get_api_count_so_far": 0,
+        "saved_link_post_api_count_so_far": 0,
+        "saved_link_delete_api_count_so_far": 0,
+        "saved_link_folder_post_api_count_so_far": 0,
+        "saved_link_folder_delete_api_count_so_far": 0,
         # Method-specific counters for folders
         "folders_get_api_count_so_far": 0
     }
@@ -836,12 +836,12 @@ def create_authenticated_user_api_usage(
         "saved_paragraph_delete_api_count_so_far": 0,
         "saved_paragraph_folder_post_api_count_so_far": 0,
         "saved_paragraph_folder_delete_api_count_so_far": 0,
-        # Method-specific counters for saved page
-        "saved_page_get_api_count_so_far": 0,
-        "saved_page_post_api_count_so_far": 0,
-        "saved_page_delete_api_count_so_far": 0,
-        "saved_page_folder_post_api_count_so_far": 0,
-        "saved_page_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for saved link
+        "saved_link_get_api_count_so_far": 0,
+        "saved_link_post_api_count_so_far": 0,
+        "saved_link_delete_api_count_so_far": 0,
+        "saved_link_folder_post_api_count_so_far": 0,
+        "saved_link_folder_delete_api_count_so_far": 0,
         # Method-specific counters for folders
         "folders_get_api_count_so_far": 0
     }
@@ -2170,7 +2170,7 @@ def get_all_folders_by_user_id_and_type(
     return folders
 
 
-def get_saved_pages_by_user_id_and_folder_id(
+def get_saved_links_by_user_id_and_folder_id(
     db: Session,
     user_id: str,
     folder_id: Optional[str] = None,
@@ -2178,22 +2178,22 @@ def get_saved_pages_by_user_id_and_folder_id(
     limit: int = 20
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
-    Get saved pages for a user with pagination, ordered by created_at DESC.
-    If folder_id is None, get pages where folder_id IS NULL.
+    Get saved links for a user with pagination, ordered by created_at DESC.
+    If folder_id is None, get links where folder_id IS NULL.
     
     Args:
         db: Database session
         user_id: User ID (CHAR(36) UUID)
-        folder_id: Folder ID (CHAR(36) UUID) or None for root pages
+        folder_id: Folder ID (CHAR(36) UUID) or None for root links
         offset: Pagination offset (default: 0)
         limit: Pagination limit (default: 20)
         
     Returns:
-        Tuple of (list of page dictionaries, total count)
+        Tuple of (list of link dictionaries, total count)
     """
     logger.info(
-        "Getting saved pages by user_id and folder_id",
-        function="get_saved_pages_by_user_id_and_folder_id",
+        "Getting saved links by user_id and folder_id",
+        function="get_saved_links_by_user_id_and_folder_id",
         user_id=user_id,
         folder_id=folder_id,
         offset=offset,
@@ -2203,12 +2203,12 @@ def get_saved_pages_by_user_id_and_folder_id(
     # Get total count
     if folder_id is None:
         count_result = db.execute(
-            text("SELECT COUNT(*) FROM saved_page WHERE user_id = :user_id AND folder_id IS NULL"),
+            text("SELECT COUNT(*) FROM saved_link WHERE user_id = :user_id AND folder_id IS NULL"),
             {"user_id": user_id}
         ).fetchone()
     else:
         count_result = db.execute(
-            text("SELECT COUNT(*) FROM saved_page WHERE user_id = :user_id AND folder_id = :folder_id"),
+            text("SELECT COUNT(*) FROM saved_link WHERE user_id = :user_id AND folder_id = :folder_id"),
             {
                 "user_id": user_id,
                 "folder_id": folder_id
@@ -2217,12 +2217,12 @@ def get_saved_pages_by_user_id_and_folder_id(
     
     total_count = count_result[0] if count_result else 0
     
-    # Get paginated pages
+    # Get paginated links
     if folder_id is None:
-        pages_result = db.execute(
+        links_result = db.execute(
             text("""
-                SELECT id, url, name, folder_id, user_id, created_at, updated_at
-                FROM saved_page
+                SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+                FROM saved_link
                 WHERE user_id = :user_id AND folder_id IS NULL
                 ORDER BY created_at DESC
                 LIMIT :limit OFFSET :offset
@@ -2234,10 +2234,10 @@ def get_saved_pages_by_user_id_and_folder_id(
             }
         ).fetchall()
     else:
-        pages_result = db.execute(
+        links_result = db.execute(
             text("""
-                SELECT id, url, name, folder_id, user_id, created_at, updated_at
-                FROM saved_page
+                SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+                FROM saved_link
                 WHERE user_id = :user_id AND folder_id = :folder_id
                 ORDER BY created_at DESC
                 LIMIT :limit OFFSET :offset
@@ -2250,9 +2250,9 @@ def get_saved_pages_by_user_id_and_folder_id(
             }
         ).fetchall()
     
-    pages = []
-    for row in pages_result:
-        page_id, url, name, folder_id_val, user_id_val, created_at, updated_at = row
+    links = []
+    for row in links_result:
+        link_id, url, name, link_type, summary, metadata, folder_id_val, user_id_val, created_at, updated_at = row
         
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -2265,10 +2265,24 @@ def get_saved_pages_by_user_id_and_folder_id(
         else:
             updated_at_str = str(updated_at)
         
-        pages.append({
-            "id": page_id,
+        # Parse metadata JSON if it's a string
+        metadata_dict = None
+        if metadata:
+            if isinstance(metadata, str):
+                try:
+                    metadata_dict = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata_dict = None
+            else:
+                metadata_dict = metadata
+        
+        links.append({
+            "id": link_id,
             "url": url,
             "name": name,
+            "type": link_type,
+            "summary": summary,
+            "metadata": metadata_dict,
             "folder_id": folder_id_val,
             "user_id": user_id_val,
             "created_at": created_at_str,
@@ -2276,61 +2290,80 @@ def get_saved_pages_by_user_id_and_folder_id(
         })
     
     logger.info(
-        "Retrieved saved pages successfully",
-        function="get_saved_pages_by_user_id_and_folder_id",
+        "Retrieved saved links successfully",
+        function="get_saved_links_by_user_id_and_folder_id",
         user_id=user_id,
         folder_id=folder_id,
-        pages_count=len(pages),
+        links_count=len(links),
         total_count=total_count,
         offset=offset,
         limit=limit
     )
     
-    return pages, total_count
+    return links, total_count
 
 
-def create_saved_page(
+def create_saved_link(
     db: Session,
     user_id: str,
     url: str,
     name: Optional[str] = None,
-    folder_id: Optional[str] = None
+    folder_id: Optional[str] = None,
+    link_type: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict] = None
 ) -> Dict[str, Any]:
     """
-    Create a new saved page for a user.
+    Create a new saved link for a user.
     
     Args:
         db: Database session
         user_id: User ID (CHAR(36) UUID)
-        url: Page URL (max 1024 characters)
-        name: Optional name for the page (max 50 characters)
+        url: Link URL (max 1024 characters)
+        name: Optional name for the link (max 50 characters)
         folder_id: Optional folder ID (CHAR(36) UUID)
+        link_type: Optional link type (defaults to 'WEBPAGE' if None)
+        summary: Optional summary text
+        metadata: Optional metadata dictionary (will be converted to JSON)
         
     Returns:
-        Dictionary with created saved page data
+        Dictionary with created saved link data
     """
     logger.info(
-        "Creating saved page",
-        function="create_saved_page",
+        "Creating saved link",
+        function="create_saved_link",
         user_id=user_id,
         url_length=len(url),
         has_name=name is not None,
-        has_folder_id=folder_id is not None
+        has_folder_id=folder_id is not None,
+        link_type=link_type
     )
     
-    # Generate UUID for the new saved page
-    page_id = str(uuid.uuid4())
+    # Generate UUID for the new saved link
+    link_id = str(uuid.uuid4())
     
-    # Insert the new saved page
+    # Default to WEBPAGE if type is not provided
+    if link_type is None:
+        link_type = 'WEBPAGE'
+    
+    # Convert metadata dict to JSON string if provided
+    metadata_json = None
+    if metadata is not None:
+        metadata_json = json.dumps(metadata)
+    
+    # Insert the new saved link
     db.execute(
         text("""
-            INSERT INTO saved_page (id, url, name, folder_id, user_id)
-            VALUES (:id, :url, :name, :folder_id, :user_id)
+            INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id)
+            VALUES (:id, :url, :name, :type, :summary, :metadata, :folder_id, :user_id)
         """),
         {
-            "id": page_id,
+            "id": link_id,
             "url": url,
             "name": name,
+            "type": link_type,
+            "summary": summary,
+            "metadata": metadata_json,
             "folder_id": folder_id,
             "user_id": user_id
         }
@@ -2340,22 +2373,22 @@ def create_saved_page(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, url, name, folder_id, user_id, created_at, updated_at
-            FROM saved_page
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
             WHERE id = :id
         """),
-        {"id": page_id}
+        {"id": link_id}
     ).fetchone()
     
     if not result:
         logger.error(
-            "Failed to retrieve created saved page",
-            function="create_saved_page",
-            page_id=page_id
+            "Failed to retrieve created saved link",
+            function="create_saved_link",
+            link_id=link_id
         )
-        raise Exception("Failed to retrieve created saved page")
+        raise Exception("Failed to retrieve created saved link")
     
-    page_id_val, url_val, name_val, folder_id_val, user_id_val, created_at, updated_at = result
+    link_id_val, url_val, name_val, link_type_val, summary_val, metadata_val, folder_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2368,10 +2401,24 @@ def create_saved_page(
     else:
         updated_at_str = str(updated_at)
     
-    saved_page = {
-        "id": page_id_val,
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata_val:
+        if isinstance(metadata_val, str):
+            try:
+                metadata_dict = json.loads(metadata_val)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata_val
+    
+    saved_link = {
+        "id": link_id_val,
         "url": url_val,
         "name": name_val,
+        "type": link_type_val,
+        "summary": summary_val,
+        "metadata": metadata_dict,
         "folder_id": folder_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -2379,45 +2426,45 @@ def create_saved_page(
     }
     
     logger.info(
-        "Created saved page successfully",
-        function="create_saved_page",
-        page_id=page_id_val,
+        "Created saved link successfully",
+        function="create_saved_link",
+        link_id=link_id_val,
         user_id=user_id
     )
     
-    return saved_page
+    return saved_link
 
 
-def delete_saved_page_by_id_and_user_id(
+def delete_saved_link_by_id_and_user_id(
     db: Session,
-    page_id: str,
+    link_id: str,
     user_id: str
 ) -> bool:
     """
-    Delete a saved page by ID if it belongs to the user.
+    Delete a saved link by ID if it belongs to the user.
     
     Args:
         db: Database session
-        page_id: Saved page ID (CHAR(36) UUID)
+        link_id: Saved link ID (CHAR(36) UUID)
         user_id: User ID (CHAR(36) UUID)
         
     Returns:
-        True if page was deleted, False if not found or doesn't belong to user
+        True if link was deleted, False if not found or doesn't belong to user
     """
     logger.info(
-        "Deleting saved page by id and user_id",
-        function="delete_saved_page_by_id_and_user_id",
-        page_id=page_id,
+        "Deleting saved link by id and user_id",
+        function="delete_saved_link_by_id_and_user_id",
+        link_id=link_id,
         user_id=user_id
     )
     
     result = db.execute(
         text("""
-            DELETE FROM saved_page
-            WHERE id = :page_id AND user_id = :user_id
+            DELETE FROM saved_link
+            WHERE id = :link_id AND user_id = :user_id
         """),
         {
-            "page_id": page_id,
+            "link_id": link_id,
             "user_id": user_id
         }
     )
@@ -2426,22 +2473,331 @@ def delete_saved_page_by_id_and_user_id(
     
     if result.rowcount > 0:
         logger.info(
-            "Deleted saved page successfully",
-            function="delete_saved_page_by_id_and_user_id",
-            page_id=page_id,
+            "Deleted saved link successfully",
+            function="delete_saved_link_by_id_and_user_id",
+            link_id=link_id,
             user_id=user_id,
             rows_deleted=result.rowcount
         )
         return True
     else:
         logger.warning(
-            "Saved page not found or doesn't belong to user",
-            function="delete_saved_page_by_id_and_user_id",
-            page_id=page_id,
+            "Saved link not found or doesn't belong to user",
+            function="delete_saved_link_by_id_and_user_id",
+            link_id=link_id,
             user_id=user_id,
             rows_deleted=result.rowcount
         )
         return False
+
+
+def get_saved_link_by_url_and_user_id(
+    db: Session,
+    url: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved link by URL and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        url: Link URL
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved link by url and user_id",
+        function="get_saved_link_by_url_and_user_id",
+        url=url,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE url = :url AND user_id = :user_id
+        """),
+        {
+            "url": url,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.info(
+            "Saved link not found by URL",
+            function="get_saved_link_by_url_and_user_id",
+            url=url,
+            user_id=user_id
+        )
+        return None
+    
+    link_id_val, url_val, name, link_type, summary, metadata, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata:
+        if isinstance(metadata, str):
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url_val,
+        "name": name,
+        "type": link_type,
+        "summary": summary,
+        "metadata": metadata_dict,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved link by URL successfully",
+        function="get_saved_link_by_url_and_user_id",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def update_saved_link_summary_and_metadata(
+    db: Session,
+    link_id: str,
+    user_id: str,
+    summary: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Update summary and metadata for an existing saved link.
+    
+    Args:
+        db: Database session
+        link_id: Saved link ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        summary: Optional summary text to update
+        metadata: Optional metadata dictionary to update (will be converted to JSON)
+        
+    Returns:
+        Dictionary with updated saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved link summary and metadata",
+        function="update_saved_link_summary_and_metadata",
+        link_id=link_id,
+        user_id=user_id,
+        has_summary=summary is not None,
+        has_metadata=metadata is not None
+    )
+    
+    # Convert metadata dict to JSON string if provided
+    metadata_json = None
+    if metadata is not None:
+        metadata_json = json.dumps(metadata)
+    
+    # Update the saved link
+    result = db.execute(
+        text("""
+            UPDATE saved_link
+            SET summary = :summary,
+                metadata = :metadata,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :link_id AND user_id = :user_id
+        """),
+        {
+            "link_id": link_id,
+            "user_id": user_id,
+            "summary": summary,
+            "metadata": metadata_json
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved link not found or doesn't belong to user",
+            function="update_saved_link_summary_and_metadata",
+            link_id=link_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    updated_result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE id = :id
+        """),
+        {"id": link_id}
+    ).fetchone()
+    
+    if not updated_result:
+        logger.error(
+            "Failed to retrieve updated saved link",
+            function="update_saved_link_summary_and_metadata",
+            link_id=link_id
+        )
+        return None
+    
+    link_id_val, url_val, name_val, link_type_val, summary_val, metadata_val, folder_id_val, user_id_val, created_at, updated_at = updated_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata_val:
+        if isinstance(metadata_val, str):
+            try:
+                metadata_dict = json.loads(metadata_val)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata_val
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url_val,
+        "name": name_val,
+        "type": link_type_val,
+        "summary": summary_val,
+        "metadata": metadata_dict,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved link summary and metadata successfully",
+        function="update_saved_link_summary_and_metadata",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def get_saved_link_by_id_and_user_id(
+    db: Session,
+    link_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved link by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        link_id: Saved link ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved link by id and user_id",
+        function="get_saved_link_by_id_and_user_id",
+        link_id=link_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE id = :link_id AND user_id = :user_id
+        """),
+        {
+            "link_id": link_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved link not found or doesn't belong to user",
+            function="get_saved_link_by_id_and_user_id",
+            link_id=link_id,
+            user_id=user_id
+        )
+        return None
+    
+    link_id_val, url, name, link_type, summary, metadata, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata:
+        if isinstance(metadata, str):
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url,
+        "name": name,
+        "type": link_type,
+        "summary": summary,
+        "metadata": metadata_dict,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved link successfully",
+        function="get_saved_link_by_id_and_user_id",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
 
 
 def create_page_folder(

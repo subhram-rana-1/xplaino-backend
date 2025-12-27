@@ -52,23 +52,23 @@ INSERT INTO folder (id, name, type, parent_id, user_id) VALUES
 ('c3d4e5f6-a7b8-4901-2345-678901cdefgh', 'Important Links', 'PAGE', 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
 
 -- 3 records for folder_id: a1b2c3d4-e5f6-4789-0123-456789abcdef
-INSERT INTO saved_page (id, url, name, folder_id, user_id) VALUES
-(UUID(), 'https://github.com/facebook/react', 'React - JavaScript Library', 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-(UUID(), 'https://www.python.org/', 'Python Programming Language', 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-(UUID(), 'https://nodejs.org/', 'Node.js Runtime', 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
+INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id) VALUES
+(UUID(), 'https://github.com/facebook/react', 'React - JavaScript Library', 'WEBPAGE', NULL, NULL, 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+(UUID(), 'https://www.python.org/', 'Python Programming Language', 'WEBPAGE', NULL, NULL, 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+(UUID(), 'https://nodejs.org/', 'Node.js Runtime', 'WEBPAGE', NULL, NULL, 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
 
 -- 3 records for folder_id: b2c3d4e5-f6a7-4890-1234-567890bcdefg
-INSERT INTO saved_page (id, url, name, folder_id, user_id) VALUES
-(UUID(), 'https://arxiv.org/', 'arXiv - Research Papers', 'b2c3d4e5-f6a7-4890-1234-567890bcdefg', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-(UUID(), 'https://www.nature.com/', 'Nature - Scientific Journal', 'b2c3d4e5-f6a7-4890-1234-567890bcdefg', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-(UUID(), 'https://scholar.google.com/', 'Google Scholar', 'b2c3d4e5-f6a7-4890-1234-567890bcdefg', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
+INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id) VALUES
+(UUID(), 'https://arxiv.org/', 'arXiv - Research Papers', 'WEBPAGE', NULL, NULL, 'b2c3d4e5-f6a7-4890-1234-567890bcdefg', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+(UUID(), 'https://www.nature.com/', 'Nature - Scientific Journal', 'WEBPAGE', NULL, NULL, 'b2c3d4e5-f6a7-4890-1234-567890bcdefg', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+(UUID(), 'https://scholar.google.com/', 'Google Scholar', 'WEBPAGE', NULL, NULL, 'b2c3d4e5-f6a7-4890-1234-567890bcdefg', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
 
 -- 2 records for folder_id: c3d4e5f6-a7b8-4901-2345-678901cdefgh
-INSERT INTO saved_page (id, url, name, folder_id, user_id) VALUES
-(UUID(), 'https://stackoverflow.com/', 'Stack Overflow - Q&A', 'c3d4e5f6-a7b8-4901-2345-678901cdefgh', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-(UUID(), 'https://developer.mozilla.org/', 'MDN Web Docs', 'c3d4e5f6-a7b8-4901-2345-678901cdefgh', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
+INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id) VALUES
+(UUID(), 'https://stackoverflow.com/', 'Stack Overflow - Q&A', 'WEBPAGE', NULL, NULL, 'c3d4e5f6-a7b8-4901-2345-678901cdefgh', '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+(UUID(), 'https://developer.mozilla.org/', 'MDN Web Docs', 'WEBPAGE', NULL, NULL, 'c3d4e5f6-a7b8-4901-2345-678901cdefgh', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
 
 -- 2 records with folder_id: NULL
-INSERT INTO saved_page (id, url, name, folder_id, user_id) VALUES
-(UUID(), 'https://www.wikipedia.org/', 'Wikipedia', NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-(UUID(), 'https://www.reddit.com/', 'Reddit', NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
+INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id) VALUES
+(UUID(), 'https://www.wikipedia.org/', 'Wikipedia', 'WEBPAGE', NULL, NULL, NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+(UUID(), 'https://www.reddit.com/', 'Reddit', 'REDDIT', NULL, NULL, NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41');

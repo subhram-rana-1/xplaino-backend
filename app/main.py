@@ -15,7 +15,7 @@ from app.exceptions import (
     general_exception_handler,
     http_exception_handler
 )
-from app.routes import v1_api, v2_api, health, auth_api, saved_words_api, saved_paragraph_api, saved_page_api, issue_api, comment_api, pricing_api, domain_api, folder_api
+from app.routes import v1_api, v2_api, health, auth_api, saved_words_api, saved_paragraph_api, saved_link_api, issue_api, comment_api, pricing_api, domain_api, folder_api
 from app.services.rate_limiter import rate_limiter
 
 # Configure structured logging
@@ -192,7 +192,7 @@ app.include_router(v2_api.router)
 app.include_router(auth_api.router)
 app.include_router(saved_words_api.router)
 app.include_router(saved_paragraph_api.router)
-app.include_router(saved_page_api.router)
+app.include_router(saved_link_api.router)
 app.include_router(issue_api.router)
 app.include_router(comment_api.router)
 app.include_router(pricing_api.router)

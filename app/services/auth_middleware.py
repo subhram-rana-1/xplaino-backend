@@ -67,15 +67,17 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     "POST:/api/saved-paragraph/folder": "saved_paragraph_folder_post_api_count_so_far",
     "DELETE:/api/saved-paragraph/folder": "saved_paragraph_folder_delete_api_count_so_far",
     
-    # Saved page APIs (method-specific)
-    "GET:/api/saved-page": "saved_page_get_api_count_so_far",
-    "GET:/api/saved-page/": "saved_page_get_api_count_so_far",
-    "POST:/api/saved-page": "saved_page_post_api_count_so_far",
-    "POST:/api/saved-page/": "saved_page_post_api_count_so_far",
-    "DELETE:/api/saved-page": "saved_page_delete_api_count_so_far",
-    "DELETE:/api/saved-page/": "saved_page_delete_api_count_so_far",
-    "POST:/api/saved-page/folder": "saved_page_folder_post_api_count_so_far",
-    "DELETE:/api/saved-page/folder": "saved_page_folder_delete_api_count_so_far",
+    # Saved link APIs (method-specific)
+    "GET:/api/saved-link": "saved_link_get_api_count_so_far",
+    "GET:/api/saved-link/": "saved_link_get_api_count_so_far",
+    "GET:/api/saved-link/{link_id}": "saved_link_get_api_count_so_far",
+    "POST:/api/saved-link": "saved_link_post_api_count_so_far",
+    "POST:/api/saved-link/": "saved_link_post_api_count_so_far",
+    "DELETE:/api/saved-link": "saved_link_delete_api_count_so_far",
+    "DELETE:/api/saved-link/": "saved_link_delete_api_count_so_far",
+    "DELETE:/api/saved-link/{link_id}": "saved_link_delete_api_count_so_far",
+    "POST:/api/saved-link/folder": "saved_link_folder_post_api_count_so_far",
+    "DELETE:/api/saved-link/folder": "saved_link_folder_delete_api_count_so_far",
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "folders_get_api_count_so_far",
@@ -123,15 +125,17 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     "POST:/api/saved-paragraph/folder": "saved_paragraph_folder_post_api_max_limit",
     "DELETE:/api/saved-paragraph/folder": "saved_paragraph_folder_delete_api_max_limit",
     
-    # Saved page APIs (method-specific)
-    "GET:/api/saved-page": "saved_page_get_api_max_limit",
-    "GET:/api/saved-page/": "saved_page_get_api_max_limit",
-    "POST:/api/saved-page": "saved_page_post_api_max_limit",
-    "POST:/api/saved-page/": "saved_page_post_api_max_limit",
-    "DELETE:/api/saved-page": "saved_page_delete_api_max_limit",
-    "DELETE:/api/saved-page/": "saved_page_delete_api_max_limit",
-    "POST:/api/saved-page/folder": "saved_page_folder_post_api_max_limit",
-    "DELETE:/api/saved-page/folder": "saved_page_folder_delete_api_max_limit",
+    # Saved link APIs (method-specific)
+    "GET:/api/saved-link": "saved_link_get_api_max_limit",
+    "GET:/api/saved-link/": "saved_link_get_api_max_limit",
+    "GET:/api/saved-link/{link_id}": "saved_link_get_api_max_limit",
+    "POST:/api/saved-link": "saved_link_post_api_max_limit",
+    "POST:/api/saved-link/": "saved_link_post_api_max_limit",
+    "DELETE:/api/saved-link": "saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/": "saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/{link_id}": "saved_link_delete_api_max_limit",
+    "POST:/api/saved-link/folder": "saved_link_folder_post_api_max_limit",
+    "DELETE:/api/saved-link/folder": "saved_link_folder_delete_api_max_limit",
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "folders_get_api_max_limit",
@@ -179,15 +183,17 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     "POST:/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_post_api_max_limit",
     "DELETE:/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_delete_api_max_limit",
     
-    # Saved page APIs (method-specific)
-    "GET:/api/saved-page": "authenticated_saved_page_get_api_max_limit",
-    "GET:/api/saved-page/": "authenticated_saved_page_get_api_max_limit",
-    "POST:/api/saved-page": "authenticated_saved_page_post_api_max_limit",
-    "POST:/api/saved-page/": "authenticated_saved_page_post_api_max_limit",
-    "DELETE:/api/saved-page": "authenticated_saved_page_delete_api_max_limit",
-    "DELETE:/api/saved-page/": "authenticated_saved_page_delete_api_max_limit",
-    "POST:/api/saved-page/folder": "authenticated_saved_page_folder_post_api_max_limit",
-    "DELETE:/api/saved-page/folder": "authenticated_saved_page_folder_delete_api_max_limit",
+    # Saved link APIs (method-specific)
+    "GET:/api/saved-link": "authenticated_saved_link_get_api_max_limit",
+    "GET:/api/saved-link/": "authenticated_saved_link_get_api_max_limit",
+    "GET:/api/saved-link/{link_id}": "authenticated_saved_link_get_api_max_limit",
+    "POST:/api/saved-link": "authenticated_saved_link_post_api_max_limit",
+    "POST:/api/saved-link/": "authenticated_saved_link_post_api_max_limit",
+    "DELETE:/api/saved-link": "authenticated_saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/": "authenticated_saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/{link_id}": "authenticated_saved_link_delete_api_max_limit",
+    "POST:/api/saved-link/folder": "authenticated_saved_link_folder_post_api_max_limit",
+    "DELETE:/api/saved-link/folder": "authenticated_saved_link_folder_delete_api_max_limit",
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "authenticated_folders_get_api_max_limit",
