@@ -25,7 +25,7 @@ from app.services.database_service import (
     delete_saved_link_by_id_and_user_id,
     get_saved_link_by_id_and_user_id,
     get_folder_by_id_and_user_id,
-    create_page_folder,
+    create_link_folder,
     delete_folder_by_id_and_user_id
 )
 from app.utils.utils import detect_link_type_from_url
@@ -60,7 +60,7 @@ async def get_all_saved_links(
                 "error_message": "Authentication required"
             }
         )
-    
+
     # Get user_id from auth_context
     session_data = auth_context.get("session_data")
     if not session_data:
@@ -71,7 +71,7 @@ async def get_all_saved_links(
                 "error_message": "Invalid session data"
             }
         )
-    
+
     auth_vendor_id = session_data.get("auth_vendor_id")
     if not auth_vendor_id:
         raise HTTPException(
@@ -81,7 +81,7 @@ async def get_all_saved_links(
                 "error_message": "Missing auth vendor ID"
             }
         )
-    
+
     # Get user_id from auth_vendor_id
     user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
     if not user_id:
@@ -92,17 +92,17 @@ async def get_all_saved_links(
                 "error_message": "User not found"
             }
         )
-    
-    # Get sub-folders for the given folder_id (or root if folder_id is None) with type='PAGE'
+
+    # Get sub-folders for the given folder_id (or root if folder_id is None) with type='LINK'
     sub_folders_data = get_folders_by_user_id_and_parent_id_and_type(
-        db, user_id, folder_id, folder_type="PAGE"
+        db, user_id, folder_id, folder_type="LINK"
     )
-    
+
     # Get saved links for the given folder_id (or root if folder_id is None)
     links_data, total_count = get_saved_links_by_user_id_and_folder_id(
         db, user_id, folder_id, offset, limit
     )
-    
+
     # Convert folders to response models
     sub_folders = [
         FolderResponse(
@@ -116,7 +116,7 @@ async def get_all_saved_links(
         )
         for folder in sub_folders_data
     ]
-    
+
     # Convert links to response models
     saved_links = [
         SavedLinkResponse(
@@ -133,10 +133,10 @@ async def get_all_saved_links(
         )
         for link in links_data
     ]
-    
+
     # Calculate has_next
     has_next = (offset + limit) < total_count
-    
+
     logger.info(
         "Retrieved saved links and folders",
         user_id=user_id,
@@ -148,7 +148,7 @@ async def get_all_saved_links(
         limit=limit,
         has_next=has_next
     )
-    
+
     return GetAllSavedLinksResponse(
         folder_id=folder_id,
         user_id=user_id,
@@ -185,7 +185,7 @@ async def save_link(
                 "error_message": "Authentication required"
             }
         )
-    
+
     # Get user_id from auth_context
     session_data = auth_context.get("session_data")
     if not session_data:
@@ -196,7 +196,7 @@ async def save_link(
                 "error_message": "Invalid session data"
             }
         )
-    
+
     auth_vendor_id = session_data.get("auth_vendor_id")
     if not auth_vendor_id:
         raise HTTPException(
@@ -206,7 +206,7 @@ async def save_link(
                 "error_message": "Missing auth vendor ID"
             }
         )
-    
+
     # Get user_id from auth_vendor_id
     user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
     if not user_id:
@@ -217,7 +217,7 @@ async def save_link(
                 "error_message": "User not found"
             }
         )
-    
+
     # Validate input lengths
     if len(body.url) > 1024:
         raise HTTPException(
@@ -227,16 +227,16 @@ async def save_link(
                 "error_message": "URL length exceeds maximum of 1024 characters"
             }
         )
-    
-    if body.name and len(body.name) > 50:
+
+    if body.name and len(body.name) > 100:
         raise HTTPException(
             status_code=422,
             detail={
                 "error_code": "VAL_002",
-                "error_message": "Name length exceeds maximum of 50 characters"
+                "error_message": "Name length exceeds maximum of 100 characters"
             }
         )
-    
+
     # If folder_id is provided, validate it belongs to the user
     if body.folder_id:
         folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
@@ -248,26 +248,26 @@ async def save_link(
                     "error_message": "Folder not found or does not belong to user"
                 }
             )
-        
-        # Validate that the folder is of type PAGE
-        if folder.get("type") != "PAGE":
+
+        # Validate that the folder is of type LINK
+        if folder.get("type") != "LINK":
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error_code": "VAL_003",
-                    "error_message": "Folder must be of type PAGE"
+                    "error_message": "Folder must be of type LINK"
                 }
             )
-    
+
     # Check if link with this URL already exists for this user
     existing_link = get_saved_link_by_url_and_user_id(db, body.url, user_id)
-    
+
     if existing_link:
         # Update existing link's summary and metadata only
         saved_link_data = update_saved_link_summary_and_metadata(
             db, existing_link["id"], user_id, body.summary, body.metadata
         )
-        
+
         if not saved_link_data:
             raise HTTPException(
                 status_code=500,
@@ -276,7 +276,7 @@ async def save_link(
                     "error_message": "Failed to update existing link"
                 }
             )
-        
+
         logger.info(
             "Updated existing link summary and metadata",
             link_id=saved_link_data["id"],
@@ -286,12 +286,12 @@ async def save_link(
     else:
         # Auto-detect link type from URL
         link_type = detect_link_type_from_url(body.url)
-        
+
         # Create new saved link
         saved_link_data = create_saved_link(
             db, user_id, body.url, body.name, body.folder_id, link_type, body.summary, body.metadata
         )
-        
+
         logger.info(
             "Created new saved link",
             link_id=saved_link_data["id"],
@@ -299,7 +299,7 @@ async def save_link(
             has_name=body.name is not None,
             has_folder_id=body.folder_id is not None
         )
-    
+
     return SavedLinkResponse(
         id=saved_link_data["id"],
         name=saved_link_data["name"],
@@ -337,7 +337,7 @@ async def get_link_details_by_id(
                 "error_message": "Authentication required"
             }
         )
-    
+
     # Get user_id from auth_context
     session_data = auth_context.get("session_data")
     if not session_data:
@@ -348,7 +348,7 @@ async def get_link_details_by_id(
                 "error_message": "Invalid session data"
             }
         )
-    
+
     auth_vendor_id = session_data.get("auth_vendor_id")
     if not auth_vendor_id:
         raise HTTPException(
@@ -358,7 +358,7 @@ async def get_link_details_by_id(
                 "error_message": "Missing auth vendor ID"
             }
         )
-    
+
     # Get user_id from auth_vendor_id
     user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
     if not user_id:
@@ -369,10 +369,10 @@ async def get_link_details_by_id(
                 "error_message": "User not found"
             }
         )
-    
+
     # Get saved link (this will only return if it belongs to the user)
     link_data = get_saved_link_by_id_and_user_id(db, link_id, user_id)
-    
+
     if not link_data:
         raise HTTPException(
             status_code=404,
@@ -381,13 +381,13 @@ async def get_link_details_by_id(
                 "error_message": "Saved link not found or does not belong to user"
             }
         )
-    
+
     logger.info(
         "Retrieved link details successfully",
         link_id=link_id,
         user_id=user_id
     )
-    
+
     return SavedLinkResponse(
         id=link_data["id"],
         name=link_data["name"],
@@ -425,7 +425,7 @@ async def remove_saved_link(
                 "error_message": "Authentication required"
             }
         )
-    
+
     # Get user_id from auth_context
     session_data = auth_context.get("session_data")
     if not session_data:
@@ -436,7 +436,7 @@ async def remove_saved_link(
                 "error_message": "Invalid session data"
             }
         )
-    
+
     auth_vendor_id = session_data.get("auth_vendor_id")
     if not auth_vendor_id:
         raise HTTPException(
@@ -446,7 +446,7 @@ async def remove_saved_link(
                 "error_message": "Missing auth vendor ID"
             }
         )
-    
+
     # Get user_id from auth_vendor_id
     user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
     if not user_id:
@@ -457,10 +457,10 @@ async def remove_saved_link(
                 "error_message": "User not found"
             }
         )
-    
+
     # Delete saved link (this will only delete if it belongs to the user)
     deleted = delete_saved_link_by_id_and_user_id(db, link_id, user_id)
-    
+
     if not deleted:
         raise HTTPException(
             status_code=404,
@@ -469,13 +469,13 @@ async def remove_saved_link(
                 "error_message": "Saved link not found or does not belong to user"
             }
         )
-    
+
     logger.info(
         "Deleted saved link successfully",
         link_id=link_id,
         user_id=user_id
     )
-    
+
     return FastAPIResponse(status_code=204)
 
 
@@ -484,7 +484,7 @@ async def remove_saved_link(
     response_model=FolderResponse,
     status_code=201,
     summary="Create a link folder",
-    description="Create a new PAGE type folder for the authenticated user"
+    description="Create a new LINK type folder for the authenticated user"
 )
 async def create_link_folder_endpoint(
     request: Request,
@@ -503,7 +503,7 @@ async def create_link_folder_endpoint(
                 "error_message": "Authentication required"
             }
         )
-    
+
     # Get user_id from auth_context
     session_data = auth_context.get("session_data")
     if not session_data:
@@ -514,7 +514,7 @@ async def create_link_folder_endpoint(
                 "error_message": "Invalid session data"
             }
         )
-    
+
     auth_vendor_id = session_data.get("auth_vendor_id")
     if not auth_vendor_id:
         raise HTTPException(
@@ -524,7 +524,7 @@ async def create_link_folder_endpoint(
                 "error_message": "Missing auth vendor ID"
             }
         )
-    
+
     # Get user_id from auth_vendor_id
     user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
     if not user_id:
@@ -535,18 +535,18 @@ async def create_link_folder_endpoint(
                 "error_message": "User not found"
             }
         )
-    
+
     # Validate input length
-    if len(body.name) > 50:
+    if len(body.name) > 100:
         raise HTTPException(
             status_code=422,
             detail={
                 "error_code": "VAL_001",
-                "error_message": "Name length exceeds maximum of 50 characters"
+                "error_message": "Name length exceeds maximum of 100 characters"
             }
         )
-    
-    # If parent_folder_id is provided, validate it belongs to the user and is type PAGE
+
+    # If parent_folder_id is provided, validate it belongs to the user and is type LINK
     if body.parent_folder_id:
         parent_folder = get_folder_by_id_and_user_id(db, body.parent_folder_id, user_id)
         if not parent_folder:
@@ -557,20 +557,20 @@ async def create_link_folder_endpoint(
                     "error_message": "Parent folder not found or does not belong to user"
                 }
             )
-        
-        # Validate that the parent folder is of type PAGE
-        if parent_folder.get("type") != "PAGE":
+
+        # Validate that the parent folder is of type LINK
+        if parent_folder.get("type") != "LINK":
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error_code": "VAL_002",
-                    "error_message": "Parent folder must be of type PAGE"
+                    "error_message": "Parent folder must be of type LINK"
                 }
             )
-    
+
     # Create link folder
-    folder_data = create_page_folder(db, user_id, body.name, body.parent_folder_id)
-    
+    folder_data = create_link_folder(db, user_id, body.name, body.parent_folder_id)
+
     logger.info(
         "Created link folder successfully",
         folder_id=folder_data["id"],
@@ -578,7 +578,7 @@ async def create_link_folder_endpoint(
         name=body.name,
         has_parent_folder_id=body.parent_folder_id is not None
     )
-    
+
     return FolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
@@ -594,7 +594,7 @@ async def create_link_folder_endpoint(
     "/folder/{folder_id}",
     status_code=204,
     summary="Delete a link folder",
-    description="Delete a link folder by ID. Only the owner can delete their own folders. The folder must be of type PAGE."
+    description="Delete a link folder by ID. Only the owner can delete their own folders. The folder must be of type LINK."
 )
 async def delete_link_folder(
     request: Request,
@@ -613,7 +613,7 @@ async def delete_link_folder(
                 "error_message": "Authentication required"
             }
         )
-    
+
     # Get user_id from auth_context
     session_data = auth_context.get("session_data")
     if not session_data:
@@ -624,7 +624,7 @@ async def delete_link_folder(
                 "error_message": "Invalid session data"
             }
         )
-    
+
     auth_vendor_id = session_data.get("auth_vendor_id")
     if not auth_vendor_id:
         raise HTTPException(
@@ -634,7 +634,7 @@ async def delete_link_folder(
                 "error_message": "Missing auth vendor ID"
             }
         )
-    
+
     # Get user_id from auth_vendor_id
     user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
     if not user_id:
@@ -645,7 +645,7 @@ async def delete_link_folder(
                 "error_message": "User not found"
             }
         )
-    
+
     # Get folder to verify ownership and type
     folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
     if not folder:
@@ -656,20 +656,20 @@ async def delete_link_folder(
                 "error_message": "Folder not found or does not belong to user"
             }
         )
-    
-    # Validate that the folder is of type PAGE
-    if folder.get("type") != "PAGE":
+
+    # Validate that the folder is of type LINK
+    if folder.get("type") != "LINK":
         raise HTTPException(
             status_code=422,
             detail={
                 "error_code": "VAL_001",
-                "error_message": "Folder must be of type PAGE"
+                "error_message": "Folder must be of type LINK"
             }
         )
-    
+
     # Delete folder
     deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)
-    
+
     if not deleted:
         raise HTTPException(
             status_code=404,
@@ -678,12 +678,12 @@ async def delete_link_folder(
                 "error_message": "Folder not found or does not belong to user"
             }
         )
-    
+
     logger.info(
         "Deleted link folder successfully",
         folder_id=folder_id,
         user_id=user_id
     )
-    
+
     return FastAPIResponse(status_code=204)
 

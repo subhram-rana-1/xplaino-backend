@@ -45,11 +45,11 @@ INSERT INTO saved_word (id, word, source_url, contextual_meaning, user_id) VALUE
 (UUID(), 'profound', 'https://example.com/article10', 'Having or showing great knowledge or insight; very deep', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
 
 
--- Insert 3 folders into folder table with type = PAGE
+-- Insert 3 folders into folder table with type = LINK
 INSERT INTO folder (id, name, type, parent_id, user_id) VALUES
-('a1b2c3d4-e5f6-4789-0123-456789abcdef', 'Bookmarked Pages', 'PAGE', NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-('b2c3d4e5-f6a7-4890-1234-567890bcdefg', 'Research Articles', 'PAGE', NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
-('c3d4e5f6-a7b8-4901-2345-678901cdefgh', 'Important Links', 'PAGE', 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
+('a1b2c3d4-e5f6-4789-0123-456789abcdef', 'Bookmarked Pages', 'LINK', NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+('b2c3d4e5-f6a7-4890-1234-567890bcdefg', 'Research Articles', 'LINK', NULL, '1a4cee4d-f259-4161-af1c-ef2046a2fe41'),
+('c3d4e5f6-a7b8-4901-2345-678901cdefgh', 'Important Links', 'LINK', 'a1b2c3d4-e5f6-4789-0123-456789abcdef', '1a4cee4d-f259-4161-af1c-ef2046a2fe41');
 
 -- 3 records for folder_id: a1b2c3d4-e5f6-4789-0123-456789abcdef
 INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id) VALUES

@@ -2009,7 +2009,7 @@ def get_folders_by_user_id_and_parent_id_and_type(
     db: Session,
     user_id: str,
     parent_id: Optional[str] = None,
-    folder_type: str = "PAGE"
+    folder_type: str = "LINK"
 ) -> List[Dict[str, Any]]:
     """
     Get folders for a user with a specific parent_id and type.
@@ -2019,7 +2019,7 @@ def get_folders_by_user_id_and_parent_id_and_type(
         db: Database session
         user_id: User ID (CHAR(36) UUID)
         parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
-        folder_type: Folder type ('PAGE' or 'PARAGRAPH')
+        folder_type: Folder type ('LINK' or 'PARAGRAPH')
         
     Returns:
         List of folder dictionaries
@@ -2109,7 +2109,7 @@ def get_all_folders_by_user_id_and_type(
     Args:
         db: Database session
         user_id: User ID (CHAR(36) UUID)
-        folder_type: Folder type ('PAGE' or 'PARAGRAPH')
+        folder_type: Folder type ('LINK' or 'PARAGRAPH')
         
     Returns:
         List of folder dictionaries
@@ -2591,23 +2591,28 @@ def update_saved_link_summary_and_metadata(
 ) -> Optional[Dict[str, Any]]:
     """
     Update summary and metadata for an existing saved link.
+    Summary is only updated if it's not None and has non-zero stripped length.
     
     Args:
         db: Database session
         link_id: Saved link ID (CHAR(36) UUID)
         user_id: User ID (CHAR(36) UUID)
-        summary: Optional summary text to update
+        summary: Optional summary text to update (only updated if not None and stripped length > 0)
         metadata: Optional metadata dictionary to update (will be converted to JSON)
         
     Returns:
         Dictionary with updated saved link data or None if not found or doesn't belong to user
     """
+    # Check if summary should be updated (not None and has non-zero stripped length)
+    should_update_summary = summary is not None and len(summary.strip()) > 0
+    
     logger.info(
         "Updating saved link summary and metadata",
         function="update_saved_link_summary_and_metadata",
         link_id=link_id,
         user_id=user_id,
         has_summary=summary is not None,
+        should_update_summary=should_update_summary,
         has_metadata=metadata is not None
     )
     
@@ -2616,21 +2621,34 @@ def update_saved_link_summary_and_metadata(
     if metadata is not None:
         metadata_json = json.dumps(metadata)
     
-    # Update the saved link
+    # Build UPDATE statement conditionally based on what needs to be updated
+    update_fields = []
+    params = {
+        "link_id": link_id,
+        "user_id": user_id
+    }
+    
+    if should_update_summary:
+        update_fields.append("summary = :summary")
+        params["summary"] = summary.strip()
+    
+    if metadata_json is not None:
+        update_fields.append("metadata = :metadata")
+        params["metadata"] = metadata_json
+    
+    # Always update updated_at timestamp
+    update_fields.append("updated_at = CURRENT_TIMESTAMP")
+    
+    # Update the saved link (always update updated_at at minimum)
+    update_query = f"""
+        UPDATE saved_link
+        SET {', '.join(update_fields)}
+        WHERE id = :link_id AND user_id = :user_id
+    """
+    
     result = db.execute(
-        text("""
-            UPDATE saved_link
-            SET summary = :summary,
-                metadata = :metadata,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = :link_id AND user_id = :user_id
-        """),
-        {
-            "link_id": link_id,
-            "user_id": user_id,
-            "summary": summary,
-            "metadata": metadata_json
-        }
+        text(update_query),
+        params
     )
     
     db.commit()
@@ -2800,14 +2818,14 @@ def get_saved_link_by_id_and_user_id(
     return saved_link
 
 
-def create_page_folder(
+def create_link_folder(
     db: Session,
     user_id: str,
     name: str,
     parent_folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new PAGE type folder for a user.
+    Create a new LINK type folder for a user.
     
     Args:
         db: Database session
@@ -2819,8 +2837,8 @@ def create_page_folder(
         Dictionary with created folder data
     """
     logger.info(
-        "Creating page folder",
-        function="create_page_folder",
+        "Creating link folder",
+        function="create_link_folder",
         user_id=user_id,
         name=name,
         has_parent_folder_id=parent_folder_id is not None
@@ -2829,11 +2847,11 @@ def create_page_folder(
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
     
-    # Insert the new folder with type = 'PAGE'
+    # Insert the new folder with type = 'LINK'
     db.execute(
         text("""
             INSERT INTO folder (id, name, type, parent_id, user_id)
-            VALUES (:id, :name, 'PAGE', :parent_id, :user_id)
+            VALUES (:id, :name, 'LINK', :parent_id, :user_id)
         """),
         {
             "id": folder_id,
@@ -2857,7 +2875,7 @@ def create_page_folder(
     if not result:
         logger.error(
             "Failed to retrieve created folder",
-            function="create_page_folder",
+            function="create_link_folder",
             folder_id=folder_id
         )
         raise Exception("Failed to retrieve created folder")
@@ -2886,8 +2904,8 @@ def create_page_folder(
     }
     
     logger.info(
-        "Created page folder successfully",
-        function="create_page_folder",
+        "Created link folder successfully",
+        function="create_link_folder",
         folder_id=folder_id_val,
         user_id=user_id
     )

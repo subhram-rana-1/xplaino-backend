@@ -68,23 +68,23 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
     "",
     response_model=GetAllFoldersResponse,
     summary="Get all folders",
-    description="Get all folders for the authenticated user in hierarchical structure, filtered by type (PAGE or PARAGRAPH)"
+    description="Get all folders for the authenticated user in hierarchical structure, filtered by type (LINK or PARAGRAPH)"
 )
 async def get_all_folders(
     request: Request,
     response: Response,
-    type: str = Query(..., description="Folder type (PAGE or PARAGRAPH)"),
+    type: str = Query(..., description="Folder type (LINK or PARAGRAPH)"),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """Get all folders for authenticated or unauthenticated users in hierarchical structure."""
     # Validate type query parameter
-    if type not in ["PAGE", "PARAGRAPH"]:
+    if type not in ["LINK", "PARAGRAPH"]:
         raise HTTPException(
             status_code=400,
             detail={
                 "error_code": "VAL_001",
-                "error_message": "Type must be either 'PAGE' or 'PARAGRAPH'"
+                "error_message": "Type must be either 'LINK' or 'PARAGRAPH'"
             }
         )
     

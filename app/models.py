@@ -213,7 +213,7 @@ class GetSavedWordsResponse(BaseModel):
 
 class FolderType(str, Enum):
     """Folder type enum."""
-    PAGE = "PAGE"
+    LINK = "LINK"
     PARAGRAPH = "PARAGRAPH"
 
 
@@ -249,7 +249,7 @@ class FolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
-    type: str = Field(..., description="Folder type (PAGE or PARAGRAPH)")
+    type: str = Field(..., description="Folder type (LINK or PARAGRAPH)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -287,7 +287,7 @@ class SaveLinkRequest(BaseModel):
     
     url: str = Field(..., min_length=1, max_length=1024, description="Link URL to save (max 1024 characters)")
     folder_id: Optional[str] = Field(default=None, description="Folder ID to save the link in (nullable)")
-    name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the link (max 50 characters)")
+    name: Optional[str] = Field(default=None, max_length=100, description="Optional name for the link (max 100 characters)")
     summary: Optional[str] = Field(default=None, description="Optional summary text for the link")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON for the link")
 
@@ -340,7 +340,7 @@ class FolderWithSubFoldersResponse(BaseModel):
 class GetAllFoldersResponse(BaseModel):
     """Response model for getting all folders in hierarchical structure."""
     
-    type: str = Field(..., description="Folder type (PAGE or PARAGRAPH)")
+    type: str = Field(..., description="Folder type (LINK or PARAGRAPH)")
     folders: List[FolderWithSubFoldersResponse] = Field(..., description="List of root folders with nested sub-folders")
 
 
