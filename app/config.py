@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     
     # File Upload Configuration
     max_file_size_mb: int = Field(default=2, description="Maximum file size in MB")
-    allowed_image_types: str = Field(default="jpeg,jpg,png,heic", description="Allowed image types")
+    max_image_file_size_mb: int = Field(default=5, description="Maximum image file size in MB for image-based APIs")
+    allowed_image_types: str = Field(default="jpeg,jpg,png,heic,webp,gif,bmp", description="Allowed image types")
     allowed_pdf_types: str = Field(default="pdf", description="Allowed PDF types")
     
     @property
@@ -49,6 +50,11 @@ class Settings(BaseSettings):
     def max_file_size_bytes(self) -> int:
         """Get maximum file size in bytes."""
         return self.max_file_size_mb * 1024 * 1024
+    
+    @property
+    def max_image_file_size_bytes(self) -> int:
+        """Get maximum image file size in bytes for image-based APIs."""
+        return self.max_image_file_size_mb * 1024 * 1024
     
     # LLM Configuration
     gpt4_turbo_model: str = Field(default="gpt-4-turbo-2024-04-09", description="GPT-4 Turbo model name")
@@ -120,6 +126,8 @@ class Settings(BaseSettings):
     web_search_stream_api_max_limit: int = Field(default=5, description="Max limit for web-search-stream API")
     synonyms_api_max_limit: int = Field(default=5, description="Max limit for synonyms API")
     antonyms_api_max_limit: int = Field(default=5, description="Max limit for antonyms API")
+    simplify_image_api_max_limit: int = Field(default=5, description="Max limit for simplify-image API")
+    ask_image_api_max_limit: int = Field(default=10, description="Max limit for ask-image API")
     
     # Saved words API limits (method-specific)
     saved_words_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-words API")
@@ -165,6 +173,8 @@ class Settings(BaseSettings):
     authenticated_web_search_stream_api_max_limit: int = Field(default=5, description="Max limit for authenticated web-search-stream API")
     authenticated_synonyms_api_max_limit: int = Field(default=5, description="Max limit for authenticated synonyms API")
     authenticated_antonyms_api_max_limit: int = Field(default=5, description="Max limit for authenticated antonyms API")
+    authenticated_simplify_image_api_max_limit: int = Field(default=5, description="Max limit for authenticated simplify-image API")
+    authenticated_ask_image_api_max_limit: int = Field(default=10, description="Max limit for authenticated ask-image API")
     
     # Authenticated saved words API limits (method-specific)
     authenticated_saved_words_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET saved-words API")

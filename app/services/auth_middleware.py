@@ -48,6 +48,8 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     "POST:/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
     "POST:/api/v2/synonyms": "synonyms_api_count_so_far",
     "POST:/api/v2/antonyms": "antonyms_api_count_so_far",
+    "POST:/api/v2/simplify-image": "simplify_image_api_count_so_far",
+    "POST:/api/v2/ask-image": "ask_image_api_count_so_far",
     
     # Saved words APIs (method-specific)
     "GET:/api/saved-words": "saved_words_get_api_count_so_far",
@@ -106,6 +108,8 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     "POST:/api/v2/web-search-stream": "web_search_stream_api_max_limit",
     "POST:/api/v2/synonyms": "synonyms_api_max_limit",
     "POST:/api/v2/antonyms": "antonyms_api_max_limit",
+    "POST:/api/v2/simplify-image": "simplify_image_api_max_limit",
+    "POST:/api/v2/ask-image": "ask_image_api_max_limit",
     
     # Saved words APIs (method-specific)
     "GET:/api/saved-words": "saved_words_get_api_max_limit",
@@ -164,6 +168,8 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     "POST:/api/v2/web-search-stream": "authenticated_web_search_stream_api_max_limit",
     "POST:/api/v2/synonyms": "authenticated_synonyms_api_max_limit",
     "POST:/api/v2/antonyms": "authenticated_antonyms_api_max_limit",
+    "POST:/api/v2/simplify-image": "authenticated_simplify_image_api_max_limit",
+    "POST:/api/v2/ask-image": "authenticated_ask_image_api_max_limit",
     
     # Saved words APIs (method-specific)
     "GET:/api/saved-words": "authenticated_saved_words_get_api_max_limit",

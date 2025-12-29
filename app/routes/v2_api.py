@@ -5,7 +5,7 @@ import json
 import os
 from enum import Enum
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Depends, Response
+from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Depends, Response, Form
 from fastapi.responses import StreamingResponse, Response
 import structlog
 
@@ -19,6 +19,7 @@ from app.services.llm.open_ai import openai_service
 from app.services.rate_limiter import rate_limiter
 from app.services.web_search_service import web_search_service
 from app.services.auth_middleware import authenticate
+from app.services.image_service import image_service
 from app.exceptions import FileValidationError, ValidationError
 from app.utils.utils import get_client_ip
 from pydantic import BaseModel, Field
@@ -239,6 +240,22 @@ class AntonymsResponse(BaseModel):
     """Response model for antonyms API."""
     
     results: List[WordAntonyms] = Field(..., description="List of word antonyms")
+
+
+class SimplifyImageRequest(BaseModel):
+    """Request model for image simplification (used for parsing form data)."""
+    
+    previousSimplifiedTexts: List[str] = Field(default=[], description="Previous simplified versions for context (JSON string)")
+    languageCode: Optional[str] = Field(default=None, max_length=10, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected.")
+
+
+class AskImageRequest(BaseModel):
+    """Request model for ask-image API (used for parsing form data)."""
+    
+    question: str = Field(..., min_length=1, max_length=2000, description="User's question")
+    chat_history: List[ChatMessage] = Field(default=[], description="Previous chat history for context (JSON string)")
+    languageCode: Optional[str] = Field(default=None, max_length=10, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected.")
+    context_type: Optional[ContextType] = Field(default=ContextType.TEXT, description="Type of context: PAGE (for page/document context with source references) or TEXT (standard text context). Default is TEXT.")
 
 
 async def get_client_id(request: Request) -> str:
@@ -1340,3 +1357,279 @@ async def get_antonyms_v2(
         response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
     
     return AntonymsResponse(results=list(results))
+
+
+@router.post(
+    "/simplify-image",
+    summary="Simplify image content with streaming (v2) - SSE Streaming",
+    description="Generate simplified explanation of image content using OpenAI Vision API with previous context via Server-Sent Events. Returns streaming word-by-word response as the image is analyzed and simplified. Supports jpeg, jpg, png, heic, webp, gif, bmp formats (max 5MB)."
+)
+async def simplify_image_v2(
+    request: Request,
+    response: Response,
+    image: UploadFile = File(..., description="Image file to simplify (max 5MB)"),
+    previousSimplifiedTexts: str = Form(default="[]", description="Previous simplified versions for context (JSON array string)"),
+    languageCode: Optional[str] = Form(default=None, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected."),
+    auth_context: dict = Depends(authenticate)
+):
+    """Simplify image content with context from previous simplifications using word-by-word streaming."""
+    client_id = await get_client_id(request)
+    await rate_limiter.check_rate_limit(client_id, "simplify-image")
+    
+    async def generate_simplifications():
+        """Generate SSE stream of simplified image explanations with word-by-word streaming."""
+        try:
+            # Validate and process image
+            image_bytes = await image.read()
+            processed_image_data, image_format = image_service.validate_image_file_for_api(
+                image_bytes, 
+                image.filename or "image",
+                max_size_mb=5
+            )
+            
+            # Parse previousSimplifiedTexts from JSON string
+            try:
+                previous_texts = json.loads(previousSimplifiedTexts) if previousSimplifiedTexts else []
+                if not isinstance(previous_texts, list):
+                    previous_texts = []
+            except (json.JSONDecodeError, TypeError):
+                previous_texts = []
+            
+            accumulated_simplified = ""
+
+            # Stream simplified explanation chunks from OpenAI
+            async for chunk in openai_service.simplify_image_stream(
+                processed_image_data,
+                image_format,
+                previous_texts,
+                languageCode
+            ):
+                accumulated_simplified += chunk
+
+                # Send each chunk as it arrives
+                chunk_data = {
+                    "chunk": chunk,
+                    "accumulatedSimplifiedText": accumulated_simplified
+                }
+                event_data = f"data: {json.dumps(chunk_data)}\n\n"
+                yield event_data
+            
+            # After streaming is complete, generate possible questions if previousSimplifiedTexts is empty
+            should_allow_simplify_more = len(previous_texts) < settings.max_simplification_attempts
+            
+            possible_questions = None
+            # Only generate questions if previousSimplifiedTexts is empty
+            if len(previous_texts) == 0:
+                try:
+                    # Use the simplified text to generate questions
+                    possible_questions = await openai_service.generate_possible_questions_for_text(
+                        accumulated_simplified,
+                        languageCode,
+                        max_questions=3
+                    )
+                except Exception as e:
+                    logger.error("Failed to generate possible questions for simplify-image, continuing without them", error=str(e))
+                    # Continue without questions if generation fails
+                    possible_questions = None
+            
+            final_data = {
+                "type": "complete",
+                "simplifiedText": accumulated_simplified,
+                "shouldAllowSimplifyMore": should_allow_simplify_more
+            }
+            
+            # Only include possibleQuestions if it was generated (i.e., previousSimplifiedTexts was empty)
+            if possible_questions is not None:
+                final_data["possibleQuestions"] = possible_questions
+            
+            event_data = f"data: {json.dumps(final_data)}\n\n"
+            yield event_data
+        
+            # Send final completion event
+            yield "data: [DONE]\n\n"
+            
+        except FileValidationError as e:
+            logger.error("Image validation error in simplify-image v2", error=str(e))
+            error_event = {
+                "type": "error",
+                "error_code": "VALIDATION_ERROR",
+                "error_message": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+        except Exception as e:
+            logger.error("Error in simplify-image v2 stream", error=str(e))
+            error_event = {
+                "type": "error",
+                "error_code": "STREAM_007",
+                "error_message": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+    
+    logger.info("Starting image simplification v2 stream", 
+               filename=image.filename)
+    
+    # Get the actual origin instead of using wildcard when credentials are required
+    allowed_origin = get_allowed_origin_from_request(request)
+    
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # Disable nginx buffering
+        "Access-Control-Allow-Origin": allowed_origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, X-Forwarded-For, User-Agent, Origin, Referer, Cache-Control, Pragma, Content-Disposition, Content-Transfer-Encoding, X-File-Name, X-File-Size, X-File-Type, X-Access-Token, X-Unauthenticated-User-Id",
+        "Access-Control-Expose-Headers": "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id"
+    }
+    if auth_context.get("is_new_unauthenticated_user"):
+        headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return StreamingResponse(
+        generate_simplifications(),
+        media_type="text/event-stream",
+        headers=headers
+    )
+
+
+@router.post(
+    "/ask-image",
+    summary="Contextual Q&A with image context and streaming (v2)",
+    description="Ask questions about an image with full chat history context for ongoing conversations. Returns streaming word-by-word response via Server-Sent Events. The image serves as the context for answering questions. Supports jpeg, jpg, png, heic, webp, gif, bmp formats (max 5MB)."
+)
+async def ask_image_v2(
+    request: Request,
+    response: Response,
+    question: str = Form(..., min_length=1, max_length=2000, description="User's question"),
+    image: UploadFile = File(..., description="Image file to use as context (max 5MB)"),
+    chat_history: str = Form(default="[]", description="Previous chat history for context (JSON array string)"),
+    languageCode: Optional[str] = Form(default=None, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected."),
+    context_type: Optional[ContextType] = Form(default=ContextType.TEXT, description="Type of context: PAGE (for page/document context with source references) or TEXT (standard text context). Default is TEXT."),
+    auth_context: dict = Depends(authenticate)
+):
+    """Handle contextual Q&A with image context and chat history using streaming."""
+    client_id = await get_client_id(request)
+    await rate_limiter.check_rate_limit(client_id, "ask-image")
+    
+    async def generate_streaming_answer():
+        """Generate SSE stream of answer chunks."""
+        accumulated_answer = ""
+        try:
+            # Validate and process image
+            image_bytes = await image.read()
+            processed_image_data, image_format = image_service.validate_image_file_for_api(
+                image_bytes,
+                image.filename or "image",
+                max_size_mb=5
+            )
+            
+            # Parse chat_history from JSON string
+            try:
+                history_data = json.loads(chat_history) if chat_history else []
+                parsed_history = []
+                for msg in history_data:
+                    if isinstance(msg, dict):
+                        parsed_history.append(ChatMessage(role=msg.get("role", "user"), content=msg.get("content", "")))
+                    elif hasattr(msg, "role") and hasattr(msg, "content"):
+                        parsed_history.append(msg)
+            except (json.JSONDecodeError, TypeError, KeyError):
+                parsed_history = []
+            
+            # Stream answer chunks from OpenAI
+            context_type_value = context_type.value if context_type else "TEXT"
+            async for chunk in openai_service.generate_contextual_answer_with_image_stream(
+                question,
+                processed_image_data,
+                image_format,
+                parsed_history,
+                languageCode,
+                context_type_value
+            ):
+                accumulated_answer += chunk
+
+                # Send each chunk as it arrives
+                chunk_data = {
+                    "chunk": chunk,
+                    "accumulated": accumulated_answer
+                }
+                event_data = f"data: {json.dumps(chunk_data)}\n\n"
+                yield event_data
+
+            # After streaming is complete, generate recommended questions
+            # Build updated chat history first
+            updated_history = parsed_history.copy()
+            updated_history.append(ChatMessage(role="user", content=question))
+            updated_history.append(ChatMessage(role="assistant", content=accumulated_answer))
+            
+            possible_questions = []
+            try:
+                # Pass updated history (including current Q&A) for better context in question generation
+                # Since we're using image context, we'll pass None for initial_context
+                possible_questions = await openai_service.generate_recommended_questions(
+                    question,
+                    updated_history,  # Use updated history including current Q&A for better context
+                    None,  # No text initial_context since we're using image
+                    languageCode
+                )
+            except Exception as e:
+                logger.error("Failed to generate recommended questions for ask-image, continuing without them", error=str(e))
+                # Continue with empty questions list if generation fails
+                possible_questions = []
+
+            # Send final response with updated chat history and possible questions
+            final_data = {
+                "type": "complete",
+                "chat_history": [msg.model_dump() for msg in updated_history],
+                "possibleQuestions": possible_questions
+            }
+            event_data = f"data: {json.dumps(final_data)}\n\n"
+            yield event_data
+
+            # Send final completion event
+            yield "data: [DONE]\n\n"
+
+            logger.info("Successfully streamed contextual answer with image",
+                       question_length=len(question),
+                       answer_length=len(accumulated_answer),
+                       chat_history_length=len(updated_history),
+                       questions_count=len(possible_questions))
+
+        except FileValidationError as e:
+            logger.error("Image validation error in ask-image v2", error=str(e))
+            error_event = {
+                "type": "error",
+                "error_code": "VALIDATION_ERROR",
+                "error_message": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+        except Exception as e:
+            logger.error("Error in ask-image v2 stream", error=str(e))
+            error_event = {
+                "type": "error",
+                "error_code": "STREAM_008",
+                "error_message": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+
+    logger.info("Starting ask-image v2 stream",
+               question_length=len(question),
+               chat_history_length=len(chat_history) if chat_history else 0,
+               filename=image.filename)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # Disable nginx buffering
+        "Access-Control-Allow-Origin": get_allowed_origin_from_request(request),
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, X-Forwarded-For, User-Agent, Origin, Referer, Cache-Control, Pragma, Content-Disposition, Content-Transfer-Encoding, X-File-Name, X-File-Size, X-File-Type, X-Access-Token, X-Unauthenticated-User-Id",
+        "Access-Control-Expose-Headers": "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id"
+    }
+    if auth_context.get("is_new_unauthenticated_user"):
+        headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+
+    return StreamingResponse(
+        generate_streaming_answer(),
+        media_type="text/event-stream",
+        headers=headers
+    )
