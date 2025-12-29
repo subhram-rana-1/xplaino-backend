@@ -60,12 +60,23 @@ CREATE TABLE IF NOT EXISTS unauthenticated_user_api_usage (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Unsubscribed user API usage table (for authenticated users without subscription)
+CREATE TABLE IF NOT EXISTS unsubscribed_user_api_usage (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    user_id CHAR(36) NOT NULL,
+    api_usage JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    FOREIGN KEY (user_id) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Saved words table
 CREATE TABLE IF NOT EXISTS saved_word (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     word VARCHAR(32) NOT NULL,
     source_url VARCHAR(1024) NOT NULL,
-    contextual_meaning VARCHAR(1000) NOT NULL,
+    contextual_meaning VARCHAR(1000) NULL,
     user_id CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),
@@ -77,7 +88,7 @@ CREATE TABLE IF NOT EXISTS saved_word (
 CREATE TABLE IF NOT EXISTS folder (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     name VARCHAR(50) NOT NULL,
-    type ENUM('PAGE', 'PARAGRAPH') NOT NULL,
+    type ENUM('LINK', 'PARAGRAPH') NOT NULL,
     parent_id CHAR(36) NULL,
     user_id CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -106,18 +117,23 @@ CREATE TABLE IF NOT EXISTS saved_paragraph (
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Saved page table
-CREATE TABLE IF NOT EXISTS saved_page (
+-- Saved link table
+CREATE TABLE IF NOT EXISTS saved_link (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     url VARCHAR(1024) NOT NULL,
-    name VARCHAR(50) NULL,
+    name VARCHAR(100) NULL,
+    type ENUM('WEBPAGE', 'YOUTUBE', 'LINKEDIN', 'TWITTER', 'REDDIT', 'FACEBOOK', 'INSTAGRAM') NOT NULL DEFAULT 'WEBPAGE',
+    summary TEXT NULL,
+    metadata JSON NULL,
     folder_id CHAR(36) NULL,
     user_id CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),
     INDEX idx_folder_id (folder_id),
+    INDEX idx_url (url),
     INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    UNIQUE KEY uk_url_user_id (url, user_id),
     FOREIGN KEY (user_id) REFERENCES user(id),
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -214,5 +230,18 @@ CREATE TABLE IF NOT EXISTS subscription (
     INDEX idx_user_id (user_id),
     FOREIGN KEY (pricing_id) REFERENCES pricing(id) ON DELETE RESTRICT,
     FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Domain table
+CREATE TABLE IF NOT EXISTS domain (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    url VARCHAR(100) NOT NULL,
+    status ENUM('ALLOWED', 'BANNED') NOT NULL DEFAULT 'ALLOWED',
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_url (url),
+    INDEX idx_status (status),
+    FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

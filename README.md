@@ -135,14 +135,7 @@ For example, to add the `contextual_meaning` column used by the saved words APIs
 
 ```sql
 ALTER TABLE saved_word
-ADD COLUMN contextual_meaning VARCHAR(1000) NOT NULL DEFAULT '';
-```
-
-You can later drop the default if you do not need it:
-
-```sql
-ALTER TABLE saved_word
-MODIFY COLUMN contextual_meaning VARCHAR(1000) NOT NULL;
+ADD COLUMN contextual_meaning VARCHAR(1000) NULL;
 ```
 
 ### Code Quality

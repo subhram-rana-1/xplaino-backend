@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/saved-words", tags=["Saved Words"])
 
 
 @router.get(
-    "/",
+    "",
     response_model=GetSavedWordsResponse,
     summary="Get saved words",
     description="Get paginated list of saved words for the authenticated user, ordered by most recent first"
@@ -38,48 +38,15 @@ async def get_saved_words(
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
-    """Get saved words for the authenticated user with pagination."""
-    # Verify user is authenticated
-    if not auth_context.get("authenticated"):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "LOGIN_REQUIRED",
-                "error_message": "Authentication required"
-            }
-        )
-    
-    # Get user_id from auth_context
-    session_data = auth_context.get("session_data")
-    if not session_data:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_001",
-                "error_message": "Invalid session data"
-            }
-        )
-    
-    auth_vendor_id = session_data.get("auth_vendor_id")
-    if not auth_vendor_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_002",
-                "error_message": "Missing auth vendor ID"
-            }
-        )
-    
-    # Get user_id from auth_vendor_id
-    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_003",
-                "error_message": "User not found"
-            }
-        )
+    """Get saved words for authenticated or unauthenticated users with pagination."""
+    # Extract user_id based on authentication status
+    # authenticate() middleware has already validated these fields exist
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    else:
+        user_id = auth_context["unauthenticated_user_id"]
     
     # Get saved words
     words_data, total_count = get_saved_words_by_user_id(db, user_id, offset, limit)
@@ -103,8 +70,13 @@ async def get_saved_words(
         words_count=len(words),
         total_count=total_count,
         offset=offset,
-        limit=limit
+        limit=limit,
+        authenticated=auth_context.get("authenticated", False)
     )
+    
+    # Add X-Unauthenticated-User-Id header for new unauthenticated users
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
     
     return GetSavedWordsResponse(
         words=words,
@@ -115,7 +87,7 @@ async def get_saved_words(
 
 
 @router.post(
-    "/",
+    "",
     response_model=SavedWordResponse,
     status_code=201,
     summary="Save a word",
@@ -128,48 +100,15 @@ async def save_word(
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
-    """Save a word for the authenticated user."""
-    # Verify user is authenticated
-    if not auth_context.get("authenticated"):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "LOGIN_REQUIRED",
-                "error_message": "Authentication required"
-            }
-        )
-    
-    # Get user_id from auth_context
-    session_data = auth_context.get("session_data")
-    if not session_data:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_001",
-                "error_message": "Invalid session data"
-            }
-        )
-    
-    auth_vendor_id = session_data.get("auth_vendor_id")
-    if not auth_vendor_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_002",
-                "error_message": "Missing auth vendor ID"
-            }
-        )
-    
-    # Get user_id from auth_vendor_id
-    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_003",
-                "error_message": "User not found"
-            }
-        )
+    """Save a word for authenticated or unauthenticated users."""
+    # Extract user_id based on authentication status
+    # authenticate() middleware has already validated these fields exist
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    else:
+        user_id = auth_context["unauthenticated_user_id"]
     
     # Validate input lengths (Pydantic handles this, but double-check)
     if len(body.word) > 32:
@@ -191,18 +130,24 @@ async def save_word(
         )
     
     # Create saved word
-    saved_word_data = create_saved_word(db, user_id, body.word, body.sourceUrl)
+    saved_word_data = create_saved_word(db, user_id, body.word, body.sourceUrl, body.contextual_meaning)
     
     logger.info(
         "Saved word successfully",
         word_id=saved_word_data["id"],
         user_id=user_id,
-        word=body.word
+        word=body.word,
+        authenticated=auth_context.get("authenticated", False)
     )
+    
+    # Add X-Unauthenticated-User-Id header for new unauthenticated users
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
     
     return SavedWordResponse(
         id=saved_word_data["id"],
         word=saved_word_data["word"],
+        contextual_meaning=saved_word_data["contextual_meaning"],
         sourceUrl=saved_word_data["source_url"],
         userId=saved_word_data["user_id"],
         createdAt=saved_word_data["created_at"]
@@ -222,48 +167,15 @@ async def remove_saved_word(
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
-    """Remove a saved word for the authenticated user."""
-    # Verify user is authenticated
-    if not auth_context.get("authenticated"):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "LOGIN_REQUIRED",
-                "error_message": "Authentication required"
-            }
-        )
-    
-    # Get user_id from auth_context
-    session_data = auth_context.get("session_data")
-    if not session_data:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_001",
-                "error_message": "Invalid session data"
-            }
-        )
-    
-    auth_vendor_id = session_data.get("auth_vendor_id")
-    if not auth_vendor_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_002",
-                "error_message": "Missing auth vendor ID"
-            }
-        )
-    
-    # Get user_id from auth_vendor_id
-    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "AUTH_003",
-                "error_message": "User not found"
-            }
-        )
+    """Remove a saved word for authenticated or unauthenticated users."""
+    # Extract user_id based on authentication status
+    # authenticate() middleware has already validated these fields exist
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    else:
+        user_id = auth_context["unauthenticated_user_id"]
     
     # Delete saved word (this will only delete if it belongs to the user)
     deleted = delete_saved_word_by_id_and_user_id(db, word_id, user_id)
@@ -280,8 +192,14 @@ async def remove_saved_word(
     logger.info(
         "Deleted saved word successfully",
         word_id=word_id,
-        user_id=user_id
+        user_id=user_id,
+        authenticated=auth_context.get("authenticated", False)
     )
+    
+    # Add X-Unauthenticated-User-Id header for new unauthenticated users
+    # Note: 204 No Content responses may not show headers in some clients, but we set it anyway
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
     
     return FastAPIResponse(status_code=204)
 

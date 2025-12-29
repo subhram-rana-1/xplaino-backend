@@ -630,7 +630,26 @@ def create_unauthenticated_user_usage(
         "translate_api_count_so_far": 0,
         "web_search_api_count_so_far": 0,
         "web_search_stream_api_count_so_far": 0,
-        "saved_words_api_count_so_far": 0
+        "synonyms_api_count_so_far": 0,
+        "antonyms_api_count_so_far": 0,
+        # Method-specific counters for saved words
+        "saved_words_get_api_count_so_far": 0,
+        "saved_words_post_api_count_so_far": 0,
+        "saved_words_delete_api_count_so_far": 0,
+        # Method-specific counters for saved paragraph
+        "saved_paragraph_get_api_count_so_far": 0,
+        "saved_paragraph_post_api_count_so_far": 0,
+        "saved_paragraph_delete_api_count_so_far": 0,
+        "saved_paragraph_folder_post_api_count_so_far": 0,
+        "saved_paragraph_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for saved link
+        "saved_link_get_api_count_so_far": 0,
+        "saved_link_post_api_count_so_far": 0,
+        "saved_link_delete_api_count_so_far": 0,
+        "saved_link_folder_post_api_count_so_far": 0,
+        "saved_link_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for folders
+        "folders_get_api_count_so_far": 0
     }
     
     # Set the current API count to 1 (this API was just called)
@@ -740,6 +759,169 @@ def check_api_usage_limit(
     
     current_count = api_usage.get(api_name, 0)
     return current_count >= max_limit
+
+
+def get_authenticated_user_api_usage(
+    db: Session,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get authenticated user API usage record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (UUID) - foreign key to user table
+        
+    Returns:
+        Dictionary with api_usage JSON data or None if not found
+    """
+    result = db.execute(
+        text("SELECT api_usage FROM unsubscribed_user_api_usage WHERE user_id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        return None
+    
+    api_usage_json = result[0]
+    if isinstance(api_usage_json, str):
+        api_usage = json.loads(api_usage_json)
+    else:
+        api_usage = api_usage_json
+    
+    return api_usage
+
+
+def create_authenticated_user_api_usage(
+    db: Session,
+    user_id: str,
+    api_name: str
+) -> None:
+    """
+    Create a new authenticated user API usage record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (UUID) - foreign key to user table
+        api_name: Name of the API being called (used to initialize counter)
+    """
+    # Initialize API usage JSON with all counters set to 0
+    # Note: We initialize to 0 because the caller will increment it after creation
+    api_usage = {
+        "words_explanation_api_count_so_far": 0,
+        "get_more_explanations_api_count_so_far": 0,
+        "ask_api_count_so_far": 0,
+        "simplify_api_count_so_far": 0,
+        "summarise_api_count_so_far": 0,
+        "image_to_text_api_count_so_far": 0,
+        "pdf_to_text_api_count_so_far": 0,
+        "important_words_from_text_v1_api_count_so_far": 0,
+        "words_explanation_v1_api_count_so_far": 0,
+        "get_random_paragraph_api_count_so_far": 0,
+        "important_words_from_text_v2_api_count_so_far": 0,
+        "pronunciation_api_count_so_far": 0,
+        "voice_to_text_api_count_so_far": 0,
+        "translate_api_count_so_far": 0,
+        "web_search_api_count_so_far": 0,
+        "web_search_stream_api_count_so_far": 0,
+        "synonyms_api_count_so_far": 0,
+        "antonyms_api_count_so_far": 0,
+        # Method-specific counters for saved words
+        "saved_words_get_api_count_so_far": 0,
+        "saved_words_post_api_count_so_far": 0,
+        "saved_words_delete_api_count_so_far": 0,
+        # Method-specific counters for saved paragraph
+        "saved_paragraph_get_api_count_so_far": 0,
+        "saved_paragraph_post_api_count_so_far": 0,
+        "saved_paragraph_delete_api_count_so_far": 0,
+        "saved_paragraph_folder_post_api_count_so_far": 0,
+        "saved_paragraph_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for saved link
+        "saved_link_get_api_count_so_far": 0,
+        "saved_link_post_api_count_so_far": 0,
+        "saved_link_delete_api_count_so_far": 0,
+        "saved_link_folder_post_api_count_so_far": 0,
+        "saved_link_folder_delete_api_count_so_far": 0,
+        # Method-specific counters for folders
+        "folders_get_api_count_so_far": 0
+    }
+    
+    # Ensure the api_name field exists (initialize to 0, will be incremented by caller)
+    if api_name not in api_usage:
+        logger.warning(
+            "API name not found in api_usage dictionary, adding it",
+            api_name=api_name
+        )
+        api_usage[api_name] = 0
+    
+    db.execute(
+        text("""
+            INSERT INTO unsubscribed_user_api_usage 
+            (user_id, api_usage)
+            VALUES 
+            (:user_id, :api_usage)
+        """),
+        {
+            "user_id": user_id,
+            "api_usage": json.dumps(api_usage)
+        }
+    )
+    db.commit()
+    
+    logger.info("Created authenticated user API usage record", user_id=user_id, api_name=api_name)
+
+
+def increment_authenticated_api_usage(
+    db: Session,
+    user_id: str,
+    api_name: str
+) -> None:
+    """
+    Increment the API usage counter for a specific API for authenticated user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (UUID) - foreign key to user table
+        api_name: Name of the API counter field to increment
+    """
+    # Get current usage
+    result = db.execute(
+        text("SELECT api_usage FROM unsubscribed_user_api_usage WHERE user_id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning("Authenticated user usage record not found", user_id=user_id)
+        return
+    
+    api_usage_json = result[0]
+    if isinstance(api_usage_json, str):
+        api_usage = json.loads(api_usage_json)
+    else:
+        api_usage = api_usage_json
+    
+    # Increment the counter
+    if api_name in api_usage:
+        api_usage[api_name] = api_usage.get(api_name, 0) + 1
+    else:
+        api_usage[api_name] = 1
+    
+    # Update the record
+    db.execute(
+        text("""
+            UPDATE unsubscribed_user_api_usage 
+            SET api_usage = :api_usage,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = :user_id
+        """),
+        {
+            "user_id": user_id,
+            "api_usage": json.dumps(api_usage)
+        }
+    )
+    db.commit()
+    
+    logger.info("Incremented authenticated API usage", user_id=user_id, api_name=api_name, count=api_usage[api_name])
 
 
 def get_user_session_by_id(
@@ -1015,7 +1197,8 @@ def create_saved_word(
     db: Session,
     user_id: str,
     word: str,
-    source_url: str
+    source_url: str,
+    contextual_meaning: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new saved word for a user.
@@ -1025,6 +1208,7 @@ def create_saved_word(
         user_id: User ID (CHAR(36) UUID)
         word: Word to save (max 32 characters)
         source_url: Source URL (max 1024 characters)
+        contextual_meaning: Optional contextual meaning (max 1000 characters)
         
     Returns:
         Dictionary with created saved word data
@@ -1034,7 +1218,8 @@ def create_saved_word(
         function="create_saved_word",
         user_id=user_id,
         word=word,
-        source_url_length=len(source_url)
+        source_url_length=len(source_url),
+        has_contextual_meaning=contextual_meaning is not None
     )
     
     # Generate UUID for the new saved word
@@ -1043,14 +1228,15 @@ def create_saved_word(
     # Insert the new saved word
     db.execute(
         text("""
-            INSERT INTO saved_word (id, word, source_url, user_id)
-            VALUES (:id, :word, :source_url, :user_id)
+            INSERT INTO saved_word (id, word, source_url, user_id, contextual_meaning)
+            VALUES (:id, :word, :source_url, :user_id, :contextual_meaning)
         """),
         {
             "id": word_id,
             "word": word,
             "source_url": source_url,
-            "user_id": user_id
+            "user_id": user_id,
+            "contextual_meaning": contextual_meaning
         }
     )
     db.commit()
@@ -1058,7 +1244,7 @@ def create_saved_word(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, word, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, user_id, created_at
             FROM saved_word
             WHERE id = :id
         """),
@@ -1073,7 +1259,7 @@ def create_saved_word(
         )
         raise Exception("Failed to retrieve created saved word")
     
-    word_id_val, word_val, source_url_val, user_id_val, created_at = result
+    word_id_val, word_val, contextual_meaning_val, source_url_val, user_id_val, created_at = result
     
     # Convert created_at to ISO format string
     if isinstance(created_at, datetime):
@@ -1084,6 +1270,7 @@ def create_saved_word(
     saved_word = {
         "id": word_id_val,
         "word": word_val,
+        "contextual_meaning": contextual_meaning_val,
         "source_url": source_url_val,
         "user_id": user_id_val,
         "created_at": created_at_str
@@ -1124,7 +1311,7 @@ def get_saved_word_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, word, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, user_id, created_at
             FROM saved_word
             WHERE id = :word_id AND user_id = :user_id
         """),
@@ -1143,7 +1330,7 @@ def get_saved_word_by_id_and_user_id(
         )
         return None
     
-    word_id_val, word, source_url, user_id_val, created_at = result
+    word_id_val, word, contextual_meaning, source_url, user_id_val, created_at = result
     
     # Convert created_at to ISO format string
     if isinstance(created_at, datetime):
@@ -1154,6 +1341,7 @@ def get_saved_word_by_id_and_user_id(
     saved_word = {
         "id": word_id_val,
         "word": word,
+        "contextual_meaning": contextual_meaning,
         "source_url": source_url,
         "user_id": user_id_val,
         "created_at": created_at_str
@@ -1821,7 +2009,7 @@ def get_folders_by_user_id_and_parent_id_and_type(
     db: Session,
     user_id: str,
     parent_id: Optional[str] = None,
-    folder_type: str = "PAGE"
+    folder_type: str = "LINK"
 ) -> List[Dict[str, Any]]:
     """
     Get folders for a user with a specific parent_id and type.
@@ -1831,7 +2019,7 @@ def get_folders_by_user_id_and_parent_id_and_type(
         db: Database session
         user_id: User ID (CHAR(36) UUID)
         parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
-        folder_type: Folder type ('PAGE' or 'PARAGRAPH')
+        folder_type: Folder type ('LINK' or 'PARAGRAPH')
         
     Returns:
         List of folder dictionaries
@@ -1909,89 +2097,46 @@ def get_folders_by_user_id_and_parent_id_and_type(
     return folders
 
 
-def get_saved_pages_by_user_id_and_folder_id(
+def get_all_folders_by_user_id_and_type(
     db: Session,
     user_id: str,
-    folder_id: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20
-) -> Tuple[List[Dict[str, Any]], int]:
+    folder_type: str
+) -> List[Dict[str, Any]]:
     """
-    Get saved pages for a user with pagination, ordered by created_at DESC.
-    If folder_id is None, get pages where folder_id IS NULL.
+    Get all folders for a user with a specific type (regardless of parent_id).
+    This is used to build hierarchical structures.
     
     Args:
         db: Database session
         user_id: User ID (CHAR(36) UUID)
-        folder_id: Folder ID (CHAR(36) UUID) or None for root pages
-        offset: Pagination offset (default: 0)
-        limit: Pagination limit (default: 20)
+        folder_type: Folder type ('LINK' or 'PARAGRAPH')
         
     Returns:
-        Tuple of (list of page dictionaries, total count)
+        List of folder dictionaries
     """
     logger.info(
-        "Getting saved pages by user_id and folder_id",
-        function="get_saved_pages_by_user_id_and_folder_id",
+        "Getting all folders by user_id and type",
+        function="get_all_folders_by_user_id_and_type",
         user_id=user_id,
-        folder_id=folder_id,
-        offset=offset,
-        limit=limit
+        folder_type=folder_type
     )
     
-    # Get total count
-    if folder_id is None:
-        count_result = db.execute(
-            text("SELECT COUNT(*) FROM saved_page WHERE user_id = :user_id AND folder_id IS NULL"),
-            {"user_id": user_id}
-        ).fetchone()
-    else:
-        count_result = db.execute(
-            text("SELECT COUNT(*) FROM saved_page WHERE user_id = :user_id AND folder_id = :folder_id"),
-            {
-                "user_id": user_id,
-                "folder_id": folder_id
-            }
-        ).fetchone()
+    result = db.execute(
+        text("""
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE user_id = :user_id AND type = :folder_type
+            ORDER BY created_at DESC
+        """),
+        {
+            "user_id": user_id,
+            "folder_type": folder_type
+        }
+    ).fetchall()
     
-    total_count = count_result[0] if count_result else 0
-    
-    # Get paginated pages
-    if folder_id is None:
-        pages_result = db.execute(
-            text("""
-                SELECT id, url, name, folder_id, user_id, created_at, updated_at
-                FROM saved_page
-                WHERE user_id = :user_id AND folder_id IS NULL
-                ORDER BY created_at DESC
-                LIMIT :limit OFFSET :offset
-            """),
-            {
-                "user_id": user_id,
-                "limit": limit,
-                "offset": offset
-            }
-        ).fetchall()
-    else:
-        pages_result = db.execute(
-            text("""
-                SELECT id, url, name, folder_id, user_id, created_at, updated_at
-                FROM saved_page
-                WHERE user_id = :user_id AND folder_id = :folder_id
-                ORDER BY created_at DESC
-                LIMIT :limit OFFSET :offset
-            """),
-            {
-                "user_id": user_id,
-                "folder_id": folder_id,
-                "limit": limit,
-                "offset": offset
-            }
-        ).fetchall()
-    
-    pages = []
-    for row in pages_result:
-        page_id, url, name, folder_id_val, user_id_val, created_at, updated_at = row
+    folders = []
+    for row in result:
+        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
         
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -2004,10 +2149,140 @@ def get_saved_pages_by_user_id_and_folder_id(
         else:
             updated_at_str = str(updated_at)
         
-        pages.append({
-            "id": page_id,
+        folders.append({
+            "id": folder_id,
+            "name": name,
+            "type": folder_type_val,
+            "parent_id": parent_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved all folders successfully",
+        function="get_all_folders_by_user_id_and_type",
+        user_id=user_id,
+        folder_type=folder_type,
+        folders_count=len(folders)
+    )
+    
+    return folders
+
+
+def get_saved_links_by_user_id_and_folder_id(
+    db: Session,
+    user_id: str,
+    folder_id: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved links for a user with pagination, ordered by created_at DESC.
+    If folder_id is None, get links where folder_id IS NULL.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID) or None for root links
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of link dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved links by user_id and folder_id",
+        function="get_saved_links_by_user_id_and_folder_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    if folder_id is None:
+        count_result = db.execute(
+            text("SELECT COUNT(*) FROM saved_link WHERE user_id = :user_id AND folder_id IS NULL"),
+            {"user_id": user_id}
+        ).fetchone()
+    else:
+        count_result = db.execute(
+            text("SELECT COUNT(*) FROM saved_link WHERE user_id = :user_id AND folder_id = :folder_id"),
+            {
+                "user_id": user_id,
+                "folder_id": folder_id
+            }
+        ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated links
+    if folder_id is None:
+        links_result = db.execute(
+            text("""
+                SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+                FROM saved_link
+                WHERE user_id = :user_id AND folder_id IS NULL
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset
+            }
+        ).fetchall()
+    else:
+        links_result = db.execute(
+            text("""
+                SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+                FROM saved_link
+                WHERE user_id = :user_id AND folder_id = :folder_id
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "user_id": user_id,
+                "folder_id": folder_id,
+                "limit": limit,
+                "offset": offset
+            }
+        ).fetchall()
+    
+    links = []
+    for row in links_result:
+        link_id, url, name, link_type, summary, metadata, folder_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        # Parse metadata JSON if it's a string
+        metadata_dict = None
+        if metadata:
+            if isinstance(metadata, str):
+                try:
+                    metadata_dict = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata_dict = None
+            else:
+                metadata_dict = metadata
+        
+        links.append({
+            "id": link_id,
             "url": url,
             "name": name,
+            "type": link_type,
+            "summary": summary,
+            "metadata": metadata_dict,
             "folder_id": folder_id_val,
             "user_id": user_id_val,
             "created_at": created_at_str,
@@ -2015,61 +2290,80 @@ def get_saved_pages_by_user_id_and_folder_id(
         })
     
     logger.info(
-        "Retrieved saved pages successfully",
-        function="get_saved_pages_by_user_id_and_folder_id",
+        "Retrieved saved links successfully",
+        function="get_saved_links_by_user_id_and_folder_id",
         user_id=user_id,
         folder_id=folder_id,
-        pages_count=len(pages),
+        links_count=len(links),
         total_count=total_count,
         offset=offset,
         limit=limit
     )
     
-    return pages, total_count
+    return links, total_count
 
 
-def create_saved_page(
+def create_saved_link(
     db: Session,
     user_id: str,
     url: str,
     name: Optional[str] = None,
-    folder_id: Optional[str] = None
+    folder_id: Optional[str] = None,
+    link_type: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict] = None
 ) -> Dict[str, Any]:
     """
-    Create a new saved page for a user.
+    Create a new saved link for a user.
     
     Args:
         db: Database session
         user_id: User ID (CHAR(36) UUID)
-        url: Page URL (max 1024 characters)
-        name: Optional name for the page (max 50 characters)
+        url: Link URL (max 1024 characters)
+        name: Optional name for the link (max 50 characters)
         folder_id: Optional folder ID (CHAR(36) UUID)
+        link_type: Optional link type (defaults to 'WEBPAGE' if None)
+        summary: Optional summary text
+        metadata: Optional metadata dictionary (will be converted to JSON)
         
     Returns:
-        Dictionary with created saved page data
+        Dictionary with created saved link data
     """
     logger.info(
-        "Creating saved page",
-        function="create_saved_page",
+        "Creating saved link",
+        function="create_saved_link",
         user_id=user_id,
         url_length=len(url),
         has_name=name is not None,
-        has_folder_id=folder_id is not None
+        has_folder_id=folder_id is not None,
+        link_type=link_type
     )
     
-    # Generate UUID for the new saved page
-    page_id = str(uuid.uuid4())
+    # Generate UUID for the new saved link
+    link_id = str(uuid.uuid4())
     
-    # Insert the new saved page
+    # Default to WEBPAGE if type is not provided
+    if link_type is None:
+        link_type = 'WEBPAGE'
+    
+    # Convert metadata dict to JSON string if provided
+    metadata_json = None
+    if metadata is not None:
+        metadata_json = json.dumps(metadata)
+    
+    # Insert the new saved link
     db.execute(
         text("""
-            INSERT INTO saved_page (id, url, name, folder_id, user_id)
-            VALUES (:id, :url, :name, :folder_id, :user_id)
+            INSERT INTO saved_link (id, url, name, type, summary, metadata, folder_id, user_id)
+            VALUES (:id, :url, :name, :type, :summary, :metadata, :folder_id, :user_id)
         """),
         {
-            "id": page_id,
+            "id": link_id,
             "url": url,
             "name": name,
+            "type": link_type,
+            "summary": summary,
+            "metadata": metadata_json,
             "folder_id": folder_id,
             "user_id": user_id
         }
@@ -2079,22 +2373,22 @@ def create_saved_page(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, url, name, folder_id, user_id, created_at, updated_at
-            FROM saved_page
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
             WHERE id = :id
         """),
-        {"id": page_id}
+        {"id": link_id}
     ).fetchone()
     
     if not result:
         logger.error(
-            "Failed to retrieve created saved page",
-            function="create_saved_page",
-            page_id=page_id
+            "Failed to retrieve created saved link",
+            function="create_saved_link",
+            link_id=link_id
         )
-        raise Exception("Failed to retrieve created saved page")
+        raise Exception("Failed to retrieve created saved link")
     
-    page_id_val, url_val, name_val, folder_id_val, user_id_val, created_at, updated_at = result
+    link_id_val, url_val, name_val, link_type_val, summary_val, metadata_val, folder_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2107,10 +2401,24 @@ def create_saved_page(
     else:
         updated_at_str = str(updated_at)
     
-    saved_page = {
-        "id": page_id_val,
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata_val:
+        if isinstance(metadata_val, str):
+            try:
+                metadata_dict = json.loads(metadata_val)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata_val
+    
+    saved_link = {
+        "id": link_id_val,
         "url": url_val,
         "name": name_val,
+        "type": link_type_val,
+        "summary": summary_val,
+        "metadata": metadata_dict,
         "folder_id": folder_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -2118,45 +2426,45 @@ def create_saved_page(
     }
     
     logger.info(
-        "Created saved page successfully",
-        function="create_saved_page",
-        page_id=page_id_val,
+        "Created saved link successfully",
+        function="create_saved_link",
+        link_id=link_id_val,
         user_id=user_id
     )
     
-    return saved_page
+    return saved_link
 
 
-def delete_saved_page_by_id_and_user_id(
+def delete_saved_link_by_id_and_user_id(
     db: Session,
-    page_id: str,
+    link_id: str,
     user_id: str
 ) -> bool:
     """
-    Delete a saved page by ID if it belongs to the user.
+    Delete a saved link by ID if it belongs to the user.
     
     Args:
         db: Database session
-        page_id: Saved page ID (CHAR(36) UUID)
+        link_id: Saved link ID (CHAR(36) UUID)
         user_id: User ID (CHAR(36) UUID)
         
     Returns:
-        True if page was deleted, False if not found or doesn't belong to user
+        True if link was deleted, False if not found or doesn't belong to user
     """
     logger.info(
-        "Deleting saved page by id and user_id",
-        function="delete_saved_page_by_id_and_user_id",
-        page_id=page_id,
+        "Deleting saved link by id and user_id",
+        function="delete_saved_link_by_id_and_user_id",
+        link_id=link_id,
         user_id=user_id
     )
     
     result = db.execute(
         text("""
-            DELETE FROM saved_page
-            WHERE id = :page_id AND user_id = :user_id
+            DELETE FROM saved_link
+            WHERE id = :link_id AND user_id = :user_id
         """),
         {
-            "page_id": page_id,
+            "link_id": link_id,
             "user_id": user_id
         }
     )
@@ -2165,32 +2473,359 @@ def delete_saved_page_by_id_and_user_id(
     
     if result.rowcount > 0:
         logger.info(
-            "Deleted saved page successfully",
-            function="delete_saved_page_by_id_and_user_id",
-            page_id=page_id,
+            "Deleted saved link successfully",
+            function="delete_saved_link_by_id_and_user_id",
+            link_id=link_id,
             user_id=user_id,
             rows_deleted=result.rowcount
         )
         return True
     else:
         logger.warning(
-            "Saved page not found or doesn't belong to user",
-            function="delete_saved_page_by_id_and_user_id",
-            page_id=page_id,
+            "Saved link not found or doesn't belong to user",
+            function="delete_saved_link_by_id_and_user_id",
+            link_id=link_id,
             user_id=user_id,
             rows_deleted=result.rowcount
         )
         return False
 
 
-def create_page_folder(
+def get_saved_link_by_url_and_user_id(
+    db: Session,
+    url: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved link by URL and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        url: Link URL
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved link by url and user_id",
+        function="get_saved_link_by_url_and_user_id",
+        url=url,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE url = :url AND user_id = :user_id
+        """),
+        {
+            "url": url,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.info(
+            "Saved link not found by URL",
+            function="get_saved_link_by_url_and_user_id",
+            url=url,
+            user_id=user_id
+        )
+        return None
+    
+    link_id_val, url_val, name, link_type, summary, metadata, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata:
+        if isinstance(metadata, str):
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url_val,
+        "name": name,
+        "type": link_type,
+        "summary": summary,
+        "metadata": metadata_dict,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved link by URL successfully",
+        function="get_saved_link_by_url_and_user_id",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def update_saved_link_summary_and_metadata(
+    db: Session,
+    link_id: str,
+    user_id: str,
+    summary: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Update summary and metadata for an existing saved link.
+    Summary is only updated if it's not None and has non-zero stripped length.
+    
+    Args:
+        db: Database session
+        link_id: Saved link ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        summary: Optional summary text to update (only updated if not None and stripped length > 0)
+        metadata: Optional metadata dictionary to update (will be converted to JSON)
+        
+    Returns:
+        Dictionary with updated saved link data or None if not found or doesn't belong to user
+    """
+    # Check if summary should be updated (not None and has non-zero stripped length)
+    should_update_summary = summary is not None and len(summary.strip()) > 0
+    
+    logger.info(
+        "Updating saved link summary and metadata",
+        function="update_saved_link_summary_and_metadata",
+        link_id=link_id,
+        user_id=user_id,
+        has_summary=summary is not None,
+        should_update_summary=should_update_summary,
+        has_metadata=metadata is not None
+    )
+    
+    # Convert metadata dict to JSON string if provided
+    metadata_json = None
+    if metadata is not None:
+        metadata_json = json.dumps(metadata)
+    
+    # Build UPDATE statement conditionally based on what needs to be updated
+    update_fields = []
+    params = {
+        "link_id": link_id,
+        "user_id": user_id
+    }
+    
+    if should_update_summary:
+        update_fields.append("summary = :summary")
+        params["summary"] = summary.strip()
+    
+    if metadata_json is not None:
+        update_fields.append("metadata = :metadata")
+        params["metadata"] = metadata_json
+    
+    # Always update updated_at timestamp
+    update_fields.append("updated_at = CURRENT_TIMESTAMP")
+    
+    # Update the saved link (always update updated_at at minimum)
+    update_query = f"""
+        UPDATE saved_link
+        SET {', '.join(update_fields)}
+        WHERE id = :link_id AND user_id = :user_id
+    """
+    
+    result = db.execute(
+        text(update_query),
+        params
+    )
+    
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved link not found or doesn't belong to user",
+            function="update_saved_link_summary_and_metadata",
+            link_id=link_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    updated_result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE id = :id
+        """),
+        {"id": link_id}
+    ).fetchone()
+    
+    if not updated_result:
+        logger.error(
+            "Failed to retrieve updated saved link",
+            function="update_saved_link_summary_and_metadata",
+            link_id=link_id
+        )
+        return None
+    
+    link_id_val, url_val, name_val, link_type_val, summary_val, metadata_val, folder_id_val, user_id_val, created_at, updated_at = updated_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata_val:
+        if isinstance(metadata_val, str):
+            try:
+                metadata_dict = json.loads(metadata_val)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata_val
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url_val,
+        "name": name_val,
+        "type": link_type_val,
+        "summary": summary_val,
+        "metadata": metadata_dict,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved link summary and metadata successfully",
+        function="update_saved_link_summary_and_metadata",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def get_saved_link_by_id_and_user_id(
+    db: Session,
+    link_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved link by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        link_id: Saved link ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved link by id and user_id",
+        function="get_saved_link_by_id_and_user_id",
+        link_id=link_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE id = :link_id AND user_id = :user_id
+        """),
+        {
+            "link_id": link_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved link not found or doesn't belong to user",
+            function="get_saved_link_by_id_and_user_id",
+            link_id=link_id,
+            user_id=user_id
+        )
+        return None
+    
+    link_id_val, url, name, link_type, summary, metadata, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata:
+        if isinstance(metadata, str):
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url,
+        "name": name,
+        "type": link_type,
+        "summary": summary,
+        "metadata": metadata_dict,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved link successfully",
+        function="get_saved_link_by_id_and_user_id",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def create_link_folder(
     db: Session,
     user_id: str,
     name: str,
     parent_folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new PAGE type folder for a user.
+    Create a new LINK type folder for a user.
     
     Args:
         db: Database session
@@ -2202,8 +2837,8 @@ def create_page_folder(
         Dictionary with created folder data
     """
     logger.info(
-        "Creating page folder",
-        function="create_page_folder",
+        "Creating link folder",
+        function="create_link_folder",
         user_id=user_id,
         name=name,
         has_parent_folder_id=parent_folder_id is not None
@@ -2212,11 +2847,11 @@ def create_page_folder(
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
     
-    # Insert the new folder with type = 'PAGE'
+    # Insert the new folder with type = 'LINK'
     db.execute(
         text("""
             INSERT INTO folder (id, name, type, parent_id, user_id)
-            VALUES (:id, :name, 'PAGE', :parent_id, :user_id)
+            VALUES (:id, :name, 'LINK', :parent_id, :user_id)
         """),
         {
             "id": folder_id,
@@ -2240,7 +2875,7 @@ def create_page_folder(
     if not result:
         logger.error(
             "Failed to retrieve created folder",
-            function="create_page_folder",
+            function="create_link_folder",
             folder_id=folder_id
         )
         raise Exception("Failed to retrieve created folder")
@@ -2269,8 +2904,8 @@ def create_page_folder(
     }
     
     logger.info(
-        "Created page folder successfully",
-        function="create_page_folder",
+        "Created link folder successfully",
+        function="create_link_folder",
         folder_id=folder_id_val,
         user_id=user_id
     )
@@ -3025,6 +3660,74 @@ def get_user_name_and_role_by_user_id(
     return {
         "name": name,
         "role": role
+    }
+
+
+def get_user_info_with_email_by_user_id(
+    db: Session,
+    user_id: str
+) -> Dict[str, Any]:
+    """
+    Get user information including name, role, and email by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with 'name' (str), 'role' (Optional[str]), and 'email' (Optional[str])
+    """
+    logger.info(
+        "Getting user info with email by user_id",
+        function="get_user_info_with_email_by_user_id",
+        user_id=user_id
+    )
+    
+    # Get name and email from google_user_auth_info
+    name_result = db.execute(
+        text("""
+            SELECT given_name, family_name, email
+            FROM google_user_auth_info
+            WHERE user_id = :user_id
+            LIMIT 1
+        """),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    # Get role from user table
+    role_result = db.execute(
+        text("SELECT role FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    # Construct name
+    name = ""
+    email = None
+    if name_result:
+        given_name, family_name, email = name_result
+        name_parts = []
+        if given_name:
+            name_parts.append(given_name)
+        if family_name:
+            name_parts.append(family_name)
+        name = " ".join(name_parts).strip() if name_parts else ""
+    
+    # Get role
+    role = role_result[0] if role_result else None
+    
+    logger.info(
+        "User info with email retrieved successfully",
+        function="get_user_info_with_email_by_user_id",
+        user_id=user_id,
+        has_name=bool(name),
+        has_email=bool(email),
+        role=role
+    )
+    
+    return {
+        "name": name,
+        "role": role,
+        "email": email
     }
 
 
@@ -4366,4 +5069,404 @@ def get_live_pricings(
     )
     
     return pricings
+
+
+def create_domain(
+    db: Session,
+    user_id: str,
+    url: str,
+    status: str = "ALLOWED"
+) -> Dict[str, Any]:
+    """
+    Create a new domain record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID) who is creating the domain
+        url: Domain URL (VARCHAR(100))
+        status: Domain status (ALLOWED or BANNED, defaults to ALLOWED)
+        
+    Returns:
+        Dictionary with created domain data
+    """
+    logger.info(
+        "Creating domain",
+        function="create_domain",
+        user_id=user_id,
+        url=url,
+        status=status
+    )
+    
+    # Generate UUID for the new domain
+    domain_id = str(uuid.uuid4())
+    
+    # Insert the new domain
+    db.execute(
+        text("""
+            INSERT INTO domain (id, url, status, created_by)
+            VALUES (:id, :url, :status, :created_by)
+        """),
+        {
+            "id": domain_id,
+            "url": url,
+            "status": status,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, url, status, created_by, created_at, updated_at
+            FROM domain
+            WHERE id = :id
+        """),
+        {"id": domain_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created domain",
+            function="create_domain",
+            domain_id=domain_id
+        )
+        raise Exception("Failed to retrieve created domain")
+    
+    (domain_id_val, url_val, status_val, created_by_val, created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user info with email
+    user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+    
+    domain = {
+        "id": domain_id_val,
+        "url": url_val,
+        "status": status_val,
+        "created_by": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role"),
+            "email": user_info.get("email")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created domain successfully",
+        function="create_domain",
+        domain_id=domain_id_val,
+        user_id=user_id
+    )
+    
+    return domain
+
+
+def get_all_domains(
+    db: Session,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get all domains with optional pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        offset: Pagination offset (optional, if None no pagination is applied)
+        limit: Pagination limit (optional, if None no pagination is applied)
+        
+    Returns:
+        Tuple of (list of domain dictionaries, total count)
+    """
+    logger.info(
+        "Getting all domains",
+        function="get_all_domains",
+        offset=offset,
+        limit=limit,
+        pagination_used=offset is not None and limit is not None
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM domain")
+    ).fetchone()
+    total_count = count_result[0] if count_result else 0
+    
+    # Build query based on whether pagination is requested
+    if offset is not None and limit is not None:
+        # Get paginated results
+        result = db.execute(
+            text("""
+                SELECT id, url, status, created_by, created_at, updated_at
+                FROM domain
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {
+                "limit": limit,
+                "offset": offset
+            }
+        )
+    else:
+        # Get all results without pagination
+        result = db.execute(
+            text("""
+                SELECT id, url, status, created_by, created_at, updated_at
+                FROM domain
+                ORDER BY created_at DESC
+            """)
+        )
+    
+    rows = result.fetchall()
+    
+    domains = []
+    for row in rows:
+        (domain_id, url_val, status_val, created_by_val, created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        # Get user info with email
+        user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+        
+        domain = {
+            "id": domain_id,
+            "url": url_val,
+            "status": status_val,
+            "created_by": {
+                "id": created_by_val,
+                "name": user_info.get("name", ""),
+                "role": user_info.get("role"),
+                "email": user_info.get("email")
+            },
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        domains.append(domain)
+    
+    logger.info(
+        "Retrieved all domains successfully",
+        function="get_all_domains",
+        domain_count=len(domains),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return domains, total_count
+
+
+def get_domain_by_id(
+    db: Session,
+    domain_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a domain by its ID.
+    
+    Args:
+        db: Database session
+        domain_id: Domain ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with domain data or None if not found
+    """
+    logger.info(
+        "Getting domain by id",
+        function="get_domain_by_id",
+        domain_id=domain_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, url, status, created_by, created_at, updated_at
+            FROM domain
+            WHERE id = :domain_id
+        """),
+        {"domain_id": domain_id}
+    )
+    
+    row = result.fetchone()
+    
+    if not row:
+        logger.info(
+            "Domain not found",
+            function="get_domain_by_id",
+            domain_id=domain_id
+        )
+        return None
+    
+    (domain_id_val, url_val, status_val, created_by_val, created_at, updated_at) = row
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user info with email
+    user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+    
+    domain = {
+        "id": domain_id_val,
+        "url": url_val,
+        "status": status_val,
+        "created_by": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role"),
+            "email": user_info.get("email")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved domain successfully",
+        function="get_domain_by_id",
+        domain_id=domain_id
+    )
+    
+    return domain
+
+
+def update_domain(
+    db: Session,
+    domain_id: str,
+    url: Optional[str] = None,
+    status: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a domain's url and/or status.
+    
+    Args:
+        db: Database session
+        domain_id: Domain ID (CHAR(36) UUID)
+        url: New URL value (optional)
+        status: New status value (optional)
+        
+    Returns:
+        Dictionary with updated domain data or None if not found
+    """
+    logger.info(
+        "Updating domain",
+        function="update_domain",
+        domain_id=domain_id,
+        has_url=url is not None,
+        has_status=status is not None
+    )
+    
+    # Check if domain exists
+    existing = get_domain_by_id(db, domain_id)
+    if not existing:
+        return None
+    
+    # Build update query dynamically based on provided fields
+    update_fields = []
+    params = {"domain_id": domain_id}
+    
+    if url is not None:
+        update_fields.append("url = :url")
+        params["url"] = url
+    
+    if status is not None:
+        update_fields.append("status = :status")
+        params["status"] = status
+    
+    if not update_fields:
+        # No fields to update, return existing domain
+        return existing
+    
+    # Update the domain
+    update_query = f"""
+        UPDATE domain
+        SET {', '.join(update_fields)}
+        WHERE id = :domain_id
+    """
+    
+    db.execute(text(update_query), params)
+    db.commit()
+    
+    # Fetch and return updated domain
+    updated_domain = get_domain_by_id(db, domain_id)
+    
+    logger.info(
+        "Updated domain successfully",
+        function="update_domain",
+        domain_id=domain_id
+    )
+    
+    return updated_domain
+
+
+def delete_domain(
+    db: Session,
+    domain_id: str
+) -> bool:
+    """
+    Delete a domain by its ID.
+    
+    Args:
+        db: Database session
+        domain_id: Domain ID (CHAR(36) UUID)
+        
+    Returns:
+        True if domain was deleted, False if not found
+    """
+    logger.info(
+        "Deleting domain",
+        function="delete_domain",
+        domain_id=domain_id
+    )
+    
+    # Check if domain exists
+    existing = get_domain_by_id(db, domain_id)
+    if not existing:
+        logger.info(
+            "Domain not found for deletion",
+            function="delete_domain",
+            domain_id=domain_id
+        )
+        return False
+    
+    # Delete the domain
+    db.execute(
+        text("""
+            DELETE FROM domain
+            WHERE id = :domain_id
+        """),
+        {"domain_id": domain_id}
+    )
+    db.commit()
+    
+    logger.info(
+        "Deleted domain successfully",
+        function="delete_domain",
+        domain_id=domain_id
+    )
+    
+    return True
 

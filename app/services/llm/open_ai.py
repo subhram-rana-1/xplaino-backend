@@ -420,6 +420,147 @@ class OpenAIService:
                 raise
             raise LLMServiceError(f"Failed to generate more examples for word '{word}': {str(e)}")
 
+    async def get_synonyms_of_word(self, word: str) -> List[str]:
+        """Get up to 3 accurate synonyms for a word. Returns at least 1 synonym."""
+        try:
+            prompt = f"""Find accurate synonyms for the word "{word}".
+
+            Word: "{word}"
+            
+            CRITICAL REQUIREMENTS - ACCURACY IS PARAMOUNT:
+            - Provide up to 3 synonyms (at least 1 is required)
+            - Prioritize accuracy over quantity - only include synonyms that are truly accurate
+            - Synonyms must be words that can be used in the same context as the given word
+            - Do not include words that are only loosely related - they must be true synonyms
+            - Return as a JSON array of strings
+            - If you can only find 1 accurate synonym, return an array with just that one word
+            - If you find 2 accurate synonyms, return an array with those 2 words
+            - If you find 3 accurate synonyms, return an array with those 3 words
+            - Maximum 3 synonyms, minimum 1 synonym
+            
+            Return only the JSON array, no additional text or explanation."""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature
+            )
+
+            result = response.choices[0].message.content.strip()
+            logger.debug("Raw response from OpenAI for synonyms", word=word, result=result)
+
+            # Strip Markdown code block (e.g., ```json\n...\n```)
+            if result.startswith("```"):
+                result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+
+            # Parse the JSON response
+            synonyms = json.loads(result)
+
+            if not isinstance(synonyms, list):
+                logger.warning("Invalid response format from OpenAI", word=word, result=result)
+                raise ValueError("Expected JSON array")
+
+            # Validate that all items are strings
+            if not all(isinstance(syn, str) for syn in synonyms):
+                logger.warning("Invalid response format - not all items are strings", word=word, result=result)
+                raise ValueError("All items in the array must be strings")
+
+            # Validate count (1-3 synonyms)
+            if len(synonyms) == 0:
+                logger.warning("No synonyms returned", word=word, result=result)
+                raise ValueError("At least 1 synonym is required")
+            
+            if len(synonyms) > 3:
+                logger.warning("Too many synonyms returned, truncating to 3", word=word, count=len(synonyms))
+                synonyms = synonyms[:3]
+
+            # Filter out empty strings
+            synonyms = [syn.strip() for syn in synonyms if syn.strip()]
+
+            if len(synonyms) == 0:
+                logger.warning("No valid synonyms after filtering", word=word, result=result)
+                raise ValueError("At least 1 valid synonym is required")
+
+            logger.info("Successfully got synonyms", word=word, count=len(synonyms))
+            return synonyms
+
+        except Exception as e:
+            logger.error("Failed to get synonyms", word=word, error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to get synonyms for word '{word}': {str(e)}")
+
+    async def get_opposite_of_word(self, word: str) -> List[str]:
+        """Get up to 2 accurate antonyms (opposites) for a word. Returns at least 1 antonym."""
+        try:
+            prompt = f"""Find accurate antonyms (opposites) for the word "{word}".
+
+            Word: "{word}"
+            
+            CRITICAL REQUIREMENTS - ACCURACY IS PARAMOUNT:
+            - Provide up to 2 antonyms (at least 1 is required)
+            - Prioritize accuracy over quantity - only include antonyms that are truly accurate
+            - Antonyms must be words that are direct opposites of the given word
+            - Do not include words that are only loosely related - they must be true antonyms
+            - Return as a JSON array of strings
+            - If you can only find 1 accurate antonym, return an array with just that one word
+            - If you find 2 accurate antonyms, return an array with those 2 words
+            - Maximum 2 antonyms, minimum 1 antonym
+            
+            Return only the JSON array, no additional text or explanation."""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature
+            )
+
+            result = response.choices[0].message.content.strip()
+            logger.debug("Raw response from OpenAI for antonyms", word=word, result=result)
+
+            # Strip Markdown code block (e.g., ```json\n...\n```)
+            if result.startswith("```"):
+                result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+
+            # Parse the JSON response
+            antonyms = json.loads(result)
+
+            if not isinstance(antonyms, list):
+                logger.warning("Invalid response format from OpenAI", word=word, result=result)
+                raise ValueError("Expected JSON array")
+
+            # Validate that all items are strings
+            if not all(isinstance(ant, str) for ant in antonyms):
+                logger.warning("Invalid response format - not all items are strings", word=word, result=result)
+                raise ValueError("All items in the array must be strings")
+
+            # Validate count (1-2 antonyms)
+            if len(antonyms) == 0:
+                logger.warning("No antonyms returned", word=word, result=result)
+                raise ValueError("At least 1 antonym is required")
+            
+            if len(antonyms) > 2:
+                logger.warning("Too many antonyms returned, truncating to 2", word=word, count=len(antonyms))
+                antonyms = antonyms[:2]
+
+            # Filter out empty strings
+            antonyms = [ant.strip() for ant in antonyms if ant.strip()]
+
+            if len(antonyms) == 0:
+                logger.warning("No valid antonyms after filtering", word=word, result=result)
+                raise ValueError("At least 1 valid antonym is required")
+
+            logger.info("Successfully got antonyms", word=word, count=len(antonyms))
+            return antonyms
+
+        except Exception as e:
+            logger.error("Failed to get antonyms", word=word, error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to get antonyms for word '{word}': {str(e)}")
+
     async def generate_random_paragraph(self, word_count: int, difficulty_percentage: int) -> str:
         """Generate a random paragraph with specified word count and difficulty level."""
         try:
@@ -1423,6 +1564,241 @@ Word for pronunciation:"""
             if isinstance(e, LLMServiceError):
                 raise
             raise LLMServiceError(f"Failed to transcribe audio: {str(e)}")
+
+    async def translate_single_text(self, text: str, target_language_code: str) -> str:
+        """Translate a single text to the target language using OpenAI.
+        
+        Args:
+            text: Text to translate
+            target_language_code: ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI', 'JA', 'ZH')
+        
+        Returns:
+            Translated text
+        """
+        try:
+            if not text or not text.strip():
+                return ""
+            
+            # Map language codes to full language names for better translation
+            language_map = {
+                "EN": "English",
+                "ES": "Spanish",
+                "FR": "French",
+                "DE": "German",
+                "HI": "Hindi",
+                "JA": "Japanese",
+                "ZH": "Chinese",
+                "AR": "Arabic",
+                "IT": "Italian",
+                "PT": "Portuguese",
+                "RU": "Russian",
+                "KO": "Korean",
+                "NL": "Dutch",
+                "PL": "Polish",
+                "TR": "Turkish",
+                "VI": "Vietnamese",
+                "TH": "Thai",
+                "ID": "Indonesian",
+                "CS": "Czech",
+                "SV": "Swedish",
+                "DA": "Danish",
+                "NO": "Norwegian",
+                "FI": "Finnish",
+                "EL": "Greek",
+                "HE": "Hebrew",
+                "UK": "Ukrainian",
+                "RO": "Romanian",
+                "HU": "Hungarian",
+            }
+            
+            target_language = language_map.get(target_language_code.upper(), target_language_code.upper())
+            
+            prompt = f"""Translate the following text to {target_language}. 
+
+Text to translate:
+{text}
+
+CRITICAL REQUIREMENTS:
+- Translate the text accurately to {target_language}
+- Preserve the meaning and context
+- Return ONLY the translated text
+- Do NOT include any additional text, explanations, or formatting
+- Do NOT wrap the response in quotes or JSON
+
+Translated text:"""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=0.3
+            )
+
+            translated_text = response.choices[0].message.content.strip()
+            
+            logger.info(
+                "Successfully translated single text",
+                input_length=len(text),
+                output_length=len(translated_text),
+                target_language=target_language,
+                target_language_code=target_language_code
+            )
+            
+            return translated_text
+                
+        except Exception as e:
+            logger.error("Failed to translate text", error=str(e), target_language_code=target_language_code)
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to translate text: {str(e)}")
+
+    async def translate_batch_with_ids(
+        self, 
+        items: List[Dict[str, str]], 
+        target_language_code: str
+    ) -> List[Dict[str, str]]:
+        """Translate multiple text items with IDs in a single API call.
+        
+        Args:
+            items: List of dicts with 'id' and 'text' keys
+            target_language_code: ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI', 'JA', 'ZH')
+        
+        Returns:
+            List of dicts with 'id' and 'translatedText' keys (same order as input)
+        """
+        try:
+            if not items:
+                return []
+            
+            # Map language codes to full language names for better translation
+            language_map = {
+                "EN": "English",
+                "ES": "Spanish",
+                "FR": "French",
+                "DE": "German",
+                "HI": "Hindi",
+                "JA": "Japanese",
+                "ZH": "Chinese",
+                "AR": "Arabic",
+                "IT": "Italian",
+                "PT": "Portuguese",
+                "RU": "Russian",
+                "KO": "Korean",
+                "NL": "Dutch",
+                "PL": "Polish",
+                "TR": "Turkish",
+                "VI": "Vietnamese",
+                "TH": "Thai",
+                "ID": "Indonesian",
+                "CS": "Czech",
+                "SV": "Swedish",
+                "DA": "Danish",
+                "NO": "Norwegian",
+                "FI": "Finnish",
+                "EL": "Greek",
+                "HE": "Hebrew",
+                "UK": "Ukrainian",
+                "RO": "Romanian",
+                "HU": "Hungarian",
+            }
+            
+            target_language = language_map.get(target_language_code.upper(), target_language_code.upper())
+            
+            # Create JSON input for the batch
+            items_json = json.dumps(items, ensure_ascii=False)
+            
+            prompt = f"""Translate the following text items to {target_language}. 
+
+Input (JSON array of objects with 'id' and 'text' fields):
+{items_json}
+
+CRITICAL REQUIREMENTS:
+- Translate the 'text' field of each object accurately to {target_language}
+- Preserve the meaning and context of each text
+- Return ONLY a JSON array of objects with 'id' and 'translatedText' fields
+- Each object in the output array MUST have:
+  * "id": THE EXACT SAME ID from the input - DO NOT MODIFY OR CHANGE THE ID IN ANY WAY
+  * "translatedText": the translated version of the corresponding input text
+- Maintain the same order as the input items
+- Do NOT include any additional text, explanations, markdown formatting, or code blocks
+- Return the result as a pure JSON array: [{{"id": "...", "translatedText": "..."}}, ...]
+
+IMPORTANT: The IDs must be EXACTLY the same as in the input. Do not change, modify, or regenerate them.
+
+Translated items (JSON array only):"""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=0.3
+            )
+
+            result = response.choices[0].message.content.strip()
+            
+            # Parse the JSON response
+            try:
+                # Strip Markdown code block if present
+                if result.startswith("```"):
+                    result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+                
+                translated_items = json.loads(result)
+                
+                if not isinstance(translated_items, list):
+                    raise ValueError("Expected JSON array")
+                
+                # Validate all input IDs are present in output
+                input_ids = {item["id"] for item in items}
+                output_ids = {item.get("id") for item in translated_items}
+                
+                if input_ids != output_ids:
+                    logger.warning(
+                        "ID mismatch in batch translation",
+                        input_ids=input_ids,
+                        output_ids=output_ids,
+                        missing_ids=input_ids - output_ids,
+                        extra_ids=output_ids - input_ids
+                    )
+                
+                # Ensure we have the same number of translations as inputs
+                if len(translated_items) != len(items):
+                    logger.warning(
+                        "Translation count mismatch in batch", 
+                        input_count=len(items),
+                        output_count=len(translated_items)
+                    )
+                
+                # Create a mapping of id to translatedText for reliable ordering
+                translation_map = {item.get("id"): item.get("translatedText", "") for item in translated_items}
+                
+                # Rebuild results in the same order as input
+                ordered_results = []
+                for input_item in items:
+                    item_id = input_item["id"]
+                    translated_text = translation_map.get(item_id, "")
+                    ordered_results.append({
+                        "id": item_id,
+                        "translatedText": translated_text
+                    })
+                
+                logger.info(
+                    "Successfully translated batch with IDs",
+                    batch_size=len(items),
+                    target_language=target_language,
+                    target_language_code=target_language_code
+                )
+                
+                return ordered_results
+                
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse batch translation response as JSON", error=str(e), response=result[:500])
+                raise LLMServiceError("Failed to parse batch translation response")
+                
+        except Exception as e:
+            logger.error("Failed to translate batch with IDs", error=str(e), target_language_code=target_language_code)
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to translate batch: {str(e)}")
 
     async def translate_texts(self, texts: List[str], target_language_code: str) -> List[str]:
         """Translate multiple texts to the target language using OpenAI.

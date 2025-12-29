@@ -1,5 +1,6 @@
 """API routes for v2 endpoints of the FastAPI application."""
 
+import asyncio
 import json
 import os
 from enum import Enum
@@ -144,18 +145,18 @@ class VoiceToTextResponse(BaseModel):
     text: str = Field(..., description="Transcribed text from the audio")
 
 
+class TranslateTextItem(BaseModel):
+    """Model for individual text item to translate."""
+    
+    id: str = Field(..., description="Unique identifier for this text item")
+    text: str = Field(..., min_length=1, max_length=5000, description="Text to translate")
+
+
 class TranslateRequest(BaseModel):
     """Request model for translate API."""
     
     targetLangugeCode: str = Field(..., min_length=2, max_length=2, description="ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
-    texts: List[str] = Field(..., min_items=1, description="List of texts to translate")
-
-
-class TranslateResponse(BaseModel):
-    """Response model for translate API."""
-    
-    targetLangugeCode: str = Field(..., description="Target language code")
-    translatedTexts: List[str] = Field(..., description="List of translated texts")
+    texts: List[TranslateTextItem] = Field(..., min_items=1, max_items=20, description="List of text items to translate (max 20)")
 
 
 class SummariseRequest(BaseModel):
@@ -200,6 +201,44 @@ class WebSearchResponse(BaseModel):
     queries: Dict[str, Any] = Field(..., description="Query information")
     items: List[SearchResultItem] = Field(..., description="Array of search result items")
     error: Optional[Dict[str, str]] = Field(default=None, description="Error information if search failed")
+
+
+class SynonymsRequest(BaseModel):
+    """Request model for synonyms API."""
+    
+    words: List[str] = Field(..., min_items=1, max_items=20, description="List of words to get synonyms for (max 20)")
+
+
+class WordSynonyms(BaseModel):
+    """Model for word synonyms."""
+    
+    word: str = Field(..., description="The original word")
+    synonyms: List[str] = Field(..., description="List of synonyms (up to 3, at least 1 if available)")
+
+
+class SynonymsResponse(BaseModel):
+    """Response model for synonyms API."""
+    
+    results: List[WordSynonyms] = Field(..., description="List of word synonyms")
+
+
+class AntonymsRequest(BaseModel):
+    """Request model for antonyms API."""
+    
+    words: List[str] = Field(..., min_items=1, max_items=20, description="List of words to get antonyms for (max 20)")
+
+
+class WordAntonyms(BaseModel):
+    """Model for word antonyms."""
+    
+    word: str = Field(..., description="The original word")
+    antonyms: List[str] = Field(..., description="List of antonyms (up to 2, at least 1 if available)")
+
+
+class AntonymsResponse(BaseModel):
+    """Response model for antonyms API."""
+    
+    results: List[WordAntonyms] = Field(..., description="List of word antonyms")
 
 
 async def get_client_id(request: Request) -> str:
@@ -669,9 +708,8 @@ async def voice_to_text(
 
 @router.post(
     "/translate",
-    response_model=TranslateResponse,
-    summary="Translate texts to target language (v2)",
-    description="Translate multiple texts to a target language using OpenAI. Supports various language codes (EN, ES, FR, DE, HI, JA, ZH, etc.)"
+    summary="Translate texts to target language with streaming (v2) - SSE",
+    description="Translate multiple texts to a target language using OpenAI with Server-Sent Events streaming. Each translation is returned immediately as it completes. Supports various language codes (EN, ES, FR, DE, HI, JA, ZH, etc.)"
 )
 async def translate_v2(
     request: Request,
@@ -679,54 +717,226 @@ async def translate_v2(
     body: TranslateRequest,
     auth_context: dict = Depends(authenticate)
 ):
-    """Translate texts to the target language."""
+    """Translate texts to the target language with SSE streaming."""
     client_id = await get_client_id(request)
     await rate_limiter.check_rate_limit(client_id, "translate")
     
-    try:
-        # Validate target language code format (should be 2 uppercase letters)
-        if not body.targetLangugeCode.isalpha() or len(body.targetLangugeCode) != 2:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid target language code. Must be a 2-letter ISO 639-1 code (e.g., 'EN', 'ES', 'FR')"
-            )
-        
-        # Validate texts are not empty
-        if not body.texts or any(not text.strip() for text in body.texts):
-            raise HTTPException(
-                status_code=400,
-                detail="Texts cannot be empty"
-            )
-        
-        # Translate texts using OpenAI
-        translated_texts = await openai_service.translate_texts(
-            body.texts,
-            body.targetLangugeCode.upper()
-        )
-        
-        logger.info(
-            "Successfully translated texts",
-            target_language_code=body.targetLangugeCode,
-            texts_count=len(body.texts),
-            translated_count=len(translated_texts)
-        )
-        
-        if auth_context.get("is_new_unauthenticated_user"):
-            response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
-        
-        return TranslateResponse(
-            targetLangugeCode=body.targetLangugeCode.upper(),
-            translatedTexts=translated_texts
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to translate texts", 
-                   target_language_code=body.targetLangugeCode,
-                   texts_count=len(body.texts) if body.texts else 0,
-                   error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to translate texts: {str(e)}")
+    async def generate_translations():
+        """Generate SSE stream of translated texts."""
+        try:
+            # Validate target language code format (should be 2 uppercase letters)
+            if not body.targetLangugeCode.isalpha() or len(body.targetLangugeCode) != 2:
+                error_event = {
+                    "type": "error",
+                    "error_code": "VALIDATION_ERROR",
+                    "error_message": "Invalid target language code. Must be a 2-letter ISO 639-1 code (e.g., 'EN', 'ES', 'FR')"
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"
+                return
+            
+            # Validate texts are not empty
+            if not body.texts:
+                error_event = {
+                    "type": "error",
+                    "error_code": "VALIDATION_ERROR",
+                    "error_message": "Texts cannot be empty"
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"
+                return
+            
+            # Validate each text item
+            for text_item in body.texts:
+                if not text_item.text or not text_item.text.strip():
+                    error_event = {
+                        "type": "error",
+                        "error_code": "VALIDATION_ERROR",
+                        "error_message": f"Text with id '{text_item.id}' cannot be empty"
+                    }
+                    yield f"data: {json.dumps(error_event)}\n\n"
+                    return
+            
+            logger.info("Starting translation stream",
+                       target_language_code=body.targetLangugeCode,
+                       texts_count=len(body.texts))
+            
+            # Create batches based on text length (200 char threshold)
+            batches = []
+            current_batch = []
+            current_length = 0
+            
+            for text_item in body.texts:
+                text_length = len(text_item.text)
+                
+                # If single item > 200, send it alone
+                if text_length > 200:
+                    # Finalize current batch if any
+                    if current_batch:
+                        batches.append(current_batch)
+                        current_batch = []
+                        current_length = 0
+                    # Add single item as its own batch
+                    batches.append([text_item])
+                else:
+                    # Add to current batch
+                    current_batch.append(text_item)
+                    current_length += text_length
+                    
+                    # If total exceeds 200, finalize batch
+                    if current_length > 200:
+                        batches.append(current_batch)
+                        current_batch = []
+                        current_length = 0
+            
+            # Don't forget remaining items
+            if current_batch:
+                batches.append(current_batch)
+            
+            logger.info("Created translation batches",
+                       total_batches=len(batches),
+                       batch_sizes=[len(b) for b in batches])
+            
+            # Process each batch and stream results
+            for batch_index, batch in enumerate(batches):
+                try:
+                    if len(batch) == 1:
+                        # Single text - use existing single text method
+                        text_item = batch[0]
+                        logger.info("Translating single item",
+                                   batch_index=batch_index,
+                                   id=text_item.id,
+                                   text_length=len(text_item.text))
+                        
+                        translated_text = await openai_service.translate_single_text(
+                            text_item.text,
+                            body.targetLangugeCode.upper()
+                        )
+                        
+                        # Send translation result immediately
+                        result_data = {
+                            "id": text_item.id,
+                            "translatedText": translated_text
+                        }
+                        event_data = f"data: {json.dumps(result_data)}\n\n"
+                        yield event_data
+                        
+                        logger.info("Translated single text item",
+                                   id=text_item.id,
+                                   target_language_code=body.targetLangugeCode)
+                    else:
+                        # Multiple texts - use batch method
+                        logger.info("Translating batch",
+                                   batch_index=batch_index,
+                                   batch_size=len(batch),
+                                   total_chars=sum(len(item.text) for item in batch))
+                        
+                        # Prepare items for batch translation
+                        items = [{"id": item.id, "text": item.text} for item in batch]
+                        
+                        try:
+                            # Translate batch with IDs
+                            results = await openai_service.translate_batch_with_ids(
+                                items,
+                                body.targetLangugeCode.upper()
+                            )
+                            
+                            # Stream each result individually
+                            for result in results:
+                                result_data = {
+                                    "id": result["id"],
+                                    "translatedText": result["translatedText"]
+                                }
+                                event_data = f"data: {json.dumps(result_data)}\n\n"
+                                yield event_data
+                            
+                            logger.info("Translated batch successfully",
+                                       batch_index=batch_index,
+                                       batch_size=len(batch),
+                                       results_count=len(results))
+                            
+                        except Exception as batch_error:
+                            # Fall back to individual translation if batch fails
+                            logger.warning("Batch translation failed, falling back to individual translations",
+                                         batch_index=batch_index,
+                                         error=str(batch_error))
+                            
+                            for text_item in batch:
+                                try:
+                                    translated_text = await openai_service.translate_single_text(
+                                        text_item.text,
+                                        body.targetLangugeCode.upper()
+                                    )
+                                    
+                                    result_data = {
+                                        "id": text_item.id,
+                                        "translatedText": translated_text
+                                    }
+                                    event_data = f"data: {json.dumps(result_data)}\n\n"
+                                    yield event_data
+                                    
+                                except Exception as item_error:
+                                    logger.error("Failed to translate text item in fallback",
+                                               id=text_item.id,
+                                               error=str(item_error))
+                                    error_event = {
+                                        "type": "error",
+                                        "error_code": "TRANSLATION_ERROR",
+                                        "error_message": f"Failed to translate text with id '{text_item.id}': {str(item_error)}",
+                                        "id": text_item.id
+                                    }
+                                    yield f"data: {json.dumps(error_event)}\n\n"
+                    
+                except Exception as e:
+                    logger.error("Failed to process batch",
+                               batch_index=batch_index,
+                               error=str(e))
+                    # Send error for all items in batch
+                    for text_item in batch:
+                        error_event = {
+                            "type": "error",
+                            "error_code": "TRANSLATION_ERROR",
+                            "error_message": f"Failed to translate text with id '{text_item.id}': {str(e)}",
+                            "id": text_item.id
+                        }
+                        yield f"data: {json.dumps(error_event)}\n\n"
+            
+            # Send final completion event
+            yield "data: [DONE]\n\n"
+            
+            logger.info("Successfully completed translation stream",
+                       target_language_code=body.targetLangugeCode,
+                       texts_count=len(body.texts))
+            
+        except Exception as e:
+            logger.error("Error in translate v2 stream", error=str(e))
+            error_event = {
+                "type": "error",
+                "error_code": "STREAM_006",
+                "error_message": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+    
+    logger.info("Starting translate v2 stream",
+               target_language_code=body.targetLangugeCode,
+               texts_count=len(body.texts))
+    
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # Disable nginx buffering
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-CSRFToken, X-Forwarded-For, User-Agent, Origin, Referer, Cache-Control, Pragma, Content-Disposition, Content-Transfer-Encoding, X-File-Name, X-File-Size, X-File-Type, X-Access-Token, X-Unauthenticated-User-Id",
+        "Access-Control-Expose-Headers": "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id"
+    }
+    if auth_context.get("is_new_unauthenticated_user"):
+        headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return StreamingResponse(
+        generate_translations(),
+        media_type="text/event-stream",
+        headers=headers
+    )
 
 
 @router.post(
@@ -1014,3 +1224,119 @@ async def web_search_stream_v2(
         media_type="text/event-stream",
         headers=headers
     )
+
+
+@router.post(
+    "/synonyms",
+    response_model=SynonymsResponse,
+    summary="Get synonyms for words (v2)",
+    description="Get synonyms for a list of words (up to 20 words). Returns up to 3 synonyms for each word, at least 1 if available. If a word has no synonyms, returns an empty array for that word."
+)
+async def get_synonyms_v2(
+    request: Request,
+    response: Response,
+    body: SynonymsRequest,
+    auth_context: dict = Depends(authenticate)
+):
+    """Get synonyms for multiple words concurrently."""
+    client_id = await get_client_id(request)
+    await rate_limiter.check_rate_limit(client_id, "synonyms")
+    
+    # Validate words are not empty
+    if any(not word.strip() for word in body.words):
+        raise HTTPException(
+            status_code=400,
+            detail="Words cannot be empty strings"
+        )
+    
+    # Validate word lengths
+    for word in body.words:
+        if len(word) > 100:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Word '{word}' exceeds maximum length of 100 characters"
+            )
+    
+    logger.info("Processing synonyms request", words_count=len(body.words))
+    
+    # Process words concurrently
+    async def get_synonyms_for_word(word: str) -> WordSynonyms:
+        """Get synonyms for a single word, returning empty array if not found."""
+        try:
+            synonyms = await text_service.get_synonyms_of_word(word.strip())
+            return WordSynonyms(word=word, synonyms=synonyms)
+        except Exception as e:
+            logger.warning("Failed to get synonyms for word", word=word, error=str(e))
+            # Return empty array if synonyms not found
+            return WordSynonyms(word=word, synonyms=[])
+    
+    # Process all words concurrently
+    tasks = [get_synonyms_for_word(word) for word in body.words]
+    results = await asyncio.gather(*tasks)
+    
+    logger.info("Successfully processed synonyms request", 
+               words_count=len(body.words),
+               successful_count=sum(1 for r in results if r.synonyms))
+    
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return SynonymsResponse(results=list(results))
+
+
+@router.post(
+    "/antonyms",
+    response_model=AntonymsResponse,
+    summary="Get antonyms for words (v2)",
+    description="Get antonyms (opposites) for a list of words (up to 20 words). Returns up to 2 antonyms for each word, at least 1 if available. If a word has no antonyms, returns an empty array for that word."
+)
+async def get_antonyms_v2(
+    request: Request,
+    response: Response,
+    body: AntonymsRequest,
+    auth_context: dict = Depends(authenticate)
+):
+    """Get antonyms for multiple words concurrently."""
+    client_id = await get_client_id(request)
+    await rate_limiter.check_rate_limit(client_id, "antonyms")
+    
+    # Validate words are not empty
+    if any(not word.strip() for word in body.words):
+        raise HTTPException(
+            status_code=400,
+            detail="Words cannot be empty strings"
+        )
+    
+    # Validate word lengths
+    for word in body.words:
+        if len(word) > 100:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Word '{word}' exceeds maximum length of 100 characters"
+            )
+    
+    logger.info("Processing antonyms request", words_count=len(body.words))
+    
+    # Process words concurrently
+    async def get_antonyms_for_word(word: str) -> WordAntonyms:
+        """Get antonyms for a single word, returning empty array if not found."""
+        try:
+            antonyms = await text_service.get_opposite_of_word(word.strip())
+            return WordAntonyms(word=word, antonyms=antonyms)
+        except Exception as e:
+            logger.warning("Failed to get antonyms for word", word=word, error=str(e))
+            # Return empty array if antonyms not found
+            return WordAntonyms(word=word, antonyms=[])
+    
+    # Process all words concurrently
+    tasks = [get_antonyms_for_word(word) for word in body.words]
+    results = await asyncio.gather(*tasks)
+    
+    logger.info("Successfully processed antonyms request", 
+               words_count=len(body.words),
+               successful_count=sum(1 for r in results if r.antonyms))
+    
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return AntonymsResponse(results=list(results))
