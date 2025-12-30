@@ -102,7 +102,6 @@ async def get_all_saved_paragraphs(
         FolderResponse(
             id=folder["id"],
             name=folder["name"],
-            type=folder["type"],
             parent_id=folder["parent_id"],
             user_id=folder["user_id"],
             created_at=folder["created_at"],
@@ -229,39 +228,27 @@ async def save_paragraph(
             }
         )
     
-    # If folder_id is provided, validate it belongs to the user
-    if body.folder_id:
-        folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
-        if not folder:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_code": "NOT_FOUND",
-                    "error_message": "Folder not found or does not belong to user"
-                }
-            )
-        
-        # Validate that the folder is of type PARAGRAPH
-        if folder.get("type") != "PARAGRAPH":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_003",
-                    "error_message": "Folder must be of type PARAGRAPH"
-                }
-            )
+    # Validate folder exists and belongs to the user
+    folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
     
     # Create saved paragraph
     saved_paragraph_data = create_saved_paragraph(
-        db, user_id, body.content, body.source_url, body.name, body.folder_id
+        db, user_id, body.content, body.source_url, body.folder_id, body.name
     )
     
     logger.info(
         "Saved paragraph successfully",
         paragraph_id=saved_paragraph_data["id"],
         user_id=user_id,
-        has_name=body.name is not None,
-        has_folder_id=body.folder_id is not None
+        has_name=body.name is not None
     )
     
     return SavedParagraphResponse(
@@ -420,7 +407,7 @@ async def create_paragraph_folder_endpoint(
             }
         )
     
-    # If parent_folder_id is provided, validate it belongs to the user and is type PARAGRAPH
+    # If parent_folder_id is provided, validate it belongs to the user
     if body.parent_folder_id:
         parent_folder = get_folder_by_id_and_user_id(db, body.parent_folder_id, user_id)
         if not parent_folder:
@@ -432,15 +419,6 @@ async def create_paragraph_folder_endpoint(
                 }
             )
         
-        # Validate that the parent folder is of type PARAGRAPH
-        if parent_folder.get("type") != "PARAGRAPH":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_002",
-                    "error_message": "Parent folder must be of type PARAGRAPH"
-                }
-            )
     
     # Create paragraph folder
     folder_data = create_paragraph_folder(db, user_id, body.name, body.parent_folder_id)
@@ -456,7 +434,6 @@ async def create_paragraph_folder_endpoint(
     return FolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
-        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -468,7 +445,7 @@ async def create_paragraph_folder_endpoint(
     "/folder/{folder_id}",
     status_code=204,
     summary="Delete a paragraph folder",
-    description="Delete a paragraph folder by ID. Only the owner can delete their own folders. The folder must be of type PARAGRAPH."
+    description="Delete a paragraph folder by ID. Only the owner can delete their own folders."
 )
 async def delete_paragraph_folder(
     request: Request,
@@ -520,7 +497,7 @@ async def delete_paragraph_folder(
             }
         )
     
-    # Get folder to verify ownership and type
+    # Get folder to verify ownership
     folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
     if not folder:
         raise HTTPException(
@@ -531,15 +508,6 @@ async def delete_paragraph_folder(
             }
         )
     
-    # Validate that the folder is of type PARAGRAPH
-    if folder.get("type") != "PARAGRAPH":
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_code": "VAL_001",
-                "error_message": "Folder must be of type PARAGRAPH"
-            }
-        )
     
     # Delete folder
     deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)

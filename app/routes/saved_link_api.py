@@ -17,7 +17,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_folders_by_user_id_and_parent_id_and_type,
+    get_folders_by_user_id_and_parent_id,
     get_saved_links_by_user_id_and_folder_id,
     create_saved_link,
     get_saved_link_by_url_and_user_id,
@@ -93,9 +93,9 @@ async def get_all_saved_links(
             }
         )
 
-    # Get sub-folders for the given folder_id (or root if folder_id is None) with type='LINK'
-    sub_folders_data = get_folders_by_user_id_and_parent_id_and_type(
-        db, user_id, folder_id, folder_type="LINK"
+    # Get sub-folders for the given folder_id (or root if folder_id is None)
+    sub_folders_data = get_folders_by_user_id_and_parent_id(
+        db, user_id, folder_id
     )
 
     # Get saved links for the given folder_id (or root if folder_id is None)
@@ -108,7 +108,6 @@ async def get_all_saved_links(
         FolderResponse(
             id=folder["id"],
             name=folder["name"],
-            type=folder["type"],
             parent_id=folder["parent_id"],
             user_id=folder["user_id"],
             created_at=folder["created_at"],
@@ -237,27 +236,16 @@ async def save_link(
             }
         )
 
-    # If folder_id is provided, validate it belongs to the user
-    if body.folder_id:
-        folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
-        if not folder:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_code": "NOT_FOUND",
-                    "error_message": "Folder not found or does not belong to user"
-                }
-            )
-
-        # Validate that the folder is of type LINK
-        if folder.get("type") != "LINK":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_003",
-                    "error_message": "Folder must be of type LINK"
-                }
-            )
+    # Validate folder exists and belongs to the user
+    folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
 
     # Check if link with this URL already exists for this user
     existing_link = get_saved_link_by_url_and_user_id(db, body.url, user_id)
@@ -289,15 +277,14 @@ async def save_link(
 
         # Create new saved link
         saved_link_data = create_saved_link(
-            db, user_id, body.url, body.name, body.folder_id, link_type, body.summary, body.metadata
+            db, user_id, body.url, body.folder_id, body.name, link_type, body.summary, body.metadata
         )
 
         logger.info(
             "Created new saved link",
             link_id=saved_link_data["id"],
             user_id=user_id,
-            has_name=body.name is not None,
-            has_folder_id=body.folder_id is not None
+            has_name=body.name is not None
         )
 
     return SavedLinkResponse(
@@ -546,7 +533,7 @@ async def create_link_folder_endpoint(
             }
         )
 
-    # If parent_folder_id is provided, validate it belongs to the user and is type LINK
+    # If parent_folder_id is provided, validate it belongs to the user
     if body.parent_folder_id:
         parent_folder = get_folder_by_id_and_user_id(db, body.parent_folder_id, user_id)
         if not parent_folder:
@@ -558,15 +545,6 @@ async def create_link_folder_endpoint(
                 }
             )
 
-        # Validate that the parent folder is of type LINK
-        if parent_folder.get("type") != "LINK":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_002",
-                    "error_message": "Parent folder must be of type LINK"
-                }
-            )
 
     # Create link folder
     folder_data = create_link_folder(db, user_id, body.name, body.parent_folder_id)
@@ -582,7 +560,6 @@ async def create_link_folder_endpoint(
     return FolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
-        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -594,7 +571,7 @@ async def create_link_folder_endpoint(
     "/folder/{folder_id}",
     status_code=204,
     summary="Delete a link folder",
-    description="Delete a link folder by ID. Only the owner can delete their own folders. The folder must be of type LINK."
+    description="Delete a link folder by ID. Only the owner can delete their own folders."
 )
 async def delete_link_folder(
     request: Request,
@@ -646,7 +623,7 @@ async def delete_link_folder(
             }
         )
 
-    # Get folder to verify ownership and type
+    # Get folder to verify ownership
     folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
     if not folder:
         raise HTTPException(
@@ -657,15 +634,6 @@ async def delete_link_folder(
             }
         )
 
-    # Validate that the folder is of type LINK
-    if folder.get("type") != "LINK":
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_code": "VAL_001",
-                "error_message": "Folder must be of type LINK"
-            }
-        )
 
     # Delete folder
     deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)

@@ -181,7 +181,8 @@ class SaveWordRequest(BaseModel):
     
     word: str = Field(..., min_length=1, max_length=32, description="Word to save (max 32 characters)")
     sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the word was found (max 1024 characters)")
-    contextual_meaning: Optional[str] = Field(
+    folderId: str = Field(..., description="Folder ID where the word will be saved (UUID)")
+    contextualMeaning: Optional[str] = Field(
         None,
         max_length=1000,
         description="Contextual meaning or explanation of the word (max 1000 characters, optional)"
@@ -194,9 +195,10 @@ class SavedWordResponse(BaseModel):
     id: str = Field(..., description="Saved word ID (UUID)")
     word: str = Field(..., description="The saved word")
     sourceUrl: str = Field(..., description="Source URL where the word was found")
+    folderId: str = Field(..., description="Folder ID where the word is saved (UUID)")
     userId: str = Field(..., description="User ID who saved the word (UUID)")
     createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
-    contextual_meaning: Optional[str] = Field(
+    contextualMeaning: Optional[str] = Field(
         None,
         description="Contextual meaning or explanation of the word when it was saved (optional)"
     )
@@ -209,12 +211,6 @@ class GetSavedWordsResponse(BaseModel):
     total: int = Field(..., description="Total number of saved words for the user")
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
-
-
-class FolderType(str, Enum):
-    """Folder type enum."""
-    LINK = "LINK"
-    PARAGRAPH = "PARAGRAPH"
 
 
 class LinkType(str, Enum):
@@ -233,7 +229,7 @@ class SaveParagraphRequest(BaseModel):
     
     content: str = Field(..., min_length=1, description="Paragraph content")
     source_url: str = Field(..., min_length=1, max_length=1024, description="Source URL where the paragraph was found (max 1024 characters)")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the paragraph in (nullable)")
+    folder_id: str = Field(..., description="Folder ID to save the paragraph in (UUID)")
     name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the paragraph (max 50 characters)")
 
 
@@ -249,7 +245,6 @@ class FolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
-    type: str = Field(..., description="Folder type (LINK or PARAGRAPH)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -263,7 +258,7 @@ class SavedParagraphResponse(BaseModel):
     name: Optional[str] = Field(default=None, description="Optional name for the paragraph")
     source_url: str = Field(..., description="Source URL where the paragraph was found")
     content: str = Field(..., description="Paragraph content")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID the paragraph is saved in (nullable)")
+    folder_id: str = Field(..., description="Folder ID the paragraph is saved in (UUID)")
     user_id: str = Field(..., description="User ID who saved the paragraph (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the paragraph was saved")
     updated_at: str = Field(..., description="ISO format timestamp when the paragraph was last updated")
@@ -286,7 +281,7 @@ class SaveLinkRequest(BaseModel):
     """Request model for saving a link."""
     
     url: str = Field(..., min_length=1, max_length=1024, description="Link URL to save (max 1024 characters)")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the link in (nullable)")
+    folder_id: str = Field(..., description="Folder ID to save the link in (UUID)")
     name: Optional[str] = Field(default=None, max_length=100, description="Optional name for the link (max 100 characters)")
     summary: Optional[str] = Field(default=None, description="Optional summary text for the link")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON for the link")
@@ -301,7 +296,7 @@ class SavedLinkResponse(BaseModel):
     type: str = Field(..., description="Link type (WEBPAGE, YOUTUBE, LINKEDIN, TWITTER, REDDIT, FACEBOOK, INSTAGRAM)")
     summary: Optional[str] = Field(default=None, description="Optional summary text for the link")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON for the link")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID the link is saved in (nullable)")
+    folder_id: str = Field(..., description="Folder ID the link is saved in (UUID)")
     user_id: str = Field(..., description="User ID who saved the link (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the link was saved")
     updated_at: str = Field(..., description="ISO format timestamp when the link was last updated")
@@ -340,7 +335,6 @@ class FolderWithSubFoldersResponse(BaseModel):
 class GetAllFoldersResponse(BaseModel):
     """Response model for getting all folders in hierarchical structure."""
     
-    type: str = Field(..., description="Folder type (LINK or PARAGRAPH)")
     folders: List[FolderWithSubFoldersResponse] = Field(..., description="List of root folders with nested sub-folders")
 
 

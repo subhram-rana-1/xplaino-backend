@@ -1151,7 +1151,7 @@ def get_saved_words_by_user_id(
     # Get paginated words
     words_result = db.execute(
         text("""
-            SELECT id, word, contextual_meaning, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
             FROM saved_word
             WHERE user_id = :user_id
             ORDER BY created_at DESC
@@ -1166,7 +1166,7 @@ def get_saved_words_by_user_id(
     
     words = []
     for row in words_result:
-        word_id, word, contextual_meaning, source_url, user_id_val, created_at = row
+        word_id, word, contextual_meaning, source_url, folder_id, user_id_val, created_at = row
         # Convert created_at to ISO format string
         if isinstance(created_at, datetime):
             created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
@@ -1178,6 +1178,7 @@ def get_saved_words_by_user_id(
             "word": word,
             "contextual_meaning": contextual_meaning,
             "source_url": source_url,
+            "folder_id": folder_id,
             "user_id": user_id_val,
             "created_at": created_at_str
         })
@@ -1198,6 +1199,7 @@ def create_saved_word(
     user_id: str,
     word: str,
     source_url: str,
+    folder_id: str,
     contextual_meaning: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -1208,6 +1210,7 @@ def create_saved_word(
         user_id: User ID (CHAR(36) UUID)
         word: Word to save (max 32 characters)
         source_url: Source URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
         contextual_meaning: Optional contextual meaning (max 1000 characters)
         
     Returns:
@@ -1219,6 +1222,7 @@ def create_saved_word(
         user_id=user_id,
         word=word,
         source_url_length=len(source_url),
+        folder_id=folder_id,
         has_contextual_meaning=contextual_meaning is not None
     )
     
@@ -1228,13 +1232,14 @@ def create_saved_word(
     # Insert the new saved word
     db.execute(
         text("""
-            INSERT INTO saved_word (id, word, source_url, user_id, contextual_meaning)
-            VALUES (:id, :word, :source_url, :user_id, :contextual_meaning)
+            INSERT INTO saved_word (id, word, source_url, folder_id, user_id, contextual_meaning)
+            VALUES (:id, :word, :source_url, :folder_id, :user_id, :contextual_meaning)
         """),
         {
             "id": word_id,
             "word": word,
             "source_url": source_url,
+            "folder_id": folder_id,
             "user_id": user_id,
             "contextual_meaning": contextual_meaning
         }
@@ -1244,7 +1249,7 @@ def create_saved_word(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, word, contextual_meaning, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
             FROM saved_word
             WHERE id = :id
         """),
@@ -1259,7 +1264,7 @@ def create_saved_word(
         )
         raise Exception("Failed to retrieve created saved word")
     
-    word_id_val, word_val, contextual_meaning_val, source_url_val, user_id_val, created_at = result
+    word_id_val, word_val, contextual_meaning_val, source_url_val, folder_id_val, user_id_val, created_at = result
     
     # Convert created_at to ISO format string
     if isinstance(created_at, datetime):
@@ -1272,6 +1277,7 @@ def create_saved_word(
         "word": word_val,
         "contextual_meaning": contextual_meaning_val,
         "source_url": source_url_val,
+        "folder_id": folder_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str
     }
@@ -1440,7 +1446,7 @@ def get_folders_by_user_id_and_parent_id(
     if parent_id is None:
         result = db.execute(
             text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                SELECT id, name, parent_id, user_id, created_at, updated_at
                 FROM folder
                 WHERE user_id = :user_id AND parent_id IS NULL
                 ORDER BY created_at DESC
@@ -1450,7 +1456,7 @@ def get_folders_by_user_id_and_parent_id(
     else:
         result = db.execute(
             text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                SELECT id, name, parent_id, user_id, created_at, updated_at
                 FROM folder
                 WHERE user_id = :user_id AND parent_id = :parent_id
                 ORDER BY created_at DESC
@@ -1463,7 +1469,7 @@ def get_folders_by_user_id_and_parent_id(
     
     folders = []
     for row in result:
-        folder_id, name, folder_type, parent_id_val, user_id_val, created_at, updated_at = row
+        folder_id, name, parent_id_val, user_id_val, created_at, updated_at = row
         
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -1479,7 +1485,6 @@ def get_folders_by_user_id_and_parent_id(
         folders.append({
             "id": folder_id,
             "name": name,
-            "type": folder_type,
             "parent_id": parent_id_val,
             "user_id": user_id_val,
             "created_at": created_at_str,
@@ -1622,8 +1627,8 @@ def create_saved_paragraph(
     user_id: str,
     content: str,
     source_url: str,
-    name: Optional[str] = None,
-    folder_id: Optional[str] = None
+    folder_id: str,
+    name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new saved paragraph for a user.
@@ -1633,8 +1638,8 @@ def create_saved_paragraph(
         user_id: User ID (CHAR(36) UUID)
         content: Paragraph content (TEXT)
         source_url: Source URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
         name: Optional name for the paragraph (max 50 characters)
-        folder_id: Optional folder ID (CHAR(36) UUID)
         
     Returns:
         Dictionary with created saved paragraph data
@@ -1645,8 +1650,8 @@ def create_saved_paragraph(
         user_id=user_id,
         content_length=len(content),
         source_url_length=len(source_url),
-        has_name=name is not None,
-        has_folder_id=folder_id is not None
+        folder_id=folder_id,
+        has_name=name is not None
     )
     
     # Generate UUID for the new saved paragraph
@@ -1802,7 +1807,7 @@ def get_folder_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id AND user_id = :user_id
         """),
@@ -1821,7 +1826,7 @@ def get_folder_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, folder_type, parent_id, user_id_val, created_at, updated_at = result
+    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -1837,7 +1842,6 @@ def get_folder_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
-        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -1917,7 +1921,7 @@ def create_paragraph_folder(
     parent_folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new PARAGRAPH type folder for a user.
+    Create a new folder for a user.
     
     Args:
         db: Database session
@@ -1939,11 +1943,11 @@ def create_paragraph_folder(
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
     
-    # Insert the new folder with type = 'PARAGRAPH'
+    # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, type, parent_id, user_id)
-            VALUES (:id, :name, 'PARAGRAPH', :parent_id, :user_id)
+            INSERT INTO folder (id, name, parent_id, user_id)
+            VALUES (:id, :name, :parent_id, :user_id)
         """),
         {
             "id": folder_id,
@@ -1957,7 +1961,7 @@ def create_paragraph_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -1972,7 +1976,7 @@ def create_paragraph_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, folder_type, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -1988,7 +1992,6 @@ def create_paragraph_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
-        "type": folder_type,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -2003,171 +2006,6 @@ def create_paragraph_folder(
     )
     
     return folder
-
-
-def get_folders_by_user_id_and_parent_id_and_type(
-    db: Session,
-    user_id: str,
-    parent_id: Optional[str] = None,
-    folder_type: str = "LINK"
-) -> List[Dict[str, Any]]:
-    """
-    Get folders for a user with a specific parent_id and type.
-    If parent_id is None, get folders where parent_id IS NULL.
-    
-    Args:
-        db: Database session
-        user_id: User ID (CHAR(36) UUID)
-        parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
-        folder_type: Folder type ('LINK' or 'PARAGRAPH')
-        
-    Returns:
-        List of folder dictionaries
-    """
-    logger.info(
-        "Getting folders by user_id, parent_id and type",
-        function="get_folders_by_user_id_and_parent_id_and_type",
-        user_id=user_id,
-        parent_id=parent_id,
-        folder_type=folder_type
-    )
-    
-    if parent_id is None:
-        result = db.execute(
-            text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
-                FROM folder
-                WHERE user_id = :user_id AND parent_id IS NULL AND type = :folder_type
-                ORDER BY created_at DESC
-            """),
-            {
-                "user_id": user_id,
-                "folder_type": folder_type
-            }
-        ).fetchall()
-    else:
-        result = db.execute(
-            text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
-                FROM folder
-                WHERE user_id = :user_id AND parent_id = :parent_id AND type = :folder_type
-                ORDER BY created_at DESC
-            """),
-            {
-                "user_id": user_id,
-                "parent_id": parent_id,
-                "folder_type": folder_type
-            }
-        ).fetchall()
-    
-    folders = []
-    for row in result:
-        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
-        
-        # Convert timestamps to ISO format strings
-        if isinstance(created_at, datetime):
-            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-        else:
-            created_at_str = str(created_at)
-        
-        if isinstance(updated_at, datetime):
-            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-        else:
-            updated_at_str = str(updated_at)
-        
-        folders.append({
-            "id": folder_id,
-            "name": name,
-            "type": folder_type_val,
-            "parent_id": parent_id_val,
-            "user_id": user_id_val,
-            "created_at": created_at_str,
-            "updated_at": updated_at_str
-        })
-    
-    logger.info(
-        "Retrieved folders successfully",
-        function="get_folders_by_user_id_and_parent_id_and_type",
-        user_id=user_id,
-        parent_id=parent_id,
-        folder_type=folder_type,
-        folders_count=len(folders)
-    )
-    
-    return folders
-
-
-def get_all_folders_by_user_id_and_type(
-    db: Session,
-    user_id: str,
-    folder_type: str
-) -> List[Dict[str, Any]]:
-    """
-    Get all folders for a user with a specific type (regardless of parent_id).
-    This is used to build hierarchical structures.
-    
-    Args:
-        db: Database session
-        user_id: User ID (CHAR(36) UUID)
-        folder_type: Folder type ('LINK' or 'PARAGRAPH')
-        
-    Returns:
-        List of folder dictionaries
-    """
-    logger.info(
-        "Getting all folders by user_id and type",
-        function="get_all_folders_by_user_id_and_type",
-        user_id=user_id,
-        folder_type=folder_type
-    )
-    
-    result = db.execute(
-        text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
-            FROM folder
-            WHERE user_id = :user_id AND type = :folder_type
-            ORDER BY created_at DESC
-        """),
-        {
-            "user_id": user_id,
-            "folder_type": folder_type
-        }
-    ).fetchall()
-    
-    folders = []
-    for row in result:
-        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
-        
-        # Convert timestamps to ISO format strings
-        if isinstance(created_at, datetime):
-            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-        else:
-            created_at_str = str(created_at)
-        
-        if isinstance(updated_at, datetime):
-            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-        else:
-            updated_at_str = str(updated_at)
-        
-        folders.append({
-            "id": folder_id,
-            "name": name,
-            "type": folder_type_val,
-            "parent_id": parent_id_val,
-            "user_id": user_id_val,
-            "created_at": created_at_str,
-            "updated_at": updated_at_str
-        })
-    
-    logger.info(
-        "Retrieved all folders successfully",
-        function="get_all_folders_by_user_id_and_type",
-        user_id=user_id,
-        folder_type=folder_type,
-        folders_count=len(folders)
-    )
-    
-    return folders
 
 
 def get_saved_links_by_user_id_and_folder_id(
@@ -2307,8 +2145,8 @@ def create_saved_link(
     db: Session,
     user_id: str,
     url: str,
+    folder_id: str,
     name: Optional[str] = None,
-    folder_id: Optional[str] = None,
     link_type: Optional[str] = None,
     summary: Optional[str] = None,
     metadata: Optional[dict] = None
@@ -2320,8 +2158,8 @@ def create_saved_link(
         db: Database session
         user_id: User ID (CHAR(36) UUID)
         url: Link URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
         name: Optional name for the link (max 50 characters)
-        folder_id: Optional folder ID (CHAR(36) UUID)
         link_type: Optional link type (defaults to 'WEBPAGE' if None)
         summary: Optional summary text
         metadata: Optional metadata dictionary (will be converted to JSON)
@@ -2334,8 +2172,8 @@ def create_saved_link(
         function="create_saved_link",
         user_id=user_id,
         url_length=len(url),
+        folder_id=folder_id,
         has_name=name is not None,
-        has_folder_id=folder_id is not None,
         link_type=link_type
     )
     
@@ -2825,7 +2663,7 @@ def create_link_folder(
     parent_folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new LINK type folder for a user.
+    Create a new folder for a user.
     
     Args:
         db: Database session
@@ -2847,11 +2685,11 @@ def create_link_folder(
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
     
-    # Insert the new folder with type = 'LINK'
+    # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, type, parent_id, user_id)
-            VALUES (:id, :name, 'LINK', :parent_id, :user_id)
+            INSERT INTO folder (id, name, parent_id, user_id)
+            VALUES (:id, :name, :parent_id, :user_id)
         """),
         {
             "id": folder_id,
@@ -2865,7 +2703,7 @@ def create_link_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -2880,7 +2718,7 @@ def create_link_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, folder_type, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2896,7 +2734,6 @@ def create_link_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
-        "type": folder_type,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,

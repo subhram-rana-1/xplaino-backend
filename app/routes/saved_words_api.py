@@ -16,7 +16,8 @@ from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
     get_saved_words_by_user_id,
     create_saved_word,
-    delete_saved_word_by_id_and_user_id
+    delete_saved_word_by_id_and_user_id,
+    get_folder_by_id_and_user_id
 )
 
 logger = structlog.get_logger()
@@ -56,8 +57,9 @@ async def get_saved_words(
         SavedWordResponse(
             id=word["id"],
             word=word["word"],
-            contextual_meaning = word["contextual_meaning"],
+            contextualMeaning=word["contextual_meaning"],
             sourceUrl=word["source_url"],
+            folderId=word["folder_id"],
             userId=word["user_id"],
             createdAt=word["created_at"]
         )
@@ -129,8 +131,19 @@ async def save_word(
             }
         )
     
+    # Validate folder exists and belongs to user
+    folder = get_folder_by_id_and_user_id(db, body.folderId, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
     # Create saved word
-    saved_word_data = create_saved_word(db, user_id, body.word, body.sourceUrl, body.contextual_meaning)
+    saved_word_data = create_saved_word(db, user_id, body.word, body.sourceUrl, body.folderId, body.contextualMeaning)
     
     logger.info(
         "Saved word successfully",
@@ -147,8 +160,9 @@ async def save_word(
     return SavedWordResponse(
         id=saved_word_data["id"],
         word=saved_word_data["word"],
-        contextual_meaning=saved_word_data["contextual_meaning"],
+        contextualMeaning=saved_word_data["contextual_meaning"],
         sourceUrl=saved_word_data["source_url"],
+        folderId=saved_word_data["folder_id"],
         userId=saved_word_data["user_id"],
         createdAt=saved_word_data["created_at"]
     )

@@ -13,7 +13,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_all_folders_by_user_id_and_type
+    get_folders_by_user_id_and_parent_id
 )
 
 logger = structlog.get_logger()
@@ -68,26 +68,15 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
     "",
     response_model=GetAllFoldersResponse,
     summary="Get all folders",
-    description="Get all folders for the authenticated user in hierarchical structure, filtered by type (LINK or PARAGRAPH)"
+    description="Get all folders for the authenticated user in hierarchical structure"
 )
 async def get_all_folders(
     request: Request,
     response: Response,
-    type: str = Query(..., description="Folder type (LINK or PARAGRAPH)"),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """Get all folders for authenticated or unauthenticated users in hierarchical structure."""
-    # Validate type query parameter
-    if type not in ["LINK", "PARAGRAPH"]:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": "VAL_001",
-                "error_message": "Type must be either 'LINK' or 'PARAGRAPH'"
-            }
-        )
-    
     # Extract user_id based on authentication status
     # authenticate() middleware has already validated these fields exist
     if auth_context.get("authenticated"):
@@ -97,18 +86,25 @@ async def get_all_folders(
     else:
         user_id = auth_context["unauthenticated_user_id"]
     
-    # Fetch all folders for the user and type
-    folders_data = get_all_folders_by_user_id_and_type(db, user_id, type)
+    # To build the full hierarchy, we need all folders
+    # Get all folders by recursively fetching from root
+    all_folders = []
+    def get_all_folders_recursive(parent_id):
+        folders = get_folders_by_user_id_and_parent_id(db, user_id, parent_id)
+        all_folders.extend(folders)
+        for folder in folders:
+            get_all_folders_recursive(folder["id"])
+    
+    get_all_folders_recursive(None)
     
     # Build hierarchical structure
-    folders = build_folder_hierarchy(folders_data)
+    folders = build_folder_hierarchy(all_folders)
     
     logger.info(
         "Retrieved folders",
         user_id=user_id,
-        folder_type=type,
         folders_count=len(folders),
-        total_folders_count=len(folders_data),
+        total_folders_count=len(all_folders),
         authenticated=auth_context.get("authenticated", False)
     )
     
@@ -117,7 +113,6 @@ async def get_all_folders(
         response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
     
     return GetAllFoldersResponse(
-        type=type,
         folders=folders
     )
 
