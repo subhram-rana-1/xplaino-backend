@@ -248,3 +248,20 @@ CREATE TABLE IF NOT EXISTS domain (
     FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Saved image table
+CREATE TABLE IF NOT EXISTS saved_image (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    source_url VARCHAR(1024) NOT NULL,
+    image_url VARCHAR(1024) NOT NULL,
+    name VARCHAR(100) NULL,
+    folder_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

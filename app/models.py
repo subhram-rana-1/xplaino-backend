@@ -619,3 +619,50 @@ class GetAllDomainsResponse(BaseModel):
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
     has_next: bool = Field(..., description="Whether there are more domains to fetch")
+
+
+class CreateSavedImageRequest(BaseModel):
+    """Request model for creating a saved image."""
+    
+    imageUrl: str = Field(..., min_length=1, max_length=1024, description="Image URL (max 1024 characters)")
+    sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the image was found (max 1024 characters)")
+    folderId: str = Field(..., description="Folder ID where the image will be saved (UUID)")
+    name: Optional[str] = Field(default=None, max_length=100, description="Optional name for the image (max 100 characters)")
+
+
+class SavedImageCreatedByUser(BaseModel):
+    """Model for user who created a saved image."""
+    
+    id: str = Field(..., description="User ID (UUID)")
+    email: str = Field(..., description="User's email address")
+    name: str = Field(..., description="User's full name")
+
+
+class SavedImageResponse(BaseModel):
+    """Response model for a saved image."""
+    
+    id: str = Field(..., description="Saved image ID (UUID)")
+    sourceUrl: str = Field(..., description="Source URL where the image was found")
+    imageUrl: str = Field(..., description="Image URL")
+    name: Optional[str] = Field(default=None, description="Optional name for the image")
+    folderId: str = Field(..., description="Folder ID where the image is saved (UUID)")
+    userId: str = Field(..., description="User ID who saved the image (UUID)")
+    createdAt: str = Field(..., description="ISO format timestamp when the image was saved")
+    updatedAt: str = Field(..., description="ISO format timestamp when the image was last updated")
+    createdBy: SavedImageCreatedByUser = Field(..., description="User who created the saved image")
+
+
+class GetAllSavedImagesResponse(BaseModel):
+    """Response model for getting all saved images."""
+    
+    images: List[SavedImageResponse] = Field(..., description="List of saved images")
+    total: int = Field(..., description="Total number of saved images for the user in this folder")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more images to fetch")
+
+
+class MoveSavedImageToFolderRequest(BaseModel):
+    """Request model for moving a saved image to a different folder."""
+    
+    newFolderId: str = Field(..., description="New folder ID to move the image to (UUID)")

@@ -83,6 +83,22 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "folders_get_api_count_so_far",
+    
+    # Saved image APIs (method-specific)
+    "GET:/api/saved-image": "saved_image_get_api_count_so_far",
+    "GET:/api/saved-image/": "saved_image_get_api_count_so_far",
+    "POST:/api/saved-image": "saved_image_post_api_count_so_far",
+    "POST:/api/saved-image/": "saved_image_post_api_count_so_far",
+    "PATCH:/api/saved-image/{saved_image_id}/move-to-folder": "saved_image_move_api_count_so_far",
+    "DELETE:/api/saved-image": "saved_image_delete_api_count_so_far",
+    "DELETE:/api/saved-image/": "saved_image_delete_api_count_so_far",
+    "DELETE:/api/saved-image/{saved_image_id}": "saved_image_delete_api_count_so_far",
+    
+    # Issue APIs (method-specific)
+    "GET:/api/issue/": "issue_get_api_count_so_far",
+    "GET:/api/issue/all": "issue_get_all_api_count_so_far",
+    "PATCH:/api/issue/{issue_id}": "issue_patch_api_count_so_far",
+    "POST:/api/issue/": "issue_post_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping (METHOD:URL format)
@@ -143,6 +159,22 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "folders_get_api_max_limit",
+    
+    # Saved image APIs (method-specific)
+    "GET:/api/saved-image": "saved_image_get_api_max_limit",
+    "GET:/api/saved-image/": "saved_image_get_api_max_limit",
+    "POST:/api/saved-image": "saved_image_post_api_max_limit",
+    "POST:/api/saved-image/": "saved_image_post_api_max_limit",
+    "PATCH:/api/saved-image/{saved_image_id}/move-to-folder": "saved_image_move_api_max_limit",
+    "DELETE:/api/saved-image": "saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/": "saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/{saved_image_id}": "saved_image_delete_api_max_limit",
+    
+    # Issue APIs (method-specific)
+    "GET:/api/issue/": "issue_get_api_max_limit",
+    "GET:/api/issue/all": "issue_get_all_api_max_limit",
+    "PATCH:/api/issue/{issue_id}": "issue_patch_api_max_limit",
+    "POST:/api/issue/": "issue_post_api_max_limit",
 }
 
 # API endpoint to authenticated max limit config mapping (METHOD:URL format)
@@ -203,6 +235,22 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "authenticated_folders_get_api_max_limit",
+    
+    # Saved image APIs (method-specific)
+    "GET:/api/saved-image": "authenticated_saved_image_get_api_max_limit",
+    "GET:/api/saved-image/": "authenticated_saved_image_get_api_max_limit",
+    "POST:/api/saved-image": "authenticated_saved_image_post_api_max_limit",
+    "POST:/api/saved-image/": "authenticated_saved_image_post_api_max_limit",
+    "PATCH:/api/saved-image/{saved_image_id}/move-to-folder": "authenticated_saved_image_move_api_max_limit",
+    "DELETE:/api/saved-image": "authenticated_saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/": "authenticated_saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/{saved_image_id}": "authenticated_saved_image_delete_api_max_limit",
+    
+    # Issue APIs (method-specific)
+    "GET:/api/issue/": "authenticated_issue_get_api_max_limit",
+    "GET:/api/issue/all": "authenticated_issue_get_all_api_max_limit",
+    "PATCH:/api/issue/{issue_id}": "authenticated_issue_patch_api_max_limit",
+    "POST:/api/issue/": "authenticated_issue_post_api_max_limit",
 }
 
 
@@ -238,6 +286,22 @@ def get_api_counter_field_and_limit(request: Request) -> tuple[Optional[str], Op
                     base_lookup_key = f"{method}:{base_path}"
                     counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(base_lookup_key)
                     limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(base_lookup_key)
+        # Handle PATCH endpoints with path parameters
+        # e.g., PATCH:/api/saved-image/abc-123/move-to-folder -> PATCH:/api/saved-image/{saved_image_id}/move-to-folder
+        # e.g., PATCH:/api/issue/abc-123 -> PATCH:/api/issue/{issue_id}
+        elif method == "PATCH":
+            # For move-to-folder endpoint, try pattern match
+            if path.endswith("/move-to-folder"):
+                pattern_key = f"{method}:/api/saved-image/{{saved_image_id}}/move-to-folder"
+                counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
+            # For issue update endpoint, try pattern match
+            elif path.startswith("/api/issue/"):
+                path_parts = path.rstrip('/').split('/')
+                if len(path_parts) == 3:  # /api/issue/{issue_id}
+                    pattern_key = f"{method}:/api/issue/{{issue_id}}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
     
     if counter_field is None:
         raise Exception(f"API counter field not found for: {lookup_key}")
@@ -304,6 +368,22 @@ def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Opt
                     base_lookup_key = f"{method}:{base_path}"
                     counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(base_lookup_key)
                     limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(base_lookup_key)
+        # Handle PATCH endpoints with path parameters
+        # e.g., PATCH:/api/saved-image/abc-123/move-to-folder -> PATCH:/api/saved-image/{saved_image_id}/move-to-folder
+        # e.g., PATCH:/api/issue/abc-123 -> PATCH:/api/issue/{issue_id}
+        elif method == "PATCH":
+            # For move-to-folder endpoint, try pattern match
+            if path.endswith("/move-to-folder"):
+                pattern_key = f"{method}:/api/saved-image/{{saved_image_id}}/move-to-folder"
+                counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
+            # For issue update endpoint, try pattern match
+            elif path.startswith("/api/issue/"):
+                path_parts = path.rstrip('/').split('/')
+                if len(path_parts) == 3:  # /api/issue/{issue_id}
+                    pattern_key = f"{method}:/api/issue/{{issue_id}}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
     
     if counter_field is None:
         raise Exception(f"API counter field not found for: {lookup_key}")

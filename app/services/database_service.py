@@ -2656,6 +2656,441 @@ def get_saved_link_by_id_and_user_id(
     return saved_link
 
 
+def get_saved_images_by_folder_id_and_user_id(
+    db: Session,
+    user_id: str,
+    folder_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved images for a user and folder with pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of image dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved images by user_id and folder_id",
+        function="get_saved_images_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM saved_image WHERE user_id = :user_id AND folder_id = :folder_id"),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id
+        }
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated images
+    images_result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE user_id = :user_id AND folder_id = :folder_id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id,
+            "limit": limit,
+            "offset": offset
+        }
+    ).fetchall()
+    
+    images = []
+    for row in images_result:
+        image_id, source_url, image_url, name, folder_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        images.append({
+            "id": image_id,
+            "source_url": source_url,
+            "image_url": image_url,
+            "name": name,
+            "folder_id": folder_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved images successfully",
+        function="get_saved_images_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        images_count=len(images),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return images, total_count
+
+
+def create_saved_image(
+    db: Session,
+    user_id: str,
+    source_url: str,
+    image_url: str,
+    folder_id: str,
+    name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new saved image for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        source_url: Source URL (max 1024 characters)
+        image_url: Image URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
+        name: Optional name for the image (max 100 characters)
+        
+    Returns:
+        Dictionary with created saved image data
+    """
+    logger.info(
+        "Creating saved image",
+        function="create_saved_image",
+        user_id=user_id,
+        source_url_length=len(source_url),
+        image_url_length=len(image_url),
+        folder_id=folder_id,
+        has_name=name is not None
+    )
+    
+    # Generate UUID for the new saved image
+    image_id = str(uuid.uuid4())
+    
+    # Insert the new saved image
+    db.execute(
+        text("""
+            INSERT INTO saved_image (id, source_url, image_url, name, folder_id, user_id)
+            VALUES (:id, :source_url, :image_url, :name, :folder_id, :user_id)
+        """),
+        {
+            "id": image_id,
+            "source_url": source_url,
+            "image_url": image_url,
+            "name": name,
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE id = :id
+        """),
+        {"id": image_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created saved image",
+            function="create_saved_image",
+            image_id=image_id
+        )
+        raise Exception("Failed to retrieve created saved image")
+    
+    image_id_val, source_url_val, image_url_val, name_val, folder_id_val, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_image = {
+        "id": image_id_val,
+        "source_url": source_url_val,
+        "image_url": image_url_val,
+        "name": name_val,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created saved image successfully",
+        function="create_saved_image",
+        image_id=image_id_val,
+        user_id=user_id
+    )
+    
+    return saved_image
+
+
+def get_saved_image_by_id_and_user_id(
+    db: Session,
+    image_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved image by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        image_id: Saved image ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved image data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved image by id and user_id",
+        function="get_saved_image_by_id_and_user_id",
+        image_id=image_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE id = :image_id AND user_id = :user_id
+        """),
+        {
+            "image_id": image_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved image not found or doesn't belong to user",
+            function="get_saved_image_by_id_and_user_id",
+            image_id=image_id,
+            user_id=user_id
+        )
+        return None
+    
+    image_id_val, source_url, image_url, name, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_image = {
+        "id": image_id_val,
+        "source_url": source_url,
+        "image_url": image_url,
+        "name": name,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved image successfully",
+        function="get_saved_image_by_id_and_user_id",
+        image_id=image_id_val,
+        user_id=user_id
+    )
+    
+    return saved_image
+
+
+def update_saved_image_folder_id(
+    db: Session,
+    image_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved image.
+    
+    Args:
+        db: Database session
+        image_id: Saved image ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved image data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved image folder_id",
+        function="update_saved_image_folder_id",
+        image_id=image_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id
+    result = db.execute(
+        text("""
+            UPDATE saved_image
+            SET folder_id = :new_folder_id, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :image_id AND user_id = :user_id
+        """),
+        {
+            "image_id": image_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved image not found or doesn't belong to user",
+            function="update_saved_image_folder_id",
+            image_id=image_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE id = :image_id
+        """),
+        {"image_id": image_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved image",
+            function="update_saved_image_folder_id",
+            image_id=image_id
+        )
+        return None
+    
+    image_id_val, source_url, image_url, name, folder_id_val, user_id_val, created_at, updated_at = fetch_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_image = {
+        "id": image_id_val,
+        "source_url": source_url,
+        "image_url": image_url,
+        "name": name,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved image folder_id successfully",
+        function="update_saved_image_folder_id",
+        image_id=image_id_val,
+        user_id=user_id
+    )
+    
+    return saved_image
+
+
+def delete_saved_image_by_id_and_user_id(
+    db: Session,
+    image_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a saved image by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        image_id: Saved image ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting saved image by id and user_id",
+        function="delete_saved_image_by_id_and_user_id",
+        image_id=image_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM saved_image
+            WHERE id = :image_id AND user_id = :user_id
+        """),
+        {
+            "image_id": image_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved image not found or doesn't belong to user",
+            function="delete_saved_image_by_id_and_user_id",
+            image_id=image_id,
+            user_id=user_id
+        )
+        return False
+    
+    logger.info(
+        "Deleted saved image successfully",
+        function="delete_saved_image_by_id_and_user_id",
+        image_id=image_id,
+        user_id=user_id
+    )
+    
+    return True
+
+
 def create_link_folder(
     db: Session,
     user_id: str,

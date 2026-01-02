@@ -198,6 +198,30 @@ class Settings(BaseSettings):
     # Authenticated folders API limits (method-specific)
     authenticated_folders_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET folders API")
     
+    # Saved image API limits (method-specific)
+    saved_image_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-image API")
+    saved_image_post_api_max_limit: int = Field(default=5, description="Max limit for POST saved-image API")
+    saved_image_move_api_max_limit: int = Field(default=5, description="Max limit for PATCH saved-image move-to-folder API")
+    saved_image_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-image API")
+    
+    # Authenticated saved image API limits (method-specific)
+    authenticated_saved_image_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET saved-image API")
+    authenticated_saved_image_post_api_max_limit: int = Field(default=5, description="Max limit for authenticated POST saved-image API")
+    authenticated_saved_image_move_api_max_limit: int = Field(default=5, description="Max limit for authenticated PATCH saved-image move-to-folder API")
+    authenticated_saved_image_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated DELETE saved-image API")
+    
+    # Issue API limits (method-specific)
+    issue_get_api_max_limit: int = Field(default=0, description="Max limit for GET issue API")
+    issue_get_all_api_max_limit: int = Field(default=0, description="Max limit for GET issue/all API")
+    issue_patch_api_max_limit: int = Field(default=0, description="Max limit for PATCH issue API")
+    issue_post_api_max_limit: int = Field(default=0, description="Max limit for POST issue API")
+    
+    # Authenticated issue API limits (method-specific)
+    authenticated_issue_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET issue API")
+    authenticated_issue_get_all_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET issue/all API")
+    authenticated_issue_patch_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated PATCH issue API")
+    authenticated_issue_post_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated POST issue API")
+    
     @property
     def database_url(self) -> str:
         """Construct database connection URL from individual fields."""
