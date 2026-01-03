@@ -1451,6 +1451,102 @@ def get_saved_word_by_id_and_user_id(
     return saved_word
 
 
+def update_saved_word_folder_id(
+    db: Session,
+    word_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved word.
+    
+    Args:
+        db: Database session
+        word_id: Saved word ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved word data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved word folder_id",
+        function="update_saved_word_folder_id",
+        word_id=word_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id (saved_word table doesn't have updated_at)
+    result = db.execute(
+        text("""
+            UPDATE saved_word
+            SET folder_id = :new_folder_id
+            WHERE id = :word_id AND user_id = :user_id
+        """),
+        {
+            "word_id": word_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved word not found or doesn't belong to user",
+            function="update_saved_word_folder_id",
+            word_id=word_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
+            FROM saved_word
+            WHERE id = :word_id
+        """),
+        {"word_id": word_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved word",
+            function="update_saved_word_folder_id",
+            word_id=word_id
+        )
+        return None
+    
+    word_id_val, word, contextual_meaning, source_url, folder_id_val, user_id_val, created_at = fetch_result
+    
+    # Convert created_at to ISO format string
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    saved_word = {
+        "id": word_id_val,
+        "word": word,
+        "contextual_meaning": contextual_meaning,
+        "source_url": source_url,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str
+    }
+    
+    logger.info(
+        "Updated saved word folder_id successfully",
+        function="update_saved_word_folder_id",
+        word_id=word_id_val,
+        user_id=user_id
+    )
+    
+    return saved_word
+
+
 def delete_saved_word_by_id_and_user_id(
     db: Session,
     word_id: str,
@@ -1807,6 +1903,186 @@ def create_saved_paragraph(
     logger.info(
         "Created saved paragraph successfully",
         function="create_saved_paragraph",
+        paragraph_id=para_id,
+        user_id=user_id
+    )
+    
+    return saved_paragraph
+
+
+def get_saved_paragraph_by_id_and_user_id(
+    db: Session,
+    paragraph_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved paragraph by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        paragraph_id: Saved paragraph ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved paragraph data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved paragraph by id and user_id",
+        function="get_saved_paragraph_by_id_and_user_id",
+        paragraph_id=paragraph_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id = :paragraph_id AND user_id = :user_id
+        """),
+        {
+            "paragraph_id": paragraph_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved paragraph not found or doesn't belong to user",
+            function="get_saved_paragraph_by_id_and_user_id",
+            paragraph_id=paragraph_id,
+            user_id=user_id
+        )
+        return None
+    
+    para_id, source_url, name, content, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_paragraph = {
+        "id": para_id,
+        "source_url": source_url,
+        "name": name,
+        "content": content,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved paragraph successfully",
+        function="get_saved_paragraph_by_id_and_user_id",
+        paragraph_id=para_id,
+        user_id=user_id
+    )
+    
+    return saved_paragraph
+
+
+def update_saved_paragraph_folder_id(
+    db: Session,
+    paragraph_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved paragraph.
+    
+    Args:
+        db: Database session
+        paragraph_id: Saved paragraph ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved paragraph data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved paragraph folder_id",
+        function="update_saved_paragraph_folder_id",
+        paragraph_id=paragraph_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id
+    result = db.execute(
+        text("""
+            UPDATE saved_paragraph
+            SET folder_id = :new_folder_id, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :paragraph_id AND user_id = :user_id
+        """),
+        {
+            "paragraph_id": paragraph_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved paragraph not found or doesn't belong to user",
+            function="update_saved_paragraph_folder_id",
+            paragraph_id=paragraph_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id = :paragraph_id
+        """),
+        {"paragraph_id": paragraph_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved paragraph",
+            function="update_saved_paragraph_folder_id",
+            paragraph_id=paragraph_id
+        )
+        return None
+    
+    para_id, source_url, name, content, folder_id_val, user_id_val, created_at, updated_at = fetch_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_paragraph = {
+        "id": para_id,
+        "source_url": source_url,
+        "name": name,
+        "content": content,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved paragraph folder_id successfully",
+        function="update_saved_paragraph_folder_id",
         paragraph_id=para_id,
         user_id=user_id
     )
@@ -2737,6 +3013,121 @@ def get_saved_link_by_id_and_user_id(
     logger.info(
         "Retrieved saved link successfully",
         function="get_saved_link_by_id_and_user_id",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def update_saved_link_folder_id(
+    db: Session,
+    link_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved link.
+    
+    Args:
+        db: Database session
+        link_id: Saved link ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved link folder_id",
+        function="update_saved_link_folder_id",
+        link_id=link_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id
+    result = db.execute(
+        text("""
+            UPDATE saved_link
+            SET folder_id = :new_folder_id, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :link_id AND user_id = :user_id
+        """),
+        {
+            "link_id": link_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved link not found or doesn't belong to user",
+            function="update_saved_link_folder_id",
+            link_id=link_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE id = :link_id
+        """),
+        {"link_id": link_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved link",
+            function="update_saved_link_folder_id",
+            link_id=link_id
+        )
+        return None
+    
+    link_id_val, url, name, link_type, summary, metadata, folder_id_val, user_id_val, created_at, updated_at = fetch_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata:
+        if isinstance(metadata, str):
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url,
+        "name": name,
+        "type": link_type,
+        "summary": summary,
+        "metadata": metadata_dict,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved link folder_id successfully",
+        function="update_saved_link_folder_id",
         link_id=link_id_val,
         user_id=user_id
     )

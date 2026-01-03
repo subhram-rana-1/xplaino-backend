@@ -11,7 +11,8 @@ from app.models import (
     SavedLinkResponse,
     GetAllSavedLinksResponse,
     FolderResponse,
-    CreateLinkFolderRequest
+    CreateLinkFolderRequest,
+    MoveSavedLinkToFolderRequest
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
@@ -26,7 +27,8 @@ from app.services.database_service import (
     get_saved_link_by_id_and_user_id,
     get_folder_by_id_and_user_id,
     create_link_folder,
-    delete_folder_by_id_and_user_id
+    delete_folder_by_id_and_user_id,
+    update_saved_link_folder_id
 )
 from app.utils.utils import detect_link_type_from_url
 
@@ -464,6 +466,120 @@ async def remove_saved_link(
     )
 
     return FastAPIResponse(status_code=204)
+
+
+@router.patch(
+    "/{link_id}/move-to-folder",
+    response_model=SavedLinkResponse,
+    summary="Move saved link to folder",
+    description="Move a saved link to a different folder. Only the owner can move their own links."
+)
+async def move_saved_link_to_folder(
+    request: Request,
+    response: Response,
+    link_id: str,
+    body: MoveSavedLinkToFolderRequest,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Move a saved link to a different folder for the authenticated user."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Validate saved link exists and belongs to the user
+    saved_link = get_saved_link_by_id_and_user_id(db, link_id, user_id)
+    if not saved_link:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Saved link not found or does not belong to user"
+            }
+        )
+    
+    # Validate target folder exists and belongs to the user
+    target_folder = get_folder_by_id_and_user_id(db, body.targetFolderId, user_id)
+    if not target_folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Target folder not found or does not belong to user"
+            }
+        )
+    
+    # Update folder_id
+    updated_link_data = update_saved_link_folder_id(
+        db, link_id, user_id, body.targetFolderId
+    )
+    
+    if not updated_link_data:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "UPDATE_FAILED",
+                "error_message": "Failed to update saved link folder"
+            }
+        )
+    
+    logger.info(
+        "Moved saved link to folder successfully",
+        link_id=link_id,
+        user_id=user_id,
+        target_folder_id=body.targetFolderId
+    )
+    
+    return SavedLinkResponse(
+        id=updated_link_data["id"],
+        name=updated_link_data["name"],
+        url=updated_link_data["url"],
+        type=updated_link_data["type"],
+        summary=updated_link_data["summary"],
+        metadata=updated_link_data["metadata"],
+        folder_id=updated_link_data["folder_id"],
+        user_id=updated_link_data["user_id"],
+        created_at=updated_link_data["created_at"],
+        updated_at=updated_link_data["updated_at"]
+    )
 
 
 @router.post(

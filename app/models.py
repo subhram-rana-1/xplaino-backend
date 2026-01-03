@@ -686,3 +686,21 @@ class MoveSavedImageToFolderRequest(BaseModel):
     """Request model for moving a saved image to a different folder."""
     
     newFolderId: str = Field(..., description="New folder ID to move the image to (UUID)")
+
+
+class MoveSavedWordToFolderRequest(BaseModel):
+    """Request model for moving a saved word to a different folder."""
+    
+    targetFolderId: str = Field(..., description="Target folder ID to move the word to (UUID)")
+
+
+class MoveSavedParagraphToFolderRequest(BaseModel):
+    """Request model for moving a saved paragraph to a different folder."""
+    
+    targetFolderId: str = Field(..., description="Target folder ID to move the paragraph to (UUID)")
+
+
+class MoveSavedLinkToFolderRequest(BaseModel):
+    """Request model for moving a saved link to a different folder."""
+    
+    targetFolderId: str = Field(..., description="Target folder ID to move the link to (UUID)")

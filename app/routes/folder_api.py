@@ -1,6 +1,7 @@
 """API routes for folder management."""
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query, Path
+from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import structlog
@@ -19,7 +20,8 @@ from app.services.database_service import (
     get_folders_by_user_id_and_parent_id,
     create_paragraph_folder,
     get_folder_by_id_and_user_id,
-    get_user_info_with_email_by_user_id
+    get_user_info_with_email_by_user_id,
+    delete_folder_by_id_and_user_id
 )
 
 logger = structlog.get_logger()
@@ -207,4 +209,63 @@ async def create_folder(
         updated_at=folder_data["updated_at"],
         user=user_info
     )
+
+
+@router.delete(
+    "/{folder_id}",
+    status_code=204,
+    summary="Delete a folder",
+    description="Delete a folder by ID. All child folders and associated entities (saved words, paragraphs, links, images) will be automatically deleted due to CASCADE constraints."
+)
+async def delete_folder(
+    request: Request,
+    response: Response,
+    folder_id: str = Path(..., description="Folder ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Delete a folder for authenticated or unauthenticated users (unauthenticated will be blocked by rate limit)."""
+    # Extract user_id based on authentication status
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    else:
+        user_id = auth_context["unauthenticated_user_id"]
+    
+    # Verify folder exists and belongs to user
+    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
+    # Delete folder (CASCADE constraints will automatically delete child folders and associated entities)
+    deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)
+    
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
+    logger.info(
+        "Deleted folder successfully",
+        folder_id=folder_id,
+        user_id=user_id,
+        authenticated=auth_context.get("authenticated", False)
+    )
+    
+    # Add X-Unauthenticated-User-Id header for new unauthenticated users
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return FastAPIResponse(status_code=204)
 
