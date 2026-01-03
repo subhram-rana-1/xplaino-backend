@@ -629,14 +629,14 @@ class DomainStatus(str, Enum):
 class CreateDomainRequest(BaseModel):
     """Request model for creating a domain."""
     
-    url: str = Field(..., min_length=1, max_length=100, description="Domain URL (max 100 characters, no www, http/https, or paths)")
+    url: str = Field(..., min_length=1, max_length=100, description="Domain URL (max 100 characters, no http/https or paths)")
     status: Optional[DomainStatus] = Field(default=DomainStatus.ALLOWED, description="Domain status (ALLOWED or BANNED, defaults to ALLOWED)")
 
 
 class UpdateDomainRequest(BaseModel):
     """Request model for updating a domain (PATCH - all fields optional)."""
     
-    url: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Domain URL (max 100 characters, no www, http/https, or paths)")
+    url: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Domain URL (max 100 characters, no http/https or paths)")
     status: Optional[DomainStatus] = Field(default=None, description="Domain status (ALLOWED or BANNED)")
 
 

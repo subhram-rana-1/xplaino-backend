@@ -66,11 +66,11 @@ def validate_domain_url(url: str) -> bool:
     """Validate domain URL format.
     
     Rules:
-    - No 'www.' prefix
+    - Allows 'www.' prefix
     - No 'http://' or 'https://' protocol
     - No paths (no '/' character)
     - Valid domain format: allows subdomains and multi-level TLDs
-    - Examples: 'example.com', 'sub.example.com', 'example.co.uk', 'my-domain.us'
+    - Examples: 'example.com', 'www.example.com', 'sub.example.com', 'example.co.uk', 'my-domain.us'
     
     Args:
         url: Domain URL to validate
@@ -79,10 +79,6 @@ def validate_domain_url(url: str) -> bool:
         True if valid, False otherwise
     """
     if not url or not isinstance(url, str):
-        return False
-    
-    # Check for www prefix
-    if url.lower().startswith('www.'):
         return False
     
     # Check for http/https protocol

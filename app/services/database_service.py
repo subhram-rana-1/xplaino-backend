@@ -188,6 +188,57 @@ def get_or_create_user_by_google_sub(
             sub=sub,
             email=google_data.get("email")
         )
+        
+        # Create personal folder for new user
+        # Determine folder name: "{given_name}'s Personal" > "{family_name}'s Personal" > "Personal"
+        given_name = google_data.get("given_name")
+        family_name = google_data.get("family_name")
+        
+        if given_name and given_name.strip():
+            folder_name = f"{given_name.strip()}'s Personal"
+        elif family_name and family_name.strip():
+            folder_name = f"{family_name.strip()}'s Personal"
+        else:
+            folder_name = "Personal"
+        
+        # Ensure folder name doesn't exceed 50 characters (database constraint)
+        if len(folder_name) > 50:
+            folder_name = folder_name[:47] + "..."
+        
+        logger.debug(
+            "Creating personal folder for new user",
+            function="get_or_create_user_by_google_sub",
+            user_id=user_id,
+            folder_name=folder_name,
+            has_given_name=bool(given_name),
+            has_family_name=bool(family_name)
+        )
+        
+        # Generate folder_id
+        folder_id = str(uuid.uuid4())
+        
+        # Create folder record (root folder, no parent_id)
+        db.execute(
+            text("""
+                INSERT INTO folder (id, name, parent_id, user_id)
+                VALUES (:id, :name, :parent_id, :user_id)
+            """),
+            {
+                "id": folder_id,
+                "name": folder_name,
+                "parent_id": None,
+                "user_id": user_id
+            }
+        )
+        db.flush()
+        
+        logger.info(
+            "Created personal folder for new user",
+            function="get_or_create_user_by_google_sub",
+            user_id=user_id,
+            folder_id=folder_id,
+            folder_name=folder_name
+        )
     
     db.commit()
     
