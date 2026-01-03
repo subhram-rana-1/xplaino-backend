@@ -196,7 +196,7 @@ class SavedWordResponse(BaseModel):
     word: str = Field(..., description="The saved word")
     sourceUrl: str = Field(..., description="Source URL where the word was found")
     folderId: str = Field(..., description="Folder ID where the word is saved (UUID)")
-    userId: str = Field(..., description="User ID who saved the word (UUID)")
+    user: UserInfo = Field(..., description="User information (id, name, email, role)")
     createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
     contextualMeaning: Optional[str] = Field(
         None,
@@ -338,8 +338,28 @@ class GetAllFoldersResponse(BaseModel):
     folders: List[FolderWithSubFoldersResponse] = Field(..., description="List of root folders with nested sub-folders")
 
 
+class CreateFolderRequest(BaseModel):
+    """Request model for creating a folder."""
+    
+    name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+    parentId: Optional[str] = Field(default=None, description="Parent folder ID (optional, UUID format)")
+
+
+class CreateFolderResponse(BaseModel):
+    """Response model for a created folder with user information."""
+    
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
+    user_id: str = Field(..., description="User ID who owns the folder (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the folder was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
+    user: "UserInfo" = Field(..., description="User information (id, name, email, role)")
+
+
 # Update forward reference for recursive model
 FolderWithSubFoldersResponse.model_rebuild()
+CreateFolderResponse.model_rebuild()
 
 
 class UserRole(str, Enum):

@@ -83,6 +83,8 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "folders_get_api_count_so_far",
+    "POST:/api/folders": "folders_post_api_count_so_far",
+    "POST:/api/folders/": "folders_post_api_count_so_far",
     
     # Saved image APIs (method-specific)
     "GET:/api/saved-image": "saved_image_get_api_count_so_far",
@@ -159,6 +161,8 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "folders_get_api_max_limit",
+    "POST:/api/folders": "folders_post_api_max_limit",
+    "POST:/api/folders/": "folders_post_api_max_limit",
     
     # Saved image APIs (method-specific)
     "GET:/api/saved-image": "saved_image_get_api_max_limit",
@@ -235,6 +239,8 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     
     # Folders APIs (method-specific)
     "GET:/api/folders": "authenticated_folders_get_api_max_limit",
+    "POST:/api/folders": "authenticated_folders_post_api_max_limit",
+    "POST:/api/folders/": "authenticated_folders_post_api_max_limit",
     
     # Saved image APIs (method-specific)
     "GET:/api/saved-image": "authenticated_saved_image_get_api_max_limit",

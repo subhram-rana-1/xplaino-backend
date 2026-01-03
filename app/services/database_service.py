@@ -1194,6 +1194,94 @@ def get_saved_words_by_user_id(
     return words, total_count
 
 
+def get_saved_words_by_folder_id_and_user_id(
+    db: Session,
+    user_id: str,
+    folder_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved words for a user and folder with pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of saved words dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved words by user_id and folder_id",
+        function="get_saved_words_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM saved_word WHERE user_id = :user_id AND folder_id = :folder_id"),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id
+        }
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated words
+    words_result = db.execute(
+        text("""
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
+            FROM saved_word
+            WHERE user_id = :user_id AND folder_id = :folder_id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id,
+            "limit": limit,
+            "offset": offset
+        }
+    ).fetchall()
+    
+    words = []
+    for row in words_result:
+        word_id, word, contextual_meaning, source_url, folder_id_val, user_id_val, created_at = row
+        # Convert created_at to ISO format string
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        words.append({
+            "id": word_id,
+            "word": word,
+            "contextual_meaning": contextual_meaning,
+            "source_url": source_url,
+            "folder_id": folder_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved words successfully",
+        function="get_saved_words_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        words_count=len(words),
+        total_count=total_count
+    )
+    
+    return words, total_count
+
+
 def create_saved_word(
     db: Session,
     user_id: str,

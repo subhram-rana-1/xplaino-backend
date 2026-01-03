@@ -7,13 +7,19 @@ import structlog
 
 from app.models import (
     GetAllFoldersResponse,
-    FolderWithSubFoldersResponse
+    FolderWithSubFoldersResponse,
+    CreateFolderRequest,
+    CreateFolderResponse,
+    UserInfo
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_folders_by_user_id_and_parent_id
+    get_folders_by_user_id_and_parent_id,
+    create_paragraph_folder,
+    get_folder_by_id_and_user_id,
+    get_user_info_with_email_by_user_id
 )
 
 logger = structlog.get_logger()
@@ -114,5 +120,91 @@ async def get_all_folders(
     
     return GetAllFoldersResponse(
         folders=folders
+    )
+
+
+@router.post(
+    "",
+    response_model=CreateFolderResponse,
+    status_code=201,
+    summary="Create a folder",
+    description="Create a new folder for the authenticated user with optional parent folder"
+)
+async def create_folder(
+    request: Request,
+    response: Response,
+    body: CreateFolderRequest,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Create a folder for authenticated or unauthenticated users (unauthenticated will be blocked by rate limit)."""
+    # Extract user_id based on authentication status
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    else:
+        user_id = auth_context["unauthenticated_user_id"]
+    
+    # Validate name length (Pydantic already validates min_length=1, but we check max_length explicitly)
+    if len(body.name) > 50:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VAL_001",
+                "error_message": "Name length exceeds maximum of 50 characters"
+            }
+        )
+    
+    # If parentId is provided, validate it exists and belongs to the user
+    if body.parentId:
+        parent_folder = get_folder_by_id_and_user_id(db, body.parentId, user_id)
+        if not parent_folder:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "Parent folder not found or does not belong to user"
+                }
+            )
+    
+    # Create folder
+    folder_data = create_paragraph_folder(db, user_id, body.name, body.parentId)
+    
+    # Fetch user info
+    user_info_data = get_user_info_with_email_by_user_id(db, user_id)
+    
+    # Construct UserInfo object
+    user_info = UserInfo(
+        id=user_id,
+        name=user_info_data.get("name", ""),
+        email=user_info_data.get("email", ""),
+        role=user_info_data.get("role"),
+        firstName=None,
+        lastName=None,
+        picture=None
+    )
+    
+    logger.info(
+        "Created folder successfully",
+        folder_id=folder_data["id"],
+        user_id=user_id,
+        name=body.name,
+        has_parent_id=body.parentId is not None,
+        authenticated=auth_context.get("authenticated", False)
+    )
+    
+    # Add X-Unauthenticated-User-Id header for new unauthenticated users
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return CreateFolderResponse(
+        id=folder_data["id"],
+        name=folder_data["name"],
+        parent_id=folder_data["parent_id"],
+        user_id=folder_data["user_id"],
+        created_at=folder_data["created_at"],
+        updated_at=folder_data["updated_at"],
+        user=user_info
     )
 

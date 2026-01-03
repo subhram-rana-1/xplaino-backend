@@ -150,6 +150,7 @@ class Settings(BaseSettings):
     
     # Folders API limits (method-specific)
     folders_get_api_max_limit: int = Field(default=0, description="Max limit for GET folders API")
+    folders_post_api_max_limit: int = Field(default=0, description="Max limit for POST folders API")
     
     # API Usage Limits for Authenticated Users (Unsubscribed)
     # v1 API Limits
@@ -197,6 +198,7 @@ class Settings(BaseSettings):
     
     # Authenticated folders API limits (method-specific)
     authenticated_folders_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET folders API")
+    authenticated_folders_post_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated POST folders API")
     
     # Saved image API limits (method-specific)
     saved_image_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-image API")
