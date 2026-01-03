@@ -458,6 +458,24 @@ class GetAllIssuesResponse(BaseModel):
     has_next: bool = Field(..., description="Whether there are more issues to fetch")
 
 
+class GetIssueByTicketIdResponse(BaseModel):
+    """Response model for getting an issue by ticket_id with user information."""
+    
+    id: str = Field(..., description="Issue ID (UUID)")
+    ticket_id: str = Field(..., description="14-character ticket ID")
+    type: str = Field(..., description="Issue type")
+    heading: Optional[str] = Field(default=None, description="Issue heading")
+    description: str = Field(..., description="Issue description")
+    webpage_url: Optional[str] = Field(default=None, description="Webpage URL where the issue occurred")
+    status: str = Field(..., description="Issue status")
+    created_by: "CreatedByUser" = Field(..., description="User who created the issue")
+    closed_by: Optional["CreatedByUser"] = Field(default=None, description="User who closed the issue")
+    closed_at: Optional[str] = Field(default=None, description="ISO format timestamp when the issue was closed")
+    created_at: str = Field(..., description="ISO format timestamp when the issue was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the issue was last updated")
+    file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="List of file uploads associated with the issue")
+
+
 class CommentVisibility(str, Enum):
     """Comment visibility enum."""
     PUBLIC = "PUBLIC"
@@ -470,6 +488,7 @@ class CreatedByUser(BaseModel):
     id: str = Field(..., description="User ID (UUID)")
     name: str = Field(..., description="User's full name")
     role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
+    profileIconUrl: Optional[str] = Field(default=None, description="User's profile icon URL from Google auth")
 
 
 class DomainCreatedByUser(BaseModel):
@@ -525,6 +544,7 @@ class CreateCommentResponse(BaseModel):
 
 # Rebuild models to resolve forward references
 CommentResponse.model_rebuild()
+GetIssueByTicketIdResponse.model_rebuild()
 
 
 class RecurringPeriod(str, Enum):

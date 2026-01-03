@@ -1,5 +1,6 @@
 """Authentication middleware for API endpoints."""
 
+import sys
 from typing import Optional, Dict, Any
 from fastapi import Request, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
@@ -336,15 +337,14 @@ def get_api_counter_field_and_limit(request: Request) -> tuple[Optional[str], Op
                     counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
                     limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
     
-    if counter_field is None:
-        raise Exception(f"API counter field not found for: {lookup_key}")
-
-    if limit_config is None:
-        raise Exception(f"API limit config not found for: {lookup_key}")
+    # If API counter doesn't exist, treat as unlimited (max int)
+    if counter_field is None or limit_config is None:
+        return None, sys.maxsize
     
     max_limit = getattr(settings, limit_config, None)
     if max_limit is None:
-        raise Exception(f"API maximum limit not found for: {lookup_key}")
+        # If limit config doesn't exist in settings, treat as unlimited
+        return None, sys.maxsize
 
     return counter_field, max_limit
 
@@ -433,15 +433,14 @@ def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Opt
                     counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
                     limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
     
-    if counter_field is None:
-        raise Exception(f"API counter field not found for: {lookup_key}")
-
-    if limit_config is None:
-        raise Exception(f"API authenticated limit config not found for: {lookup_key}")
+    # If API counter doesn't exist, treat as unlimited (max int)
+    if counter_field is None or limit_config is None:
+        return None, sys.maxsize
     
     max_limit = getattr(settings, limit_config, None)
     if max_limit is None:
-        raise Exception(f"API authenticated maximum limit not found for: {lookup_key}")
+        # If limit config doesn't exist in settings, treat as unlimited
+        return None, sys.maxsize
 
     return counter_field, max_limit
 
@@ -551,26 +550,30 @@ async def authenticate(
             # CRITICAL STEP: Get API counter field and authenticated max limit
             api_counter_field, max_limit = get_api_counter_field_and_authenticated_limit(request)
             
-            if not api_counter_field or max_limit is None:
+            # If API counter doesn't exist, treat as unlimited (skip rate limiting)
+            if api_counter_field is None and max_limit == sys.maxsize:
+                # Unlimited access - skip rate limiting checks
+                pass
+            elif not api_counter_field or max_limit is None:
                 raise_subscription_required()
-
-            # CRITICAL STEP: Get or create authenticated user API usage record
-            api_usage = get_authenticated_user_api_usage(db, user_id)
-            if not api_usage:
-                # Create new record with all counters initialized to 0
-                create_authenticated_user_api_usage(db, user_id, api_counter_field)
-                # Re-fetch to get the newly created record
+            else:
+                # CRITICAL STEP: Get or create authenticated user API usage record
                 api_usage = get_authenticated_user_api_usage(db, user_id)
                 if not api_usage:
-                    raise_subscription_required()
+                    # Create new record with all counters initialized to 0
+                    create_authenticated_user_api_usage(db, user_id, api_counter_field)
+                    # Re-fetch to get the newly created record
+                    api_usage = get_authenticated_user_api_usage(db, user_id)
+                    if not api_usage:
+                        raise_subscription_required()
 
-            # CRITICAL STEP: Check if limit exceeded (before incrementing)
-            current_count = api_usage.get(api_counter_field, 0)
-            if current_count >= max_limit:
-                raise_subscription_required()
-            
-            # CRITICAL STEP: Increment usage counter
-            increment_authenticated_api_usage(db, user_id, api_counter_field)
+                # CRITICAL STEP: Check if limit exceeded (before incrementing)
+                current_count = api_usage.get(api_counter_field, 0)
+                if current_count >= max_limit:
+                    raise_subscription_required()
+                
+                # CRITICAL STEP: Increment usage counter
+                increment_authenticated_api_usage(db, user_id, api_counter_field)
 
             return {
                 "authenticated": True,
@@ -592,17 +595,20 @@ async def authenticate(
         # Get API counter field and max limit for this endpoint
         api_counter_field, max_limit = get_api_counter_field_and_limit(request)
 
-        # Now check if we can determine the API counter field and max limit
-        if not api_counter_field or max_limit is None:
+        # If API counter doesn't exist, treat as unlimited (skip rate limiting)
+        if api_counter_field is None and max_limit == sys.maxsize:
+            # Unlimited access - skip rate limiting checks
+            pass
+        elif not api_counter_field or max_limit is None:
             raise_login_required(status_code=429)
-        
-        # CRITICAL STEP: Check if limit exceeded
-        current_count = api_usage.get(api_counter_field, 0)
-        if current_count >= max_limit:
-            raise_login_required(status_code=429)
-        
-        # CRITICAL STEP: Increment usage counter
-        increment_api_usage(db, unauthenticated_user_id, api_counter_field)
+        else:
+            # CRITICAL STEP: Check if limit exceeded
+            current_count = api_usage.get(api_counter_field, 0)
+            if current_count >= max_limit:
+                raise_login_required(status_code=429)
+            
+            # CRITICAL STEP: Increment usage counter
+            increment_api_usage(db, unauthenticated_user_id, api_counter_field)
 
         return {
             "authenticated": False,
@@ -615,11 +621,16 @@ async def authenticate(
         # CRITICAL STEP: Create new unauthenticated user record
         api_counter_field, max_limit = get_api_counter_field_and_limit(request)
         
-        # If max_limit is 0, this API doesn't allow unauthenticated access
-        if max_limit == 0:
+        # If API counter doesn't exist, treat as unlimited (skip rate limiting)
+        if api_counter_field is None and max_limit == sys.maxsize:
+            # Unlimited access - create user but skip counter initialization
+            # Pass empty string as placeholder since api_name parameter is required
+            new_user_id = create_unauthenticated_user_usage(db, "")
+        elif max_limit == 0:
+            # If max_limit is 0, this API doesn't allow unauthenticated access
             raise_login_required()
-        
-        new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
+        else:
+            new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
         return {
             "authenticated": False,
             "unauthenticated_user_id": new_user_id,

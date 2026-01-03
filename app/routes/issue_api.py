@@ -15,11 +15,13 @@ from app.models import (
     IssueResponse,
     GetMyIssuesResponse,
     GetAllIssuesResponse,
+    GetIssueByTicketIdResponse,
     UpdateIssueRequest,
     FileUploadResponse,
     FileType,
     IssueType,
-    IssueStatus
+    IssueStatus,
+    CreatedByUser
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
@@ -30,6 +32,7 @@ from app.services.database_service import (
     get_issues_by_user_id,
     get_all_issues,
     get_issue_by_id,
+    get_issue_by_ticket_id,
     update_issue,
     create_file_upload,
     get_file_uploads_by_entity
@@ -293,6 +296,142 @@ async def get_all_issues_endpoint(
         offset=offset,
         limit=limit,
         has_next=has_next
+    )
+
+
+@router.get(
+    "/ticket/{ticket_id}",
+    response_model=GetIssueByTicketIdResponse,
+    summary="Get issue by ticket ID",
+    description="Get an issue by its ticket_id with all database fields. Returns CreatedByUser DTOs for created_by and closed_by fields."
+)
+async def get_issue_by_ticket_id_endpoint(
+    request: Request,
+    response: Response,
+    ticket_id: str = Path(..., description="Ticket ID (14 characters)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Get an issue by ticket_id with user information."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Get issue by ticket_id
+    issue_data = get_issue_by_ticket_id(db, ticket_id)
+    if not issue_data:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "ISSUE_NOT_FOUND",
+                "error_message": f"Issue with ticket_id {ticket_id} not found"
+            }
+        )
+    
+    # Build CreatedByUser objects
+    created_by_user_data = issue_data.get("created_by_user")
+    if created_by_user_data:
+        created_by_user = CreatedByUser(
+            id=created_by_user_data["id"],
+            name=created_by_user_data.get("name", ""),
+            role=created_by_user_data.get("role"),
+            profileIconUrl=created_by_user_data.get("picture")
+        )
+    else:
+        # Fallback for backward compatibility
+        created_by_user = CreatedByUser(
+            id=issue_data["created_by"],
+            name="",
+            role=None,
+            profileIconUrl=None
+        )
+    
+    closed_by_user = None
+    closed_by_user_data = issue_data.get("closed_by_user")
+    if closed_by_user_data:
+        closed_by_user = CreatedByUser(
+            id=closed_by_user_data["id"],
+            name=closed_by_user_data.get("name", ""),
+            role=closed_by_user_data.get("role"),
+            profileIconUrl=closed_by_user_data.get("picture")
+        )
+    
+    # Fetch file_uploads for the issue
+    file_uploads_data = get_file_uploads_by_entity(db, "ISSUE", issue_data["id"])
+    file_uploads = [
+        FileUploadResponse(
+            id=fu["id"],
+            file_name=fu["file_name"],
+            file_type=fu["file_type"],
+            entity_type=fu["entity_type"],
+            entity_id=fu["entity_id"],
+            s3_url=fu["s3_url"],
+            metadata=fu["metadata"],
+            created_at=fu["created_at"],
+            updated_at=fu["updated_at"]
+        )
+        for fu in file_uploads_data
+    ]
+    
+    logger.info(
+        "Retrieved issue by ticket_id successfully",
+        user_id=user_id,
+        ticket_id=ticket_id,
+        issue_id=issue_data["id"]
+    )
+    
+    return GetIssueByTicketIdResponse(
+        id=issue_data["id"],
+        ticket_id=issue_data["ticket_id"],
+        type=issue_data["type"],
+        heading=issue_data["heading"],
+        description=issue_data["description"],
+        webpage_url=issue_data["webpage_url"],
+        status=issue_data["status"],
+        created_by=created_by_user,
+        closed_by=closed_by_user,
+        closed_at=issue_data["closed_at"],
+        created_at=issue_data["created_at"],
+        updated_at=issue_data["updated_at"],
+        file_uploads=file_uploads
     )
 
 

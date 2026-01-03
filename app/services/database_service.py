@@ -4183,6 +4183,112 @@ def get_issue_by_id(
     return issue
 
 
+def get_issue_by_ticket_id(
+    db: Session,
+    ticket_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get an issue by its ticket_id with user information.
+    
+    Args:
+        db: Database session
+        ticket_id: Ticket ID (VARCHAR(14))
+        
+    Returns:
+        Dictionary with issue data including created_by_user and closed_by_user, or None if not found
+    """
+    logger.info(
+        "Getting issue by ticket_id",
+        function="get_issue_by_ticket_id",
+        ticket_id=ticket_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+                   created_by, closed_by, closed_at, created_at, updated_at
+            FROM issue
+            WHERE ticket_id = :ticket_id
+        """),
+        {"ticket_id": ticket_id}
+    )
+    
+    row = result.fetchone()
+    
+    if not row:
+        logger.info(
+            "Issue not found",
+            function="get_issue_by_ticket_id",
+            ticket_id=ticket_id
+        )
+        return None
+    
+    (issue_id_val, ticket_id_val, type_val, heading_val, description_val, 
+     webpage_url_val, status_val, created_by_val, closed_by_val, closed_at_val, 
+     created_at, updated_at) = row
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    closed_at_str = None
+    if closed_at_val:
+        if isinstance(closed_at_val, datetime):
+            closed_at_str = closed_at_val.isoformat() + "Z" if closed_at_val.tzinfo else closed_at_val.isoformat()
+        else:
+            closed_at_str = str(closed_at_val)
+    
+    # Get user information for created_by
+    created_by_user_info = get_user_name_and_role_by_user_id(db, created_by_val)
+    
+    # Get user information for closed_by (if not None)
+    closed_by_user_info = None
+    if closed_by_val:
+        closed_by_user_info = get_user_name_and_role_by_user_id(db, closed_by_val)
+    
+    issue = {
+        "id": issue_id_val,
+        "ticket_id": ticket_id_val,
+        "type": type_val,
+        "heading": heading_val,
+        "description": description_val,
+        "webpage_url": webpage_url_val,
+        "status": status_val,
+        "created_by": created_by_val,
+        "created_by_user": {
+            "id": created_by_val,
+            "name": created_by_user_info.get("name", ""),
+            "role": created_by_user_info.get("role"),
+            "picture": created_by_user_info.get("picture")
+        },
+        "closed_by": closed_by_val,
+        "closed_by_user": {
+            "id": closed_by_val,
+            "name": closed_by_user_info.get("name", ""),
+            "role": closed_by_user_info.get("role"),
+            "picture": closed_by_user_info.get("picture")
+        } if closed_by_user_info else None,
+        "closed_at": closed_at_str,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved issue successfully",
+        function="get_issue_by_ticket_id",
+        ticket_id=ticket_id
+    )
+    
+    return issue
+
+
 def update_issue(
     db: Session,
     issue_id: str,
@@ -4361,7 +4467,7 @@ def get_user_name_and_role_by_user_id(
         user_id: User ID (CHAR(36) UUID)
         
     Returns:
-        Dictionary with 'name' (str) and 'role' (Optional[str])
+        Dictionary with 'name' (str), 'role' (Optional[str]), and 'picture' (Optional[str])
     """
     logger.info(
         "Getting user name and role by user_id",
@@ -4369,10 +4475,10 @@ def get_user_name_and_role_by_user_id(
         user_id=user_id
     )
     
-    # Get name from google_user_auth_info
+    # Get name and picture from google_user_auth_info
     name_result = db.execute(
         text("""
-            SELECT given_name, family_name
+            SELECT given_name, family_name, picture
             FROM google_user_auth_info
             WHERE user_id = :user_id
             LIMIT 1
@@ -4388,8 +4494,9 @@ def get_user_name_and_role_by_user_id(
     
     # Construct name
     name = ""
+    picture = None
     if name_result:
-        given_name, family_name = name_result
+        given_name, family_name, picture = name_result
         name_parts = []
         if given_name:
             name_parts.append(given_name)
@@ -4405,12 +4512,14 @@ def get_user_name_and_role_by_user_id(
         function="get_user_name_and_role_by_user_id",
         user_id=user_id,
         has_name=bool(name),
-        role=role
+        role=role,
+        has_picture=bool(picture)
     )
     
     return {
         "name": name,
-        "role": role
+        "role": role,
+        "picture": picture
     }
 
 
@@ -4534,6 +4643,9 @@ def get_comment_by_id(
     else:
         updated_at_str = str(updated_at)
     
+    # Get user name and role
+    user_info = get_user_name_and_role_by_user_id(db, created_by)
+    
     comment = {
         "id": comment_id_val,
         "content": content,
@@ -4542,6 +4654,12 @@ def get_comment_by_id(
         "parent_comment_id": parent_comment_id,
         "visibility": visibility,
         "created_by": created_by,
+        "created_by_user": {
+            "id": created_by,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
+        },
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -4597,7 +4715,7 @@ def get_comments_by_entity(
         visibility_filter = "AND visibility = 'PUBLIC'"
         visibility_params = {}
     
-    # First, get root comments (parent_comment_id IS NULL) ordered by created_at DESC
+    # First, get root comments (parent_comment_id IS NULL) ordered by created_at ASC
     root_query = text(f"""
         SELECT id, content, entity_type, entity_id, parent_comment_id, 
                visibility, created_by, created_at, updated_at
@@ -4606,7 +4724,7 @@ def get_comments_by_entity(
           AND entity_id = :entity_id 
           AND parent_comment_id IS NULL
           {visibility_filter}
-        ORDER BY created_at DESC
+        ORDER BY created_at ASC
         LIMIT :count
     """)
     
@@ -4704,11 +4822,12 @@ def get_comments_by_entity(
     # Add user info to comments
     for comment in result:
         user_id = comment["created_by"]
-        user_info = user_info_map.get(user_id, {"name": "", "role": None})
+        user_info = user_info_map.get(user_id, {"name": "", "role": None, "picture": None})
         comment["created_by_user"] = {
             "id": user_id,
             "name": user_info.get("name", ""),
-            "role": user_info.get("role")
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
         }
     
     logger.info(
@@ -4850,7 +4969,8 @@ def create_comment(
         "created_by_user": {
             "id": created_by_val,
             "name": user_info.get("name", ""),
-            "role": user_info.get("role")
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
         },
         "created_at": created_at_str,
         "updated_at": updated_at_str
@@ -5501,7 +5621,8 @@ def get_pricing_by_id(
         "created_by": {
             "id": created_by_val,
             "name": user_info.get("name", ""),
-            "role": user_info.get("role")
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
         },
         "created_at": created_at_str,
         "updated_at": updated_at_str
@@ -5714,7 +5835,8 @@ def get_all_pricings(
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),
-                "role": user_info.get("role")
+                "role": user_info.get("role"),
+                "picture": user_info.get("picture")
             },
             "created_at": created_at_str,
             "updated_at": updated_at_str
@@ -5806,7 +5928,8 @@ def get_live_pricings(
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),
-                "role": user_info.get("role")
+                "role": user_info.get("role"),
+                "picture": user_info.get("picture")
             },
             "created_at": created_at_str,
             "updated_at": updated_at_str

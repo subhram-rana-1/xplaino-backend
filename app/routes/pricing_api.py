@@ -199,7 +199,8 @@ async def create_pricing_endpoint(
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
-            role=pricing_data["created_by"]["role"]
+            role=pricing_data["created_by"]["role"],
+            profileIconUrl=pricing_data["created_by"].get("picture")
         ),
         created_at=pricing_data["created_at"],
         updated_at=pricing_data["updated_at"]
@@ -429,7 +430,8 @@ async def update_pricing_endpoint(
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
-            role=pricing_data["created_by"]["role"]
+            role=pricing_data["created_by"]["role"],
+            profileIconUrl=pricing_data["created_by"].get("picture")
         ),
         created_at=pricing_data["created_at"],
         updated_at=pricing_data["updated_at"]
