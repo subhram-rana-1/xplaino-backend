@@ -52,14 +52,16 @@ def build_comment_tree(comments: List[Dict[str, Any]]) -> List[CommentResponse]:
             created_by_user = CreatedByUser(
                 id=created_by_user_data["id"],
                 name=created_by_user_data.get("name", ""),
-                role=created_by_user_data.get("role")
+                role=created_by_user_data.get("role"),
+                profileIconUrl=created_by_user_data.get("picture")
             )
         else:
             # Fallback for backward compatibility
             created_by_user = CreatedByUser(
                 id=comment_data["created_by"],
                 name="",
-                role=None
+                role=None,
+                profileIconUrl=None
             )
         comment_map[comment_id] = CommentResponse(
             id=comment_data["id"],
@@ -85,12 +87,12 @@ def build_comment_tree(comments: List[Dict[str, Any]]) -> List[CommentResponse]:
                 parent_comment = comment_map[parent_comment_id]
                 parent_comment.child_comments.append(comment_map[comment_id])
     
-    # Sort root comments by created_at DESC (most recent first)
-    root_comments.sort(key=lambda c: c.created_at, reverse=True)
+    # Sort root comments by created_at ASC (oldest first)
+    root_comments.sort(key=lambda c: c.created_at, reverse=False)
     
     # Recursively sort child comments
     def sort_children(comment: CommentResponse):
-        comment.child_comments.sort(key=lambda c: c.created_at, reverse=True)
+        comment.child_comments.sort(key=lambda c: c.created_at, reverse=False)
         for child in comment.child_comments:
             sort_children(child)
     
@@ -335,14 +337,16 @@ async def create_comment_endpoint(
         created_by_user = CreatedByUser(
             id=created_by_user_data["id"],
             name=created_by_user_data.get("name", ""),
-            role=created_by_user_data.get("role")
+            role=created_by_user_data.get("role"),
+            profileIconUrl=created_by_user_data.get("picture")
         )
     else:
         # Fallback for backward compatibility
         created_by_user = CreatedByUser(
             id=comment_data["created_by"],
             name="",
-            role=None
+            role=None,
+            profileIconUrl=None
         )
     
     return CreateCommentResponse(

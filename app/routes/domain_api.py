@@ -277,7 +277,7 @@ async def create_domain_endpoint(
             status_code=422,
             detail={
                 "error_code": "INVALID_DOMAIN_URL",
-                "error_message": "Invalid domain URL format. Domain must not include www, http/https, or paths. Examples: example.com, sub.example.com, example.co.uk"
+                "error_message": "Invalid domain URL format. Domain must not include http/https or paths. Examples: example.com, www.example.com, sub.example.com, example.co.uk"
             }
         )
     
@@ -407,7 +407,7 @@ async def update_domain_endpoint(
                 status_code=422,
                 detail={
                     "error_code": "INVALID_DOMAIN_URL",
-                    "error_message": "Invalid domain URL format. Domain must not include www, http/https, or paths. Examples: example.com, sub.example.com, example.co.uk"
+                    "error_message": "Invalid domain URL format. Domain must not include http/https or paths. Examples: example.com, www.example.com, sub.example.com, example.co.uk"
                 }
             )
         url_to_update = body.url

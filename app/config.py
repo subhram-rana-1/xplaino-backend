@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     
     # File Upload Configuration
     max_file_size_mb: int = Field(default=2, description="Maximum file size in MB")
-    allowed_image_types: str = Field(default="jpeg,jpg,png,heic", description="Allowed image types")
+    max_image_file_size_mb: int = Field(default=5, description="Maximum image file size in MB for image-based APIs")
+    allowed_image_types: str = Field(default="jpeg,jpg,png,heic,webp,gif,bmp", description="Allowed image types")
     allowed_pdf_types: str = Field(default="pdf", description="Allowed PDF types")
     
     @property
@@ -49,6 +50,11 @@ class Settings(BaseSettings):
     def max_file_size_bytes(self) -> int:
         """Get maximum file size in bytes."""
         return self.max_file_size_mb * 1024 * 1024
+    
+    @property
+    def max_image_file_size_bytes(self) -> int:
+        """Get maximum image file size in bytes for image-based APIs."""
+        return self.max_image_file_size_mb * 1024 * 1024
     
     # LLM Configuration
     gpt4_turbo_model: str = Field(default="gpt-4-turbo-2024-04-09", description="GPT-4 Turbo model name")
@@ -120,15 +126,19 @@ class Settings(BaseSettings):
     web_search_stream_api_max_limit: int = Field(default=5, description="Max limit for web-search-stream API")
     synonyms_api_max_limit: int = Field(default=5, description="Max limit for synonyms API")
     antonyms_api_max_limit: int = Field(default=5, description="Max limit for antonyms API")
+    simplify_image_api_max_limit: int = Field(default=5, description="Max limit for simplify-image API")
+    ask_image_api_max_limit: int = Field(default=10, description="Max limit for ask-image API")
     
     # Saved words API limits (method-specific)
     saved_words_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-words API")
     saved_words_post_api_max_limit: int = Field(default=0, description="Max limit for POST saved-words API")
+    saved_words_move_api_max_limit: int = Field(default=0, description="Max limit for PATCH saved-words move-to-folder API")
     saved_words_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-words API")
     
     # Saved paragraph API limits (method-specific)
     saved_paragraph_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-paragraph API")
     saved_paragraph_post_api_max_limit: int = Field(default=0, description="Max limit for POST saved-paragraph API")
+    saved_paragraph_move_api_max_limit: int = Field(default=0, description="Max limit for PATCH saved-paragraph move-to-folder API")
     saved_paragraph_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-paragraph API")
     saved_paragraph_folder_post_api_max_limit: int = Field(default=0, description="Max limit for POST saved-paragraph folder API")
     saved_paragraph_folder_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-paragraph folder API")
@@ -136,12 +146,15 @@ class Settings(BaseSettings):
     # Saved link API limits (method-specific)
     saved_link_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-link API")
     saved_link_post_api_max_limit: int = Field(default=0, description="Max limit for POST saved-link API")
+    saved_link_move_api_max_limit: int = Field(default=0, description="Max limit for PATCH saved-link move-to-folder API")
     saved_link_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-link API")
     saved_link_folder_post_api_max_limit: int = Field(default=0, description="Max limit for POST saved-link folder API")
     saved_link_folder_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-link folder API")
     
     # Folders API limits (method-specific)
     folders_get_api_max_limit: int = Field(default=0, description="Max limit for GET folders API")
+    folders_post_api_max_limit: int = Field(default=0, description="Max limit for POST folders API")
+    folders_delete_api_max_limit: int = Field(default=0, description="Max limit for DELETE folders API")
     
     # API Usage Limits for Authenticated Users (Unsubscribed)
     # v1 API Limits
@@ -165,15 +178,19 @@ class Settings(BaseSettings):
     authenticated_web_search_stream_api_max_limit: int = Field(default=5, description="Max limit for authenticated web-search-stream API")
     authenticated_synonyms_api_max_limit: int = Field(default=5, description="Max limit for authenticated synonyms API")
     authenticated_antonyms_api_max_limit: int = Field(default=5, description="Max limit for authenticated antonyms API")
+    authenticated_simplify_image_api_max_limit: int = Field(default=5, description="Max limit for authenticated simplify-image API")
+    authenticated_ask_image_api_max_limit: int = Field(default=10, description="Max limit for authenticated ask-image API")
     
     # Authenticated saved words API limits (method-specific)
     authenticated_saved_words_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET saved-words API")
     authenticated_saved_words_post_api_max_limit: int = Field(default=10, description="Max limit for authenticated POST saved-words API")
+    authenticated_saved_words_move_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated PATCH saved-words move-to-folder API")
     authenticated_saved_words_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated DELETE saved-words API")
     
     # Authenticated saved paragraph API limits (method-specific)
     authenticated_saved_paragraph_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET saved-paragraph API")
     authenticated_saved_paragraph_post_api_max_limit: int = Field(default=5, description="Max limit for authenticated POST saved-paragraph API")
+    authenticated_saved_paragraph_move_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated PATCH saved-paragraph move-to-folder API")
     authenticated_saved_paragraph_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated DELETE saved-paragraph API")
     authenticated_saved_paragraph_folder_post_api_max_limit: int = Field(default=3, description="Max limit for authenticated POST saved-paragraph folder API")
     authenticated_saved_paragraph_folder_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated DELETE saved-paragraph folder API")
@@ -181,12 +198,39 @@ class Settings(BaseSettings):
     # Authenticated saved link API limits (method-specific)
     authenticated_saved_link_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET saved-link API")
     authenticated_saved_link_post_api_max_limit: int = Field(default=10, description="Max limit for authenticated POST saved-link API")
+    authenticated_saved_link_move_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated PATCH saved-link move-to-folder API")
     authenticated_saved_link_delete_api_max_limit: int = Field(default=10, description="Max limit for authenticated DELETE saved-link API")
     authenticated_saved_link_folder_post_api_max_limit: int = Field(default=5, description="Max limit for authenticated POST saved-link folder API")
     authenticated_saved_link_folder_delete_api_max_limit: int = Field(default=5, description="Max limit for authenticated DELETE saved-link folder API")
     
     # Authenticated folders API limits (method-specific)
     authenticated_folders_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET folders API")
+    authenticated_folders_post_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated POST folders API")
+    authenticated_folders_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated DELETE folders API")
+    
+    # Saved image API limits (method-specific)
+    saved_image_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for GET saved-image API")
+    saved_image_post_api_max_limit: int = Field(default=5, description="Max limit for POST saved-image API")
+    saved_image_move_api_max_limit: int = Field(default=5, description="Max limit for PATCH saved-image move-to-folder API")
+    saved_image_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for DELETE saved-image API")
+    
+    # Authenticated saved image API limits (method-specific)
+    authenticated_saved_image_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET saved-image API")
+    authenticated_saved_image_post_api_max_limit: int = Field(default=5, description="Max limit for authenticated POST saved-image API")
+    authenticated_saved_image_move_api_max_limit: int = Field(default=5, description="Max limit for authenticated PATCH saved-image move-to-folder API")
+    authenticated_saved_image_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated DELETE saved-image API")
+    
+    # Issue API limits (method-specific)
+    issue_get_api_max_limit: int = Field(default=0, description="Max limit for GET issue API")
+    issue_get_all_api_max_limit: int = Field(default=0, description="Max limit for GET issue/all API")
+    issue_patch_api_max_limit: int = Field(default=0, description="Max limit for PATCH issue API")
+    issue_post_api_max_limit: int = Field(default=0, description="Max limit for POST issue API")
+    
+    # Authenticated issue API limits (method-specific)
+    authenticated_issue_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET issue API")
+    authenticated_issue_get_all_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated GET issue/all API")
+    authenticated_issue_patch_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated PATCH issue API")
+    authenticated_issue_post_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated POST issue API")
     
     @property
     def database_url(self) -> str:

@@ -181,7 +181,8 @@ class SaveWordRequest(BaseModel):
     
     word: str = Field(..., min_length=1, max_length=32, description="Word to save (max 32 characters)")
     sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the word was found (max 1024 characters)")
-    contextual_meaning: Optional[str] = Field(
+    folderId: str = Field(..., description="Folder ID where the word will be saved (UUID)")
+    contextualMeaning: Optional[str] = Field(
         None,
         max_length=1000,
         description="Contextual meaning or explanation of the word (max 1000 characters, optional)"
@@ -194,9 +195,10 @@ class SavedWordResponse(BaseModel):
     id: str = Field(..., description="Saved word ID (UUID)")
     word: str = Field(..., description="The saved word")
     sourceUrl: str = Field(..., description="Source URL where the word was found")
-    userId: str = Field(..., description="User ID who saved the word (UUID)")
+    folderId: str = Field(..., description="Folder ID where the word is saved (UUID)")
+    user: UserInfo = Field(..., description="User information (id, name, email, role)")
     createdAt: str = Field(..., description="ISO format timestamp when the word was saved")
-    contextual_meaning: Optional[str] = Field(
+    contextualMeaning: Optional[str] = Field(
         None,
         description="Contextual meaning or explanation of the word when it was saved (optional)"
     )
@@ -209,12 +211,6 @@ class GetSavedWordsResponse(BaseModel):
     total: int = Field(..., description="Total number of saved words for the user")
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
-
-
-class FolderType(str, Enum):
-    """Folder type enum."""
-    LINK = "LINK"
-    PARAGRAPH = "PARAGRAPH"
 
 
 class LinkType(str, Enum):
@@ -233,7 +229,7 @@ class SaveParagraphRequest(BaseModel):
     
     content: str = Field(..., min_length=1, description="Paragraph content")
     source_url: str = Field(..., min_length=1, max_length=1024, description="Source URL where the paragraph was found (max 1024 characters)")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the paragraph in (nullable)")
+    folder_id: str = Field(..., description="Folder ID to save the paragraph in (UUID)")
     name: Optional[str] = Field(default=None, max_length=50, description="Optional name for the paragraph (max 50 characters)")
 
 
@@ -249,7 +245,6 @@ class FolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
-    type: str = Field(..., description="Folder type (LINK or PARAGRAPH)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -263,7 +258,7 @@ class SavedParagraphResponse(BaseModel):
     name: Optional[str] = Field(default=None, description="Optional name for the paragraph")
     source_url: str = Field(..., description="Source URL where the paragraph was found")
     content: str = Field(..., description="Paragraph content")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID the paragraph is saved in (nullable)")
+    folder_id: str = Field(..., description="Folder ID the paragraph is saved in (UUID)")
     user_id: str = Field(..., description="User ID who saved the paragraph (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the paragraph was saved")
     updated_at: str = Field(..., description="ISO format timestamp when the paragraph was last updated")
@@ -286,7 +281,7 @@ class SaveLinkRequest(BaseModel):
     """Request model for saving a link."""
     
     url: str = Field(..., min_length=1, max_length=1024, description="Link URL to save (max 1024 characters)")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID to save the link in (nullable)")
+    folder_id: str = Field(..., description="Folder ID to save the link in (UUID)")
     name: Optional[str] = Field(default=None, max_length=100, description="Optional name for the link (max 100 characters)")
     summary: Optional[str] = Field(default=None, description="Optional summary text for the link")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON for the link")
@@ -301,7 +296,7 @@ class SavedLinkResponse(BaseModel):
     type: str = Field(..., description="Link type (WEBPAGE, YOUTUBE, LINKEDIN, TWITTER, REDDIT, FACEBOOK, INSTAGRAM)")
     summary: Optional[str] = Field(default=None, description="Optional summary text for the link")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON for the link")
-    folder_id: Optional[str] = Field(default=None, description="Folder ID the link is saved in (nullable)")
+    folder_id: str = Field(..., description="Folder ID the link is saved in (UUID)")
     user_id: str = Field(..., description="User ID who saved the link (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the link was saved")
     updated_at: str = Field(..., description="ISO format timestamp when the link was last updated")
@@ -340,12 +335,31 @@ class FolderWithSubFoldersResponse(BaseModel):
 class GetAllFoldersResponse(BaseModel):
     """Response model for getting all folders in hierarchical structure."""
     
-    type: str = Field(..., description="Folder type (LINK or PARAGRAPH)")
     folders: List[FolderWithSubFoldersResponse] = Field(..., description="List of root folders with nested sub-folders")
+
+
+class CreateFolderRequest(BaseModel):
+    """Request model for creating a folder."""
+    
+    name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
+    parentId: Optional[str] = Field(default=None, description="Parent folder ID (optional, UUID format)")
+
+
+class CreateFolderResponse(BaseModel):
+    """Response model for a created folder with user information."""
+    
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
+    user_id: str = Field(..., description="User ID who owns the folder (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the folder was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
+    user: "UserInfo" = Field(..., description="User information (id, name, email, role)")
 
 
 # Update forward reference for recursive model
 FolderWithSubFoldersResponse.model_rebuild()
+CreateFolderResponse.model_rebuild()
 
 
 class UserRole(str, Enum):
@@ -444,6 +458,24 @@ class GetAllIssuesResponse(BaseModel):
     has_next: bool = Field(..., description="Whether there are more issues to fetch")
 
 
+class GetIssueByTicketIdResponse(BaseModel):
+    """Response model for getting an issue by ticket_id with user information."""
+    
+    id: str = Field(..., description="Issue ID (UUID)")
+    ticket_id: str = Field(..., description="14-character ticket ID")
+    type: str = Field(..., description="Issue type")
+    heading: Optional[str] = Field(default=None, description="Issue heading")
+    description: str = Field(..., description="Issue description")
+    webpage_url: Optional[str] = Field(default=None, description="Webpage URL where the issue occurred")
+    status: str = Field(..., description="Issue status")
+    created_by: "CreatedByUser" = Field(..., description="User who created the issue")
+    closed_by: Optional["CreatedByUser"] = Field(default=None, description="User who closed the issue")
+    closed_at: Optional[str] = Field(default=None, description="ISO format timestamp when the issue was closed")
+    created_at: str = Field(..., description="ISO format timestamp when the issue was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the issue was last updated")
+    file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="List of file uploads associated with the issue")
+
+
 class CommentVisibility(str, Enum):
     """Comment visibility enum."""
     PUBLIC = "PUBLIC"
@@ -456,6 +488,7 @@ class CreatedByUser(BaseModel):
     id: str = Field(..., description="User ID (UUID)")
     name: str = Field(..., description="User's full name")
     role: Optional[str] = Field(default=None, description="User role (ADMIN, SUPER_ADMIN, or None)")
+    profileIconUrl: Optional[str] = Field(default=None, description="User's profile icon URL from Google auth")
 
 
 class DomainCreatedByUser(BaseModel):
@@ -511,6 +544,7 @@ class CreateCommentResponse(BaseModel):
 
 # Rebuild models to resolve forward references
 CommentResponse.model_rebuild()
+GetIssueByTicketIdResponse.model_rebuild()
 
 
 class RecurringPeriod(str, Enum):
@@ -595,14 +629,14 @@ class DomainStatus(str, Enum):
 class CreateDomainRequest(BaseModel):
     """Request model for creating a domain."""
     
-    url: str = Field(..., min_length=1, max_length=100, description="Domain URL (max 100 characters, no www, http/https, or paths)")
+    url: str = Field(..., min_length=1, max_length=100, description="Domain URL (max 100 characters, no http/https or paths)")
     status: Optional[DomainStatus] = Field(default=DomainStatus.ALLOWED, description="Domain status (ALLOWED or BANNED, defaults to ALLOWED)")
 
 
 class UpdateDomainRequest(BaseModel):
     """Request model for updating a domain (PATCH - all fields optional)."""
     
-    url: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Domain URL (max 100 characters, no www, http/https, or paths)")
+    url: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Domain URL (max 100 characters, no http/https or paths)")
     status: Optional[DomainStatus] = Field(default=None, description="Domain status (ALLOWED or BANNED)")
 
 
@@ -625,3 +659,68 @@ class GetAllDomainsResponse(BaseModel):
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
     has_next: bool = Field(..., description="Whether there are more domains to fetch")
+
+
+class CreateSavedImageRequest(BaseModel):
+    """Request model for creating a saved image."""
+    
+    imageUrl: str = Field(..., min_length=1, max_length=1024, description="Image URL (max 1024 characters)")
+    sourceUrl: str = Field(..., min_length=1, max_length=1024, description="Source URL where the image was found (max 1024 characters)")
+    folderId: str = Field(..., description="Folder ID where the image will be saved (UUID)")
+    name: Optional[str] = Field(default=None, max_length=100, description="Optional name for the image (max 100 characters)")
+
+
+class SavedImageCreatedByUser(BaseModel):
+    """Model for user who created a saved image."""
+    
+    id: str = Field(..., description="User ID (UUID)")
+    email: str = Field(..., description="User's email address")
+    name: str = Field(..., description="User's full name")
+
+
+class SavedImageResponse(BaseModel):
+    """Response model for a saved image."""
+    
+    id: str = Field(..., description="Saved image ID (UUID)")
+    sourceUrl: str = Field(..., description="Source URL where the image was found")
+    imageUrl: str = Field(..., description="Image URL")
+    name: Optional[str] = Field(default=None, description="Optional name for the image")
+    folderId: str = Field(..., description="Folder ID where the image is saved (UUID)")
+    userId: str = Field(..., description="User ID who saved the image (UUID)")
+    createdAt: str = Field(..., description="ISO format timestamp when the image was saved")
+    updatedAt: str = Field(..., description="ISO format timestamp when the image was last updated")
+    createdBy: SavedImageCreatedByUser = Field(..., description="User who created the saved image")
+
+
+class GetAllSavedImagesResponse(BaseModel):
+    """Response model for getting all saved images."""
+    
+    images: List[SavedImageResponse] = Field(..., description="List of saved images")
+    total: int = Field(..., description="Total number of saved images for the user in this folder")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more images to fetch")
+
+
+class MoveSavedImageToFolderRequest(BaseModel):
+    """Request model for moving a saved image to a different folder."""
+    
+    newFolderId: str = Field(..., description="New folder ID to move the image to (UUID)")
+
+
+class MoveSavedWordToFolderRequest(BaseModel):
+    """Request model for moving a saved word to a different folder."""
+    
+    targetFolderId: str = Field(..., description="Target folder ID to move the word to (UUID)")
+
+
+class MoveSavedParagraphToFolderRequest(BaseModel):
+    """Request model for moving a saved paragraph to a different folder."""
+    
+    targetFolderId: str = Field(..., description="Target folder ID to move the paragraph to (UUID)")
+
+
+class MoveSavedLinkToFolderRequest(BaseModel):
+    """Request model for moving a saved link to a different folder."""
+    
+    targetFolderId: str = Field(..., description="Target folder ID to move the link to (UUID)")

@@ -11,13 +11,14 @@ from app.models import (
     SavedLinkResponse,
     GetAllSavedLinksResponse,
     FolderResponse,
-    CreateLinkFolderRequest
+    CreateLinkFolderRequest,
+    MoveSavedLinkToFolderRequest
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_folders_by_user_id_and_parent_id_and_type,
+    get_folders_by_user_id_and_parent_id,
     get_saved_links_by_user_id_and_folder_id,
     create_saved_link,
     get_saved_link_by_url_and_user_id,
@@ -26,7 +27,8 @@ from app.services.database_service import (
     get_saved_link_by_id_and_user_id,
     get_folder_by_id_and_user_id,
     create_link_folder,
-    delete_folder_by_id_and_user_id
+    delete_folder_by_id_and_user_id,
+    update_saved_link_folder_id
 )
 from app.utils.utils import detect_link_type_from_url
 
@@ -93,9 +95,9 @@ async def get_all_saved_links(
             }
         )
 
-    # Get sub-folders for the given folder_id (or root if folder_id is None) with type='LINK'
-    sub_folders_data = get_folders_by_user_id_and_parent_id_and_type(
-        db, user_id, folder_id, folder_type="LINK"
+    # Get sub-folders for the given folder_id (or root if folder_id is None)
+    sub_folders_data = get_folders_by_user_id_and_parent_id(
+        db, user_id, folder_id
     )
 
     # Get saved links for the given folder_id (or root if folder_id is None)
@@ -108,7 +110,6 @@ async def get_all_saved_links(
         FolderResponse(
             id=folder["id"],
             name=folder["name"],
-            type=folder["type"],
             parent_id=folder["parent_id"],
             user_id=folder["user_id"],
             created_at=folder["created_at"],
@@ -237,27 +238,16 @@ async def save_link(
             }
         )
 
-    # If folder_id is provided, validate it belongs to the user
-    if body.folder_id:
-        folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
-        if not folder:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_code": "NOT_FOUND",
-                    "error_message": "Folder not found or does not belong to user"
-                }
-            )
-
-        # Validate that the folder is of type LINK
-        if folder.get("type") != "LINK":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_003",
-                    "error_message": "Folder must be of type LINK"
-                }
-            )
+    # Validate folder exists and belongs to the user
+    folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
 
     # Check if link with this URL already exists for this user
     existing_link = get_saved_link_by_url_and_user_id(db, body.url, user_id)
@@ -289,15 +279,14 @@ async def save_link(
 
         # Create new saved link
         saved_link_data = create_saved_link(
-            db, user_id, body.url, body.name, body.folder_id, link_type, body.summary, body.metadata
+            db, user_id, body.url, body.folder_id, body.name, link_type, body.summary, body.metadata
         )
 
         logger.info(
             "Created new saved link",
             link_id=saved_link_data["id"],
             user_id=user_id,
-            has_name=body.name is not None,
-            has_folder_id=body.folder_id is not None
+            has_name=body.name is not None
         )
 
     return SavedLinkResponse(
@@ -479,6 +468,120 @@ async def remove_saved_link(
     return FastAPIResponse(status_code=204)
 
 
+@router.patch(
+    "/{link_id}/move-to-folder",
+    response_model=SavedLinkResponse,
+    summary="Move saved link to folder",
+    description="Move a saved link to a different folder. Only the owner can move their own links."
+)
+async def move_saved_link_to_folder(
+    request: Request,
+    response: Response,
+    link_id: str,
+    body: MoveSavedLinkToFolderRequest,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Move a saved link to a different folder for the authenticated user."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Validate saved link exists and belongs to the user
+    saved_link = get_saved_link_by_id_and_user_id(db, link_id, user_id)
+    if not saved_link:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Saved link not found or does not belong to user"
+            }
+        )
+    
+    # Validate target folder exists and belongs to the user
+    target_folder = get_folder_by_id_and_user_id(db, body.targetFolderId, user_id)
+    if not target_folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Target folder not found or does not belong to user"
+            }
+        )
+    
+    # Update folder_id
+    updated_link_data = update_saved_link_folder_id(
+        db, link_id, user_id, body.targetFolderId
+    )
+    
+    if not updated_link_data:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "UPDATE_FAILED",
+                "error_message": "Failed to update saved link folder"
+            }
+        )
+    
+    logger.info(
+        "Moved saved link to folder successfully",
+        link_id=link_id,
+        user_id=user_id,
+        target_folder_id=body.targetFolderId
+    )
+    
+    return SavedLinkResponse(
+        id=updated_link_data["id"],
+        name=updated_link_data["name"],
+        url=updated_link_data["url"],
+        type=updated_link_data["type"],
+        summary=updated_link_data["summary"],
+        metadata=updated_link_data["metadata"],
+        folder_id=updated_link_data["folder_id"],
+        user_id=updated_link_data["user_id"],
+        created_at=updated_link_data["created_at"],
+        updated_at=updated_link_data["updated_at"]
+    )
+
+
 @router.post(
     "/folder",
     response_model=FolderResponse,
@@ -546,7 +649,7 @@ async def create_link_folder_endpoint(
             }
         )
 
-    # If parent_folder_id is provided, validate it belongs to the user and is type LINK
+    # If parent_folder_id is provided, validate it belongs to the user
     if body.parent_folder_id:
         parent_folder = get_folder_by_id_and_user_id(db, body.parent_folder_id, user_id)
         if not parent_folder:
@@ -558,15 +661,6 @@ async def create_link_folder_endpoint(
                 }
             )
 
-        # Validate that the parent folder is of type LINK
-        if parent_folder.get("type") != "LINK":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_002",
-                    "error_message": "Parent folder must be of type LINK"
-                }
-            )
 
     # Create link folder
     folder_data = create_link_folder(db, user_id, body.name, body.parent_folder_id)
@@ -582,7 +676,6 @@ async def create_link_folder_endpoint(
     return FolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
-        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -594,7 +687,7 @@ async def create_link_folder_endpoint(
     "/folder/{folder_id}",
     status_code=204,
     summary="Delete a link folder",
-    description="Delete a link folder by ID. Only the owner can delete their own folders. The folder must be of type LINK."
+    description="Delete a link folder by ID. Only the owner can delete their own folders."
 )
 async def delete_link_folder(
     request: Request,
@@ -646,7 +739,7 @@ async def delete_link_folder(
             }
         )
 
-    # Get folder to verify ownership and type
+    # Get folder to verify ownership
     folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
     if not folder:
         raise HTTPException(
@@ -657,15 +750,6 @@ async def delete_link_folder(
             }
         )
 
-    # Validate that the folder is of type LINK
-    if folder.get("type") != "LINK":
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_code": "VAL_001",
-                "error_message": "Folder must be of type LINK"
-            }
-        )
 
     # Delete folder
     deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)

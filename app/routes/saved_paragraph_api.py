@@ -11,7 +11,8 @@ from app.models import (
     SavedParagraphResponse,
     GetAllSavedParagraphResponse,
     FolderResponse,
-    CreateParagraphFolderRequest
+    CreateParagraphFolderRequest,
+    MoveSavedParagraphToFolderRequest
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
@@ -23,7 +24,9 @@ from app.services.database_service import (
     delete_saved_paragraph_by_id_and_user_id,
     get_folder_by_id_and_user_id,
     create_paragraph_folder,
-    delete_folder_by_id_and_user_id
+    delete_folder_by_id_and_user_id,
+    get_saved_paragraph_by_id_and_user_id,
+    update_saved_paragraph_folder_id
 )
 
 logger = structlog.get_logger()
@@ -102,7 +105,6 @@ async def get_all_saved_paragraphs(
         FolderResponse(
             id=folder["id"],
             name=folder["name"],
-            type=folder["type"],
             parent_id=folder["parent_id"],
             user_id=folder["user_id"],
             created_at=folder["created_at"],
@@ -229,39 +231,27 @@ async def save_paragraph(
             }
         )
     
-    # If folder_id is provided, validate it belongs to the user
-    if body.folder_id:
-        folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
-        if not folder:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_code": "NOT_FOUND",
-                    "error_message": "Folder not found or does not belong to user"
-                }
-            )
-        
-        # Validate that the folder is of type PARAGRAPH
-        if folder.get("type") != "PARAGRAPH":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_003",
-                    "error_message": "Folder must be of type PARAGRAPH"
-                }
-            )
+    # Validate folder exists and belongs to the user
+    folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
     
     # Create saved paragraph
     saved_paragraph_data = create_saved_paragraph(
-        db, user_id, body.content, body.source_url, body.name, body.folder_id
+        db, user_id, body.content, body.source_url, body.folder_id, body.name
     )
     
     logger.info(
         "Saved paragraph successfully",
         paragraph_id=saved_paragraph_data["id"],
         user_id=user_id,
-        has_name=body.name is not None,
-        has_folder_id=body.folder_id is not None
+        has_name=body.name is not None
     )
     
     return SavedParagraphResponse(
@@ -353,6 +343,118 @@ async def remove_saved_paragraph(
     return FastAPIResponse(status_code=204)
 
 
+@router.patch(
+    "/{paragraph_id}/move-to-folder",
+    response_model=SavedParagraphResponse,
+    summary="Move saved paragraph to folder",
+    description="Move a saved paragraph to a different folder. Only the owner can move their own paragraphs."
+)
+async def move_saved_paragraph_to_folder(
+    request: Request,
+    response: Response,
+    paragraph_id: str,
+    body: MoveSavedParagraphToFolderRequest,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Move a saved paragraph to a different folder for the authenticated user."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Validate saved paragraph exists and belongs to the user
+    saved_paragraph = get_saved_paragraph_by_id_and_user_id(db, paragraph_id, user_id)
+    if not saved_paragraph:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Saved paragraph not found or does not belong to user"
+            }
+        )
+    
+    # Validate target folder exists and belongs to the user
+    target_folder = get_folder_by_id_and_user_id(db, body.targetFolderId, user_id)
+    if not target_folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Target folder not found or does not belong to user"
+            }
+        )
+    
+    # Update folder_id
+    updated_paragraph_data = update_saved_paragraph_folder_id(
+        db, paragraph_id, user_id, body.targetFolderId
+    )
+    
+    if not updated_paragraph_data:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "UPDATE_FAILED",
+                "error_message": "Failed to update saved paragraph folder"
+            }
+        )
+    
+    logger.info(
+        "Moved saved paragraph to folder successfully",
+        paragraph_id=paragraph_id,
+        user_id=user_id,
+        target_folder_id=body.targetFolderId
+    )
+    
+    return SavedParagraphResponse(
+        id=updated_paragraph_data["id"],
+        name=updated_paragraph_data["name"],
+        source_url=updated_paragraph_data["source_url"],
+        content=updated_paragraph_data["content"],
+        folder_id=updated_paragraph_data["folder_id"],
+        user_id=updated_paragraph_data["user_id"],
+        created_at=updated_paragraph_data["created_at"],
+        updated_at=updated_paragraph_data["updated_at"]
+    )
+
+
 @router.post(
     "/folder",
     response_model=FolderResponse,
@@ -420,7 +522,7 @@ async def create_paragraph_folder_endpoint(
             }
         )
     
-    # If parent_folder_id is provided, validate it belongs to the user and is type PARAGRAPH
+    # If parent_folder_id is provided, validate it belongs to the user
     if body.parent_folder_id:
         parent_folder = get_folder_by_id_and_user_id(db, body.parent_folder_id, user_id)
         if not parent_folder:
@@ -432,15 +534,6 @@ async def create_paragraph_folder_endpoint(
                 }
             )
         
-        # Validate that the parent folder is of type PARAGRAPH
-        if parent_folder.get("type") != "PARAGRAPH":
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_code": "VAL_002",
-                    "error_message": "Parent folder must be of type PARAGRAPH"
-                }
-            )
     
     # Create paragraph folder
     folder_data = create_paragraph_folder(db, user_id, body.name, body.parent_folder_id)
@@ -456,7 +549,6 @@ async def create_paragraph_folder_endpoint(
     return FolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
-        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -468,7 +560,7 @@ async def create_paragraph_folder_endpoint(
     "/folder/{folder_id}",
     status_code=204,
     summary="Delete a paragraph folder",
-    description="Delete a paragraph folder by ID. Only the owner can delete their own folders. The folder must be of type PARAGRAPH."
+    description="Delete a paragraph folder by ID. Only the owner can delete their own folders."
 )
 async def delete_paragraph_folder(
     request: Request,
@@ -520,7 +612,7 @@ async def delete_paragraph_folder(
             }
         )
     
-    # Get folder to verify ownership and type
+    # Get folder to verify ownership
     folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
     if not folder:
         raise HTTPException(
@@ -531,15 +623,6 @@ async def delete_paragraph_folder(
             }
         )
     
-    # Validate that the folder is of type PARAGRAPH
-    if folder.get("type") != "PARAGRAPH":
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_code": "VAL_001",
-                "error_message": "Folder must be of type PARAGRAPH"
-            }
-        )
     
     # Delete folder
     deleted = delete_folder_by_id_and_user_id(db, folder_id, user_id)

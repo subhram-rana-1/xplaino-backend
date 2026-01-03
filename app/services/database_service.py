@@ -188,6 +188,57 @@ def get_or_create_user_by_google_sub(
             sub=sub,
             email=google_data.get("email")
         )
+        
+        # Create personal folder for new user
+        # Determine folder name: "{given_name}'s Personal" > "{family_name}'s Personal" > "Personal"
+        given_name = google_data.get("given_name")
+        family_name = google_data.get("family_name")
+        
+        if given_name and given_name.strip():
+            folder_name = f"{given_name.strip()}'s Personal"
+        elif family_name and family_name.strip():
+            folder_name = f"{family_name.strip()}'s Personal"
+        else:
+            folder_name = "Personal"
+        
+        # Ensure folder name doesn't exceed 50 characters (database constraint)
+        if len(folder_name) > 50:
+            folder_name = folder_name[:47] + "..."
+        
+        logger.debug(
+            "Creating personal folder for new user",
+            function="get_or_create_user_by_google_sub",
+            user_id=user_id,
+            folder_name=folder_name,
+            has_given_name=bool(given_name),
+            has_family_name=bool(family_name)
+        )
+        
+        # Generate folder_id
+        folder_id = str(uuid.uuid4())
+        
+        # Create folder record (root folder, no parent_id)
+        db.execute(
+            text("""
+                INSERT INTO folder (id, name, parent_id, user_id)
+                VALUES (:id, :name, :parent_id, :user_id)
+            """),
+            {
+                "id": folder_id,
+                "name": folder_name,
+                "parent_id": None,
+                "user_id": user_id
+            }
+        )
+        db.flush()
+        
+        logger.info(
+            "Created personal folder for new user",
+            function="get_or_create_user_by_google_sub",
+            user_id=user_id,
+            folder_id=folder_id,
+            folder_name=folder_name
+        )
     
     db.commit()
     
@@ -1151,7 +1202,7 @@ def get_saved_words_by_user_id(
     # Get paginated words
     words_result = db.execute(
         text("""
-            SELECT id, word, contextual_meaning, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
             FROM saved_word
             WHERE user_id = :user_id
             ORDER BY created_at DESC
@@ -1166,7 +1217,7 @@ def get_saved_words_by_user_id(
     
     words = []
     for row in words_result:
-        word_id, word, contextual_meaning, source_url, user_id_val, created_at = row
+        word_id, word, contextual_meaning, source_url, folder_id, user_id_val, created_at = row
         # Convert created_at to ISO format string
         if isinstance(created_at, datetime):
             created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
@@ -1178,6 +1229,7 @@ def get_saved_words_by_user_id(
             "word": word,
             "contextual_meaning": contextual_meaning,
             "source_url": source_url,
+            "folder_id": folder_id,
             "user_id": user_id_val,
             "created_at": created_at_str
         })
@@ -1193,11 +1245,100 @@ def get_saved_words_by_user_id(
     return words, total_count
 
 
+def get_saved_words_by_folder_id_and_user_id(
+    db: Session,
+    user_id: str,
+    folder_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved words for a user and folder with pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of saved words dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved words by user_id and folder_id",
+        function="get_saved_words_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM saved_word WHERE user_id = :user_id AND folder_id = :folder_id"),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id
+        }
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated words
+    words_result = db.execute(
+        text("""
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
+            FROM saved_word
+            WHERE user_id = :user_id AND folder_id = :folder_id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id,
+            "limit": limit,
+            "offset": offset
+        }
+    ).fetchall()
+    
+    words = []
+    for row in words_result:
+        word_id, word, contextual_meaning, source_url, folder_id_val, user_id_val, created_at = row
+        # Convert created_at to ISO format string
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        words.append({
+            "id": word_id,
+            "word": word,
+            "contextual_meaning": contextual_meaning,
+            "source_url": source_url,
+            "folder_id": folder_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved words successfully",
+        function="get_saved_words_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        words_count=len(words),
+        total_count=total_count
+    )
+    
+    return words, total_count
+
+
 def create_saved_word(
     db: Session,
     user_id: str,
     word: str,
     source_url: str,
+    folder_id: str,
     contextual_meaning: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -1208,6 +1349,7 @@ def create_saved_word(
         user_id: User ID (CHAR(36) UUID)
         word: Word to save (max 32 characters)
         source_url: Source URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
         contextual_meaning: Optional contextual meaning (max 1000 characters)
         
     Returns:
@@ -1219,6 +1361,7 @@ def create_saved_word(
         user_id=user_id,
         word=word,
         source_url_length=len(source_url),
+        folder_id=folder_id,
         has_contextual_meaning=contextual_meaning is not None
     )
     
@@ -1228,13 +1371,14 @@ def create_saved_word(
     # Insert the new saved word
     db.execute(
         text("""
-            INSERT INTO saved_word (id, word, source_url, user_id, contextual_meaning)
-            VALUES (:id, :word, :source_url, :user_id, :contextual_meaning)
+            INSERT INTO saved_word (id, word, source_url, folder_id, user_id, contextual_meaning)
+            VALUES (:id, :word, :source_url, :folder_id, :user_id, :contextual_meaning)
         """),
         {
             "id": word_id,
             "word": word,
             "source_url": source_url,
+            "folder_id": folder_id,
             "user_id": user_id,
             "contextual_meaning": contextual_meaning
         }
@@ -1244,7 +1388,7 @@ def create_saved_word(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, word, contextual_meaning, source_url, user_id, created_at
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
             FROM saved_word
             WHERE id = :id
         """),
@@ -1259,7 +1403,7 @@ def create_saved_word(
         )
         raise Exception("Failed to retrieve created saved word")
     
-    word_id_val, word_val, contextual_meaning_val, source_url_val, user_id_val, created_at = result
+    word_id_val, word_val, contextual_meaning_val, source_url_val, folder_id_val, user_id_val, created_at = result
     
     # Convert created_at to ISO format string
     if isinstance(created_at, datetime):
@@ -1272,6 +1416,7 @@ def create_saved_word(
         "word": word_val,
         "contextual_meaning": contextual_meaning_val,
         "source_url": source_url_val,
+        "folder_id": folder_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str
     }
@@ -1350,6 +1495,102 @@ def get_saved_word_by_id_and_user_id(
     logger.info(
         "Retrieved saved word successfully",
         function="get_saved_word_by_id_and_user_id",
+        word_id=word_id_val,
+        user_id=user_id
+    )
+    
+    return saved_word
+
+
+def update_saved_word_folder_id(
+    db: Session,
+    word_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved word.
+    
+    Args:
+        db: Database session
+        word_id: Saved word ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved word data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved word folder_id",
+        function="update_saved_word_folder_id",
+        word_id=word_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id (saved_word table doesn't have updated_at)
+    result = db.execute(
+        text("""
+            UPDATE saved_word
+            SET folder_id = :new_folder_id
+            WHERE id = :word_id AND user_id = :user_id
+        """),
+        {
+            "word_id": word_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved word not found or doesn't belong to user",
+            function="update_saved_word_folder_id",
+            word_id=word_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, word, contextual_meaning, source_url, folder_id, user_id, created_at
+            FROM saved_word
+            WHERE id = :word_id
+        """),
+        {"word_id": word_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved word",
+            function="update_saved_word_folder_id",
+            word_id=word_id
+        )
+        return None
+    
+    word_id_val, word, contextual_meaning, source_url, folder_id_val, user_id_val, created_at = fetch_result
+    
+    # Convert created_at to ISO format string
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    saved_word = {
+        "id": word_id_val,
+        "word": word,
+        "contextual_meaning": contextual_meaning,
+        "source_url": source_url,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str
+    }
+    
+    logger.info(
+        "Updated saved word folder_id successfully",
+        function="update_saved_word_folder_id",
         word_id=word_id_val,
         user_id=user_id
     )
@@ -1440,7 +1681,7 @@ def get_folders_by_user_id_and_parent_id(
     if parent_id is None:
         result = db.execute(
             text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                SELECT id, name, parent_id, user_id, created_at, updated_at
                 FROM folder
                 WHERE user_id = :user_id AND parent_id IS NULL
                 ORDER BY created_at DESC
@@ -1450,7 +1691,7 @@ def get_folders_by_user_id_and_parent_id(
     else:
         result = db.execute(
             text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
+                SELECT id, name, parent_id, user_id, created_at, updated_at
                 FROM folder
                 WHERE user_id = :user_id AND parent_id = :parent_id
                 ORDER BY created_at DESC
@@ -1463,7 +1704,7 @@ def get_folders_by_user_id_and_parent_id(
     
     folders = []
     for row in result:
-        folder_id, name, folder_type, parent_id_val, user_id_val, created_at, updated_at = row
+        folder_id, name, parent_id_val, user_id_val, created_at, updated_at = row
         
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -1479,7 +1720,6 @@ def get_folders_by_user_id_and_parent_id(
         folders.append({
             "id": folder_id,
             "name": name,
-            "type": folder_type,
             "parent_id": parent_id_val,
             "user_id": user_id_val,
             "created_at": created_at_str,
@@ -1622,8 +1862,8 @@ def create_saved_paragraph(
     user_id: str,
     content: str,
     source_url: str,
-    name: Optional[str] = None,
-    folder_id: Optional[str] = None
+    folder_id: str,
+    name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new saved paragraph for a user.
@@ -1633,8 +1873,8 @@ def create_saved_paragraph(
         user_id: User ID (CHAR(36) UUID)
         content: Paragraph content (TEXT)
         source_url: Source URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
         name: Optional name for the paragraph (max 50 characters)
-        folder_id: Optional folder ID (CHAR(36) UUID)
         
     Returns:
         Dictionary with created saved paragraph data
@@ -1645,8 +1885,8 @@ def create_saved_paragraph(
         user_id=user_id,
         content_length=len(content),
         source_url_length=len(source_url),
-        has_name=name is not None,
-        has_folder_id=folder_id is not None
+        folder_id=folder_id,
+        has_name=name is not None
     )
     
     # Generate UUID for the new saved paragraph
@@ -1714,6 +1954,186 @@ def create_saved_paragraph(
     logger.info(
         "Created saved paragraph successfully",
         function="create_saved_paragraph",
+        paragraph_id=para_id,
+        user_id=user_id
+    )
+    
+    return saved_paragraph
+
+
+def get_saved_paragraph_by_id_and_user_id(
+    db: Session,
+    paragraph_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved paragraph by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        paragraph_id: Saved paragraph ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved paragraph data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved paragraph by id and user_id",
+        function="get_saved_paragraph_by_id_and_user_id",
+        paragraph_id=paragraph_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id = :paragraph_id AND user_id = :user_id
+        """),
+        {
+            "paragraph_id": paragraph_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved paragraph not found or doesn't belong to user",
+            function="get_saved_paragraph_by_id_and_user_id",
+            paragraph_id=paragraph_id,
+            user_id=user_id
+        )
+        return None
+    
+    para_id, source_url, name, content, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_paragraph = {
+        "id": para_id,
+        "source_url": source_url,
+        "name": name,
+        "content": content,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved paragraph successfully",
+        function="get_saved_paragraph_by_id_and_user_id",
+        paragraph_id=para_id,
+        user_id=user_id
+    )
+    
+    return saved_paragraph
+
+
+def update_saved_paragraph_folder_id(
+    db: Session,
+    paragraph_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved paragraph.
+    
+    Args:
+        db: Database session
+        paragraph_id: Saved paragraph ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved paragraph data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved paragraph folder_id",
+        function="update_saved_paragraph_folder_id",
+        paragraph_id=paragraph_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id
+    result = db.execute(
+        text("""
+            UPDATE saved_paragraph
+            SET folder_id = :new_folder_id, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :paragraph_id AND user_id = :user_id
+        """),
+        {
+            "paragraph_id": paragraph_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved paragraph not found or doesn't belong to user",
+            function="update_saved_paragraph_folder_id",
+            paragraph_id=paragraph_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id = :paragraph_id
+        """),
+        {"paragraph_id": paragraph_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved paragraph",
+            function="update_saved_paragraph_folder_id",
+            paragraph_id=paragraph_id
+        )
+        return None
+    
+    para_id, source_url, name, content, folder_id_val, user_id_val, created_at, updated_at = fetch_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_paragraph = {
+        "id": para_id,
+        "source_url": source_url,
+        "name": name,
+        "content": content,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved paragraph folder_id successfully",
+        function="update_saved_paragraph_folder_id",
         paragraph_id=para_id,
         user_id=user_id
     )
@@ -1802,7 +2222,7 @@ def get_folder_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id AND user_id = :user_id
         """),
@@ -1821,7 +2241,7 @@ def get_folder_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, folder_type, parent_id, user_id_val, created_at, updated_at = result
+    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -1837,7 +2257,6 @@ def get_folder_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
-        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -1917,7 +2336,7 @@ def create_paragraph_folder(
     parent_folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new PARAGRAPH type folder for a user.
+    Create a new folder for a user.
     
     Args:
         db: Database session
@@ -1939,11 +2358,11 @@ def create_paragraph_folder(
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
     
-    # Insert the new folder with type = 'PARAGRAPH'
+    # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, type, parent_id, user_id)
-            VALUES (:id, :name, 'PARAGRAPH', :parent_id, :user_id)
+            INSERT INTO folder (id, name, parent_id, user_id)
+            VALUES (:id, :name, :parent_id, :user_id)
         """),
         {
             "id": folder_id,
@@ -1957,7 +2376,7 @@ def create_paragraph_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -1972,7 +2391,7 @@ def create_paragraph_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, folder_type, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -1988,7 +2407,6 @@ def create_paragraph_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
-        "type": folder_type,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -2003,171 +2421,6 @@ def create_paragraph_folder(
     )
     
     return folder
-
-
-def get_folders_by_user_id_and_parent_id_and_type(
-    db: Session,
-    user_id: str,
-    parent_id: Optional[str] = None,
-    folder_type: str = "LINK"
-) -> List[Dict[str, Any]]:
-    """
-    Get folders for a user with a specific parent_id and type.
-    If parent_id is None, get folders where parent_id IS NULL.
-    
-    Args:
-        db: Database session
-        user_id: User ID (CHAR(36) UUID)
-        parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
-        folder_type: Folder type ('LINK' or 'PARAGRAPH')
-        
-    Returns:
-        List of folder dictionaries
-    """
-    logger.info(
-        "Getting folders by user_id, parent_id and type",
-        function="get_folders_by_user_id_and_parent_id_and_type",
-        user_id=user_id,
-        parent_id=parent_id,
-        folder_type=folder_type
-    )
-    
-    if parent_id is None:
-        result = db.execute(
-            text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
-                FROM folder
-                WHERE user_id = :user_id AND parent_id IS NULL AND type = :folder_type
-                ORDER BY created_at DESC
-            """),
-            {
-                "user_id": user_id,
-                "folder_type": folder_type
-            }
-        ).fetchall()
-    else:
-        result = db.execute(
-            text("""
-                SELECT id, name, type, parent_id, user_id, created_at, updated_at
-                FROM folder
-                WHERE user_id = :user_id AND parent_id = :parent_id AND type = :folder_type
-                ORDER BY created_at DESC
-            """),
-            {
-                "user_id": user_id,
-                "parent_id": parent_id,
-                "folder_type": folder_type
-            }
-        ).fetchall()
-    
-    folders = []
-    for row in result:
-        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
-        
-        # Convert timestamps to ISO format strings
-        if isinstance(created_at, datetime):
-            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-        else:
-            created_at_str = str(created_at)
-        
-        if isinstance(updated_at, datetime):
-            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-        else:
-            updated_at_str = str(updated_at)
-        
-        folders.append({
-            "id": folder_id,
-            "name": name,
-            "type": folder_type_val,
-            "parent_id": parent_id_val,
-            "user_id": user_id_val,
-            "created_at": created_at_str,
-            "updated_at": updated_at_str
-        })
-    
-    logger.info(
-        "Retrieved folders successfully",
-        function="get_folders_by_user_id_and_parent_id_and_type",
-        user_id=user_id,
-        parent_id=parent_id,
-        folder_type=folder_type,
-        folders_count=len(folders)
-    )
-    
-    return folders
-
-
-def get_all_folders_by_user_id_and_type(
-    db: Session,
-    user_id: str,
-    folder_type: str
-) -> List[Dict[str, Any]]:
-    """
-    Get all folders for a user with a specific type (regardless of parent_id).
-    This is used to build hierarchical structures.
-    
-    Args:
-        db: Database session
-        user_id: User ID (CHAR(36) UUID)
-        folder_type: Folder type ('LINK' or 'PARAGRAPH')
-        
-    Returns:
-        List of folder dictionaries
-    """
-    logger.info(
-        "Getting all folders by user_id and type",
-        function="get_all_folders_by_user_id_and_type",
-        user_id=user_id,
-        folder_type=folder_type
-    )
-    
-    result = db.execute(
-        text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
-            FROM folder
-            WHERE user_id = :user_id AND type = :folder_type
-            ORDER BY created_at DESC
-        """),
-        {
-            "user_id": user_id,
-            "folder_type": folder_type
-        }
-    ).fetchall()
-    
-    folders = []
-    for row in result:
-        folder_id, name, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = row
-        
-        # Convert timestamps to ISO format strings
-        if isinstance(created_at, datetime):
-            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-        else:
-            created_at_str = str(created_at)
-        
-        if isinstance(updated_at, datetime):
-            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-        else:
-            updated_at_str = str(updated_at)
-        
-        folders.append({
-            "id": folder_id,
-            "name": name,
-            "type": folder_type_val,
-            "parent_id": parent_id_val,
-            "user_id": user_id_val,
-            "created_at": created_at_str,
-            "updated_at": updated_at_str
-        })
-    
-    logger.info(
-        "Retrieved all folders successfully",
-        function="get_all_folders_by_user_id_and_type",
-        user_id=user_id,
-        folder_type=folder_type,
-        folders_count=len(folders)
-    )
-    
-    return folders
 
 
 def get_saved_links_by_user_id_and_folder_id(
@@ -2307,8 +2560,8 @@ def create_saved_link(
     db: Session,
     user_id: str,
     url: str,
+    folder_id: str,
     name: Optional[str] = None,
-    folder_id: Optional[str] = None,
     link_type: Optional[str] = None,
     summary: Optional[str] = None,
     metadata: Optional[dict] = None
@@ -2320,8 +2573,8 @@ def create_saved_link(
         db: Database session
         user_id: User ID (CHAR(36) UUID)
         url: Link URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
         name: Optional name for the link (max 50 characters)
-        folder_id: Optional folder ID (CHAR(36) UUID)
         link_type: Optional link type (defaults to 'WEBPAGE' if None)
         summary: Optional summary text
         metadata: Optional metadata dictionary (will be converted to JSON)
@@ -2334,8 +2587,8 @@ def create_saved_link(
         function="create_saved_link",
         user_id=user_id,
         url_length=len(url),
+        folder_id=folder_id,
         has_name=name is not None,
-        has_folder_id=folder_id is not None,
         link_type=link_type
     )
     
@@ -2818,6 +3071,556 @@ def get_saved_link_by_id_and_user_id(
     return saved_link
 
 
+def update_saved_link_folder_id(
+    db: Session,
+    link_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved link.
+    
+    Args:
+        db: Database session
+        link_id: Saved link ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved link data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved link folder_id",
+        function="update_saved_link_folder_id",
+        link_id=link_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id
+    result = db.execute(
+        text("""
+            UPDATE saved_link
+            SET folder_id = :new_folder_id, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :link_id AND user_id = :user_id
+        """),
+        {
+            "link_id": link_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved link not found or doesn't belong to user",
+            function="update_saved_link_folder_id",
+            link_id=link_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, url, name, type, summary, metadata, folder_id, user_id, created_at, updated_at
+            FROM saved_link
+            WHERE id = :link_id
+        """),
+        {"link_id": link_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved link",
+            function="update_saved_link_folder_id",
+            link_id=link_id
+        )
+        return None
+    
+    link_id_val, url, name, link_type, summary, metadata, folder_id_val, user_id_val, created_at, updated_at = fetch_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Parse metadata JSON if it's a string
+    metadata_dict = None
+    if metadata:
+        if isinstance(metadata, str):
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata_dict = None
+        else:
+            metadata_dict = metadata
+    
+    saved_link = {
+        "id": link_id_val,
+        "url": url,
+        "name": name,
+        "type": link_type,
+        "summary": summary,
+        "metadata": metadata_dict,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved link folder_id successfully",
+        function="update_saved_link_folder_id",
+        link_id=link_id_val,
+        user_id=user_id
+    )
+    
+    return saved_link
+
+
+def get_saved_images_by_folder_id_and_user_id(
+    db: Session,
+    user_id: str,
+    folder_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get saved images for a user and folder with pagination, ordered by created_at DESC.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        folder_id: Folder ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of image dictionaries, total count)
+    """
+    logger.info(
+        "Getting saved images by user_id and folder_id",
+        function="get_saved_images_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM saved_image WHERE user_id = :user_id AND folder_id = :folder_id"),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id
+        }
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated images
+    images_result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE user_id = :user_id AND folder_id = :folder_id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "user_id": user_id,
+            "folder_id": folder_id,
+            "limit": limit,
+            "offset": offset
+        }
+    ).fetchall()
+    
+    images = []
+    for row in images_result:
+        image_id, source_url, image_url, name, folder_id_val, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        images.append({
+            "id": image_id,
+            "source_url": source_url,
+            "image_url": image_url,
+            "name": name,
+            "folder_id": folder_id_val,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved images successfully",
+        function="get_saved_images_by_folder_id_and_user_id",
+        user_id=user_id,
+        folder_id=folder_id,
+        images_count=len(images),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return images, total_count
+
+
+def create_saved_image(
+    db: Session,
+    user_id: str,
+    source_url: str,
+    image_url: str,
+    folder_id: str,
+    name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Create a new saved image for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        source_url: Source URL (max 1024 characters)
+        image_url: Image URL (max 1024 characters)
+        folder_id: Folder ID (CHAR(36) UUID)
+        name: Optional name for the image (max 100 characters)
+        
+    Returns:
+        Dictionary with created saved image data
+    """
+    logger.info(
+        "Creating saved image",
+        function="create_saved_image",
+        user_id=user_id,
+        source_url_length=len(source_url),
+        image_url_length=len(image_url),
+        folder_id=folder_id,
+        has_name=name is not None
+    )
+    
+    # Generate UUID for the new saved image
+    image_id = str(uuid.uuid4())
+    
+    # Insert the new saved image
+    db.execute(
+        text("""
+            INSERT INTO saved_image (id, source_url, image_url, name, folder_id, user_id)
+            VALUES (:id, :source_url, :image_url, :name, :folder_id, :user_id)
+        """),
+        {
+            "id": image_id,
+            "source_url": source_url,
+            "image_url": image_url,
+            "name": name,
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE id = :id
+        """),
+        {"id": image_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created saved image",
+            function="create_saved_image",
+            image_id=image_id
+        )
+        raise Exception("Failed to retrieve created saved image")
+    
+    image_id_val, source_url_val, image_url_val, name_val, folder_id_val, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_image = {
+        "id": image_id_val,
+        "source_url": source_url_val,
+        "image_url": image_url_val,
+        "name": name_val,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created saved image successfully",
+        function="create_saved_image",
+        image_id=image_id_val,
+        user_id=user_id
+    )
+    
+    return saved_image
+
+
+def get_saved_image_by_id_and_user_id(
+    db: Session,
+    image_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a saved image by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        image_id: Saved image ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with saved image data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting saved image by id and user_id",
+        function="get_saved_image_by_id_and_user_id",
+        image_id=image_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE id = :image_id AND user_id = :user_id
+        """),
+        {
+            "image_id": image_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Saved image not found or doesn't belong to user",
+            function="get_saved_image_by_id_and_user_id",
+            image_id=image_id,
+            user_id=user_id
+        )
+        return None
+    
+    image_id_val, source_url, image_url, name, folder_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_image = {
+        "id": image_id_val,
+        "source_url": source_url,
+        "image_url": image_url,
+        "name": name,
+        "folder_id": folder_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved saved image successfully",
+        function="get_saved_image_by_id_and_user_id",
+        image_id=image_id_val,
+        user_id=user_id
+    )
+    
+    return saved_image
+
+
+def update_saved_image_folder_id(
+    db: Session,
+    image_id: str,
+    user_id: str,
+    new_folder_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the folder_id for a saved image.
+    
+    Args:
+        db: Database session
+        image_id: Saved image ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID) - for validation
+        new_folder_id: New folder ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated saved image data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating saved image folder_id",
+        function="update_saved_image_folder_id",
+        image_id=image_id,
+        user_id=user_id,
+        new_folder_id=new_folder_id
+    )
+    
+    # Update the folder_id
+    result = db.execute(
+        text("""
+            UPDATE saved_image
+            SET folder_id = :new_folder_id, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :image_id AND user_id = :user_id
+        """),
+        {
+            "image_id": image_id,
+            "user_id": user_id,
+            "new_folder_id": new_folder_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved image not found or doesn't belong to user",
+            function="update_saved_image_folder_id",
+            image_id=image_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    fetch_result = db.execute(
+        text("""
+            SELECT id, source_url, image_url, name, folder_id, user_id, created_at, updated_at
+            FROM saved_image
+            WHERE id = :image_id
+        """),
+        {"image_id": image_id}
+    ).fetchone()
+    
+    if not fetch_result:
+        logger.error(
+            "Failed to retrieve updated saved image",
+            function="update_saved_image_folder_id",
+            image_id=image_id
+        )
+        return None
+    
+    image_id_val, source_url, image_url, name, folder_id_val, user_id_val, created_at, updated_at = fetch_result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    saved_image = {
+        "id": image_id_val,
+        "source_url": source_url,
+        "image_url": image_url,
+        "name": name,
+        "folder_id": folder_id_val,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated saved image folder_id successfully",
+        function="update_saved_image_folder_id",
+        image_id=image_id_val,
+        user_id=user_id
+    )
+    
+    return saved_image
+
+
+def delete_saved_image_by_id_and_user_id(
+    db: Session,
+    image_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a saved image by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        image_id: Saved image ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting saved image by id and user_id",
+        function="delete_saved_image_by_id_and_user_id",
+        image_id=image_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM saved_image
+            WHERE id = :image_id AND user_id = :user_id
+        """),
+        {
+            "image_id": image_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Saved image not found or doesn't belong to user",
+            function="delete_saved_image_by_id_and_user_id",
+            image_id=image_id,
+            user_id=user_id
+        )
+        return False
+    
+    logger.info(
+        "Deleted saved image successfully",
+        function="delete_saved_image_by_id_and_user_id",
+        image_id=image_id,
+        user_id=user_id
+    )
+    
+    return True
+
+
 def create_link_folder(
     db: Session,
     user_id: str,
@@ -2825,7 +3628,7 @@ def create_link_folder(
     parent_folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create a new LINK type folder for a user.
+    Create a new folder for a user.
     
     Args:
         db: Database session
@@ -2847,11 +3650,11 @@ def create_link_folder(
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
     
-    # Insert the new folder with type = 'LINK'
+    # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, type, parent_id, user_id)
-            VALUES (:id, :name, 'LINK', :parent_id, :user_id)
+            INSERT INTO folder (id, name, parent_id, user_id)
+            VALUES (:id, :name, :parent_id, :user_id)
         """),
         {
             "id": folder_id,
@@ -2865,7 +3668,7 @@ def create_link_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -2880,7 +3683,7 @@ def create_link_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, folder_type, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2896,7 +3699,6 @@ def create_link_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
-        "type": folder_type,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -3432,6 +4234,112 @@ def get_issue_by_id(
     return issue
 
 
+def get_issue_by_ticket_id(
+    db: Session,
+    ticket_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get an issue by its ticket_id with user information.
+    
+    Args:
+        db: Database session
+        ticket_id: Ticket ID (VARCHAR(14))
+        
+    Returns:
+        Dictionary with issue data including created_by_user and closed_by_user, or None if not found
+    """
+    logger.info(
+        "Getting issue by ticket_id",
+        function="get_issue_by_ticket_id",
+        ticket_id=ticket_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, ticket_id, type, heading, description, webpage_url, status, 
+                   created_by, closed_by, closed_at, created_at, updated_at
+            FROM issue
+            WHERE ticket_id = :ticket_id
+        """),
+        {"ticket_id": ticket_id}
+    )
+    
+    row = result.fetchone()
+    
+    if not row:
+        logger.info(
+            "Issue not found",
+            function="get_issue_by_ticket_id",
+            ticket_id=ticket_id
+        )
+        return None
+    
+    (issue_id_val, ticket_id_val, type_val, heading_val, description_val, 
+     webpage_url_val, status_val, created_by_val, closed_by_val, closed_at_val, 
+     created_at, updated_at) = row
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    closed_at_str = None
+    if closed_at_val:
+        if isinstance(closed_at_val, datetime):
+            closed_at_str = closed_at_val.isoformat() + "Z" if closed_at_val.tzinfo else closed_at_val.isoformat()
+        else:
+            closed_at_str = str(closed_at_val)
+    
+    # Get user information for created_by
+    created_by_user_info = get_user_name_and_role_by_user_id(db, created_by_val)
+    
+    # Get user information for closed_by (if not None)
+    closed_by_user_info = None
+    if closed_by_val:
+        closed_by_user_info = get_user_name_and_role_by_user_id(db, closed_by_val)
+    
+    issue = {
+        "id": issue_id_val,
+        "ticket_id": ticket_id_val,
+        "type": type_val,
+        "heading": heading_val,
+        "description": description_val,
+        "webpage_url": webpage_url_val,
+        "status": status_val,
+        "created_by": created_by_val,
+        "created_by_user": {
+            "id": created_by_val,
+            "name": created_by_user_info.get("name", ""),
+            "role": created_by_user_info.get("role"),
+            "picture": created_by_user_info.get("picture")
+        },
+        "closed_by": closed_by_val,
+        "closed_by_user": {
+            "id": closed_by_val,
+            "name": closed_by_user_info.get("name", ""),
+            "role": closed_by_user_info.get("role"),
+            "picture": closed_by_user_info.get("picture")
+        } if closed_by_user_info else None,
+        "closed_at": closed_at_str,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved issue successfully",
+        function="get_issue_by_ticket_id",
+        ticket_id=ticket_id
+    )
+    
+    return issue
+
+
 def update_issue(
     db: Session,
     issue_id: str,
@@ -3610,7 +4518,7 @@ def get_user_name_and_role_by_user_id(
         user_id: User ID (CHAR(36) UUID)
         
     Returns:
-        Dictionary with 'name' (str) and 'role' (Optional[str])
+        Dictionary with 'name' (str), 'role' (Optional[str]), and 'picture' (Optional[str])
     """
     logger.info(
         "Getting user name and role by user_id",
@@ -3618,10 +4526,10 @@ def get_user_name_and_role_by_user_id(
         user_id=user_id
     )
     
-    # Get name from google_user_auth_info
+    # Get name and picture from google_user_auth_info
     name_result = db.execute(
         text("""
-            SELECT given_name, family_name
+            SELECT given_name, family_name, picture
             FROM google_user_auth_info
             WHERE user_id = :user_id
             LIMIT 1
@@ -3637,8 +4545,9 @@ def get_user_name_and_role_by_user_id(
     
     # Construct name
     name = ""
+    picture = None
     if name_result:
-        given_name, family_name = name_result
+        given_name, family_name, picture = name_result
         name_parts = []
         if given_name:
             name_parts.append(given_name)
@@ -3654,12 +4563,14 @@ def get_user_name_and_role_by_user_id(
         function="get_user_name_and_role_by_user_id",
         user_id=user_id,
         has_name=bool(name),
-        role=role
+        role=role,
+        has_picture=bool(picture)
     )
     
     return {
         "name": name,
-        "role": role
+        "role": role,
+        "picture": picture
     }
 
 
@@ -3783,6 +4694,9 @@ def get_comment_by_id(
     else:
         updated_at_str = str(updated_at)
     
+    # Get user name and role
+    user_info = get_user_name_and_role_by_user_id(db, created_by)
+    
     comment = {
         "id": comment_id_val,
         "content": content,
@@ -3791,6 +4705,12 @@ def get_comment_by_id(
         "parent_comment_id": parent_comment_id,
         "visibility": visibility,
         "created_by": created_by,
+        "created_by_user": {
+            "id": created_by,
+            "name": user_info.get("name", ""),
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
+        },
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -3846,7 +4766,7 @@ def get_comments_by_entity(
         visibility_filter = "AND visibility = 'PUBLIC'"
         visibility_params = {}
     
-    # First, get root comments (parent_comment_id IS NULL) ordered by created_at DESC
+    # First, get root comments (parent_comment_id IS NULL) ordered by created_at ASC
     root_query = text(f"""
         SELECT id, content, entity_type, entity_id, parent_comment_id, 
                visibility, created_by, created_at, updated_at
@@ -3855,7 +4775,7 @@ def get_comments_by_entity(
           AND entity_id = :entity_id 
           AND parent_comment_id IS NULL
           {visibility_filter}
-        ORDER BY created_at DESC
+        ORDER BY created_at ASC
         LIMIT :count
     """)
     
@@ -3953,11 +4873,12 @@ def get_comments_by_entity(
     # Add user info to comments
     for comment in result:
         user_id = comment["created_by"]
-        user_info = user_info_map.get(user_id, {"name": "", "role": None})
+        user_info = user_info_map.get(user_id, {"name": "", "role": None, "picture": None})
         comment["created_by_user"] = {
             "id": user_id,
             "name": user_info.get("name", ""),
-            "role": user_info.get("role")
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
         }
     
     logger.info(
@@ -4099,7 +5020,8 @@ def create_comment(
         "created_by_user": {
             "id": created_by_val,
             "name": user_info.get("name", ""),
-            "role": user_info.get("role")
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
         },
         "created_at": created_at_str,
         "updated_at": updated_at_str
@@ -4750,7 +5672,8 @@ def get_pricing_by_id(
         "created_by": {
             "id": created_by_val,
             "name": user_info.get("name", ""),
-            "role": user_info.get("role")
+            "role": user_info.get("role"),
+            "picture": user_info.get("picture")
         },
         "created_at": created_at_str,
         "updated_at": updated_at_str
@@ -4963,7 +5886,8 @@ def get_all_pricings(
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),
-                "role": user_info.get("role")
+                "role": user_info.get("role"),
+                "picture": user_info.get("picture")
             },
             "created_at": created_at_str,
             "updated_at": updated_at_str
@@ -5055,7 +5979,8 @@ def get_live_pricings(
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),
-                "role": user_info.get("role")
+                "role": user_info.get("role"),
+                "picture": user_info.get("picture")
             },
             "created_at": created_at_str,
             "updated_at": updated_at_str
