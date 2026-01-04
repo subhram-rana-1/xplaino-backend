@@ -1,6 +1,6 @@
 """Pydantic models for request/response validation."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -724,3 +724,207 @@ class MoveSavedLinkToFolderRequest(BaseModel):
     """Request model for moving a saved link to a different folder."""
     
     targetFolderId: str = Field(..., description="Target folder ID to move the link to (UUID)")
+
+
+class NativeLanguage(str, Enum):
+    """Native language enum with all supported language codes."""
+    EN = "EN"
+    ES = "ES"
+    FR = "FR"
+    DE = "DE"
+    HI = "HI"
+    JA = "JA"
+    ZH = "ZH"
+    AR = "AR"
+    IT = "IT"
+    PT = "PT"
+    RU = "RU"
+    KO = "KO"
+    NL = "NL"
+    PL = "PL"
+    TR = "TR"
+    VI = "VI"
+    TH = "TH"
+    ID = "ID"
+    CS = "CS"
+    SV = "SV"
+    DA = "DA"
+    NO = "NO"
+    FI = "FI"
+    EL = "EL"
+    HE = "HE"
+    UK = "UK"
+    RO = "RO"
+    HU = "HU"
+    BG = "BG"  # Bulgarian
+    HR = "HR"  # Croatian
+    SK = "SK"  # Slovak
+    SL = "SL"  # Slovenian
+    ET = "ET"  # Estonian
+    LV = "LV"  # Latvian
+    LT = "LT"  # Lithuanian
+    IS = "IS"  # Icelandic
+    GA = "GA"  # Irish
+    MT = "MT"  # Maltese
+    EU = "EU"  # Basque
+    CA = "CA"  # Catalan
+    FA = "FA"  # Persian
+    UR = "UR"  # Urdu
+    BN = "BN"  # Bengali
+    TA = "TA"  # Tamil
+    TE = "TE"  # Telugu
+    ML = "ML"  # Malayalam
+    KN = "KN"  # Kannada
+    GU = "GU"  # Gujarati
+    MR = "MR"  # Marathi
+    PA = "PA"  # Punjabi
+    NE = "NE"  # Nepali
+    SI = "SI"  # Sinhala
+    OR = "OR"  # Odia
+    MY = "MY"  # Burmese
+    KM = "KM"  # Khmer
+    LO = "LO"  # Lao
+    MS = "MS"  # Malay
+    TL = "TL"  # Tagalog
+    SW = "SW"  # Swahili
+    AF = "AF"  # Afrikaans
+    ZU = "ZU"  # Zulu
+    XH = "XH"  # Xhosa
+
+
+class PageTranslationView(str, Enum):
+    """Page translation view enum."""
+    APPEND = "APPEND"
+    REPLACE = "REPLACE"
+
+
+class Theme(str, Enum):
+    """Theme enum."""
+    LIGHT = "LIGHT"
+    DARK = "DARK"
+
+
+class LanguageSettings(BaseModel):
+    """Language settings model."""
+    
+    nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
+    pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
+
+
+class Settings(BaseModel):
+    """User settings model."""
+    
+    language: LanguageSettings = Field(..., description="Language settings")
+    theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+
+
+class UpdateSettingsRequest(BaseModel):
+    """Request model for updating user settings (PATCH)."""
+    
+    language: LanguageSettings = Field(..., description="Language settings")
+    theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+
+
+class SettingsResponse(BaseModel):
+    """Response model for user settings."""
+    
+    language: LanguageSettings = Field(..., description="Language settings")
+    theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+
+
+# Default user settings constant
+DEFAULT_USER_SETTINGS = {
+    "language": {
+        "nativeLanguage": None,
+        "pageTranslationView": "REPLACE"
+    },
+    "theme": "LIGHT"
+}
+
+
+class UserSettingsResponse(BaseModel):
+    """Response model for getting user settings with user ID."""
+    
+    userId: str = Field(..., description="User ID (UUID)")
+    settings: SettingsResponse = Field(..., description="User settings")
+
+
+class LanguageInfo(BaseModel):
+    """Language information model."""
+    
+    languageCode: str = Field(..., description="ISO 639-1 language code (e.g., 'EN', 'ES', 'FR')")
+    languageNameInEnglish: str = Field(..., description="Language name in English")
+    languageNameInNative: str = Field(..., description="Language name in that particular language")
+
+
+class GetAllLanguagesResponse(BaseModel):
+    """Response model for getting all languages."""
+    
+    languages: List[LanguageInfo] = Field(..., description="List of all supported languages")
+
+
+# Language mapper: language code -> {name in English, name in native language}
+LANGUAGE_MAPPER: Dict[str, Dict[str, str]] = {
+    "EN": {"nameInEnglish": "English", "nameInNative": "English"},
+    "ES": {"nameInEnglish": "Spanish", "nameInNative": "Español"},
+    "FR": {"nameInEnglish": "French", "nameInNative": "Français"},
+    "DE": {"nameInEnglish": "German", "nameInNative": "Deutsch"},
+    "HI": {"nameInEnglish": "Hindi", "nameInNative": "हिन्दी"},
+    "JA": {"nameInEnglish": "Japanese", "nameInNative": "日本語"},
+    "ZH": {"nameInEnglish": "Chinese", "nameInNative": "中文"},
+    "AR": {"nameInEnglish": "Arabic", "nameInNative": "العربية"},
+    "IT": {"nameInEnglish": "Italian", "nameInNative": "Italiano"},
+    "PT": {"nameInEnglish": "Portuguese", "nameInNative": "Português"},
+    "RU": {"nameInEnglish": "Russian", "nameInNative": "Русский"},
+    "KO": {"nameInEnglish": "Korean", "nameInNative": "한국어"},
+    "NL": {"nameInEnglish": "Dutch", "nameInNative": "Nederlands"},
+    "PL": {"nameInEnglish": "Polish", "nameInNative": "Polski"},
+    "TR": {"nameInEnglish": "Turkish", "nameInNative": "Türkçe"},
+    "VI": {"nameInEnglish": "Vietnamese", "nameInNative": "Tiếng Việt"},
+    "TH": {"nameInEnglish": "Thai", "nameInNative": "ไทย"},
+    "ID": {"nameInEnglish": "Indonesian", "nameInNative": "Bahasa Indonesia"},
+    "CS": {"nameInEnglish": "Czech", "nameInNative": "Čeština"},
+    "SV": {"nameInEnglish": "Swedish", "nameInNative": "Svenska"},
+    "DA": {"nameInEnglish": "Danish", "nameInNative": "Dansk"},
+    "NO": {"nameInEnglish": "Norwegian", "nameInNative": "Norsk"},
+    "FI": {"nameInEnglish": "Finnish", "nameInNative": "Suomi"},
+    "EL": {"nameInEnglish": "Greek", "nameInNative": "Ελληνικά"},
+    "HE": {"nameInEnglish": "Hebrew", "nameInNative": "עברית"},
+    "UK": {"nameInEnglish": "Ukrainian", "nameInNative": "Українська"},
+    "RO": {"nameInEnglish": "Romanian", "nameInNative": "Română"},
+    "HU": {"nameInEnglish": "Hungarian", "nameInNative": "Magyar"},
+    "BG": {"nameInEnglish": "Bulgarian", "nameInNative": "Български"},
+    "HR": {"nameInEnglish": "Croatian", "nameInNative": "Hrvatski"},
+    "SK": {"nameInEnglish": "Slovak", "nameInNative": "Slovenčina"},
+    "SL": {"nameInEnglish": "Slovenian", "nameInNative": "Slovenščina"},
+    "ET": {"nameInEnglish": "Estonian", "nameInNative": "Eesti"},
+    "LV": {"nameInEnglish": "Latvian", "nameInNative": "Latviešu"},
+    "LT": {"nameInEnglish": "Lithuanian", "nameInNative": "Lietuvių"},
+    "IS": {"nameInEnglish": "Icelandic", "nameInNative": "Íslenska"},
+    "GA": {"nameInEnglish": "Irish", "nameInNative": "Gaeilge"},
+    "MT": {"nameInEnglish": "Maltese", "nameInNative": "Malti"},
+    "EU": {"nameInEnglish": "Basque", "nameInNative": "Euskara"},
+    "CA": {"nameInEnglish": "Catalan", "nameInNative": "Català"},
+    "FA": {"nameInEnglish": "Persian", "nameInNative": "فارسی"},
+    "UR": {"nameInEnglish": "Urdu", "nameInNative": "اردو"},
+    "BN": {"nameInEnglish": "Bengali", "nameInNative": "বাংলা"},
+    "TA": {"nameInEnglish": "Tamil", "nameInNative": "தமிழ்"},
+    "TE": {"nameInEnglish": "Telugu", "nameInNative": "తెలుగు"},
+    "ML": {"nameInEnglish": "Malayalam", "nameInNative": "മലയാളം"},
+    "KN": {"nameInEnglish": "Kannada", "nameInNative": "ಕನ್ನಡ"},
+    "GU": {"nameInEnglish": "Gujarati", "nameInNative": "ગુજરાતી"},
+    "MR": {"nameInEnglish": "Marathi", "nameInNative": "मराठी"},
+    "PA": {"nameInEnglish": "Punjabi", "nameInNative": "ਪੰਜਾਬੀ"},
+    "NE": {"nameInEnglish": "Nepali", "nameInNative": "नेपाली"},
+    "SI": {"nameInEnglish": "Sinhala", "nameInNative": "සිංහල"},
+    "OR": {"nameInEnglish": "Odia", "nameInNative": "ଓଡ଼ିଆ"},
+    "MY": {"nameInEnglish": "Burmese", "nameInNative": "မြန်မာ"},
+    "KM": {"nameInEnglish": "Khmer", "nameInNative": "ខ្មែរ"},
+    "LO": {"nameInEnglish": "Lao", "nameInNative": "ລາວ"},
+    "MS": {"nameInEnglish": "Malay", "nameInNative": "Bahasa Melayu"},
+    "TL": {"nameInEnglish": "Tagalog", "nameInNative": "Tagalog"},
+    "SW": {"nameInEnglish": "Swahili", "nameInNative": "Kiswahili"},
+    "AF": {"nameInEnglish": "Afrikaans", "nameInNative": "Afrikaans"},
+    "ZU": {"nameInEnglish": "Zulu", "nameInNative": "isiZulu"},
+    "XH": {"nameInEnglish": "Xhosa", "nameInNative": "isiXhosa"},
+}

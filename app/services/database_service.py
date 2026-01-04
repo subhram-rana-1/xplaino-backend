@@ -13,6 +13,7 @@ import json
 
 from app.config import settings
 from app.services.in_memory_cache.cache_factory import get_in_memory_cache
+from app.models import DEFAULT_USER_SETTINGS
 
 logger = structlog.get_logger()
 
@@ -127,10 +128,10 @@ def get_or_create_user_by_google_sub(
             sub=sub
         )
         
-        # Create user record
+        # Create user record with default settings
         db.execute(
-            text("INSERT INTO user (id) VALUES (:user_id)"),
-            {"user_id": user_id}
+            text("INSERT INTO user (id, settings) VALUES (:user_id, :settings)"),
+            {"user_id": user_id, "settings": json.dumps(DEFAULT_USER_SETTINGS)}
         )
         db.flush()
         
@@ -4401,6 +4402,56 @@ def update_issue(
     )
     
     return updated_issue
+
+
+def get_user_settings_by_user_id(
+    db: Session,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get user settings by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with settings JSON or None if user not found
+    """
+    logger.info(
+        "Getting user settings by user_id",
+        function="get_user_settings_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("SELECT settings FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "User not found",
+            function="get_user_settings_by_user_id",
+            user_id=user_id
+        )
+        return None
+    
+    settings_json = result[0]
+    
+    # Parse JSON if it's a string
+    if isinstance(settings_json, str):
+        settings_dict = json.loads(settings_json)
+    else:
+        settings_dict = settings_json
+    
+    logger.info(
+        "User settings retrieved successfully",
+        function="get_user_settings_by_user_id",
+        user_id=user_id
+    )
+    
+    return settings_dict
 
 
 def get_user_role_by_user_id(
