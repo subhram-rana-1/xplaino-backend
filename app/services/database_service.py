@@ -6446,3 +6446,469 @@ def delete_domain(
     
     return True
 
+
+def create_pdf(
+    db: Session,
+    user_id: str,
+    file_name: str
+) -> Dict[str, Any]:
+    """
+    Create a new PDF record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        file_name: File name (max 255 characters)
+        
+    Returns:
+        Dictionary with created PDF data
+    """
+    logger.info(
+        "Creating PDF record",
+        function="create_pdf",
+        user_id=user_id,
+        file_name=file_name
+    )
+    
+    # Generate UUID for the new PDF
+    pdf_id = str(uuid.uuid4())
+    
+    # Insert the new PDF
+    db.execute(
+        text("""
+            INSERT INTO pdf (id, file_name, created_by)
+            VALUES (:id, :file_name, :created_by)
+        """),
+        {
+            "id": pdf_id,
+            "file_name": file_name,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, created_at, updated_at
+            FROM pdf
+            WHERE id = :id
+        """),
+        {"id": pdf_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created PDF",
+            function="create_pdf",
+            pdf_id=pdf_id
+        )
+        raise Exception("Failed to retrieve created PDF")
+    
+    pdf_id_val, file_name_val, created_by_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    pdf_data = {
+        "id": pdf_id_val,
+        "file_name": file_name_val,
+        "created_by": created_by_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created PDF record successfully",
+        function="create_pdf",
+        pdf_id=pdf_id_val,
+        user_id=user_id
+    )
+    
+    return pdf_data
+
+
+def create_pdf_html_page(
+    db: Session,
+    pdf_id: str,
+    page_no: int,
+    html_content: str
+) -> Dict[str, Any]:
+    """
+    Create a new PDF HTML page record.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        page_no: Page number (1-indexed)
+        html_content: HTML content for the page (LONGTEXT)
+        
+    Returns:
+        Dictionary with created PDF HTML page data
+    """
+    logger.info(
+        "Creating PDF HTML page record",
+        function="create_pdf_html_page",
+        pdf_id=pdf_id,
+        page_no=page_no,
+        html_content_length=len(html_content)
+    )
+    
+    # Generate UUID for the new PDF HTML page
+    page_id = str(uuid.uuid4())
+    
+    # Insert the new PDF HTML page
+    db.execute(
+        text("""
+            INSERT INTO pdf_html_page (id, page_no, pdf_id, html_content)
+            VALUES (:id, :page_no, :pdf_id, :html_content)
+        """),
+        {
+            "id": page_id,
+            "page_no": page_no,
+            "pdf_id": pdf_id,
+            "html_content": html_content
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
+            FROM pdf_html_page
+            WHERE id = :id
+        """),
+        {"id": page_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created PDF HTML page",
+            function="create_pdf_html_page",
+            page_id=page_id
+        )
+        raise Exception("Failed to retrieve created PDF HTML page")
+    
+    page_id_val, page_no_val, pdf_id_val, html_content_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    page_data = {
+        "id": page_id_val,
+        "page_no": page_no_val,
+        "pdf_id": pdf_id_val,
+        "html_content": html_content_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created PDF HTML page record successfully",
+        function="create_pdf_html_page",
+        page_id=page_id_val,
+        pdf_id=pdf_id_val,
+        page_no=page_no_val
+    )
+    
+    return page_data
+
+
+def get_pdfs_by_user_id(
+    db: Session,
+    user_id: str
+) -> List[Dict[str, Any]]:
+    """
+    Get all PDF records for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        List of PDF dictionaries
+    """
+    logger.info(
+        "Getting PDFs by user_id",
+        function="get_pdfs_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, created_at, updated_at
+            FROM pdf
+            WHERE created_by = :user_id
+            ORDER BY created_at DESC
+        """),
+        {"user_id": user_id}
+    )
+    rows = result.fetchall()
+    
+    pdfs = []
+    for row in rows:
+        pdf_id, file_name, created_by, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        pdfs.append({
+            "id": pdf_id,
+            "file_name": file_name,
+            "created_by": created_by,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved PDFs successfully",
+        function="get_pdfs_by_user_id",
+        user_id=user_id,
+        pdf_count=len(pdfs)
+    )
+    
+    return pdfs
+
+
+def get_pdf_by_id_and_user_id(
+    db: Session,
+    pdf_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a PDF by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with PDF data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting PDF by id and user_id",
+        function="get_pdf_by_id_and_user_id",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, created_at, updated_at
+            FROM pdf
+            WHERE id = :pdf_id AND created_by = :user_id
+        """),
+        {
+            "pdf_id": pdf_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "PDF not found or doesn't belong to user",
+            function="get_pdf_by_id_and_user_id",
+            pdf_id=pdf_id,
+            user_id=user_id
+        )
+        return None
+    
+    pdf_id_val, file_name, created_by, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    pdf_data = {
+        "id": pdf_id_val,
+        "file_name": file_name,
+        "created_by": created_by,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved PDF successfully",
+        function="get_pdf_by_id_and_user_id",
+        pdf_id=pdf_id_val,
+        user_id=user_id
+    )
+    
+    return pdf_data
+
+
+def get_pdf_html_pages_by_pdf_id(
+    db: Session,
+    pdf_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get PDF HTML pages for a PDF with pagination, ordered by page_no ASC.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of page dictionaries, total count)
+    """
+    logger.info(
+        "Getting PDF HTML pages by pdf_id",
+        function="get_pdf_html_pages_by_pdf_id",
+        pdf_id=pdf_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM pdf_html_page WHERE pdf_id = :pdf_id"),
+        {"pdf_id": pdf_id}
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated pages
+    pages_result = db.execute(
+        text("""
+            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
+            FROM pdf_html_page
+            WHERE pdf_id = :pdf_id
+            ORDER BY page_no ASC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "pdf_id": pdf_id,
+            "limit": limit,
+            "offset": offset
+        }
+    )
+    rows = pages_result.fetchall()
+    
+    pages = []
+    for row in rows:
+        page_id, page_no, pdf_id_val, html_content, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        pages.append({
+            "id": page_id,
+            "page_no": page_no,
+            "pdf_id": pdf_id_val,
+            "html_content": html_content,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved PDF HTML pages successfully",
+        function="get_pdf_html_pages_by_pdf_id",
+        pdf_id=pdf_id,
+        pages_count=len(pages),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return pages, total_count
+
+
+def delete_pdf_by_id_and_user_id(
+    db: Session,
+    pdf_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a PDF by ID and verify it belongs to the user.
+    Due to ON DELETE CASCADE constraint, all related pdf_html_page records will be automatically deleted.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting PDF by id and user_id",
+        function="delete_pdf_by_id_and_user_id",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM pdf
+            WHERE id = :pdf_id AND created_by = :user_id
+        """),
+        {
+            "pdf_id": pdf_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "PDF not found or doesn't belong to user",
+            function="delete_pdf_by_id_and_user_id",
+            pdf_id=pdf_id,
+            user_id=user_id
+        )
+        return False
+    
+    logger.info(
+        "Deleted PDF successfully",
+        function="delete_pdf_by_id_and_user_id",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+    
+    return True
+

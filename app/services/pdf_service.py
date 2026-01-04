@@ -3,7 +3,7 @@
 import io
 import tempfile
 import os
-from typing import Tuple
+from typing import Tuple, List
 import PyPDF2
 import pdfplumber
 from pdf2markdown4llm import PDF2Markdown4LLM
@@ -319,6 +319,466 @@ class PdfService:
         
         return '\n'.join(fixed_lines)
     
+    def convert_pdf_to_html(self, pdf_data: bytes) -> List[str]:
+        """
+        Convert PDF to HTML with structured text content, tables, and images.
+        
+        Args:
+            pdf_data: PDF file data as bytes
+            
+        Returns:
+            List of HTML strings, one per page
+        """
+        try:
+            import base64
+            import html as html_escape
+            
+            logger.info("Starting PDF to HTML conversion using pdfplumber")
+            
+            # Create a temporary file to store the PDF data
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_file.write(pdf_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                html_pages = []
+                
+                with pdfplumber.open(temp_file_path) as pdf:
+                    for page_num, page in enumerate(pdf.pages):
+                        # Extract different content types
+                        text_blocks_html = self._extract_text_blocks(page)
+                        tables_html = self._extract_tables_as_html(page)
+                        images_html = self._extract_images_as_html(page, temp_file_path, page_num)
+                        
+                        # Combine all content in order (text, tables, images)
+                        page_content = []
+                        if text_blocks_html:
+                            page_content.extend(text_blocks_html)
+                        if tables_html:
+                            page_content.extend(tables_html)
+                        if images_html:
+                            page_content.extend(images_html)
+                        
+                        # If no content found, add a placeholder
+                        if not page_content:
+                            page_content = ["<p>No readable content found on this page.</p>"]
+                        
+                        # Create complete HTML document
+                        html_content = self._create_html_document(
+                            page_num + 1,
+                            "\n".join(page_content)
+                        )
+                        
+                        html_pages.append(html_content)
+                        
+                        logger.debug(
+                            "Converted PDF page to HTML",
+                            page_num=page_num + 1,
+                            html_size=len(html_content),
+                            text_blocks=len(text_blocks_html),
+                            tables=len(tables_html),
+                            images=len(images_html)
+                        )
+                
+                logger.info(
+                    "Successfully converted PDF to HTML",
+                    total_pages=len(html_pages),
+                    total_html_size=sum(len(html) for html in html_pages)
+                )
+                
+                return html_pages
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except OSError:
+                    logger.warning(f"Failed to delete temporary file: {temp_file_path}")
+                
+        except Exception as e:
+            logger.error("PDF to HTML conversion failed", error=str(e))
+            raise PdfProcessingError(f"Failed to convert PDF to HTML: {str(e)}")
+    
+    def _create_html_document(self, page_num: int, body_content: str) -> str:
+        """Create a complete HTML document with proper structure and styling."""
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Page {page_num}</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }}
+        .page-container {{
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 40px;
+        }}
+        h1, h2, h3 {{
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: bold;
+        }}
+        h1 {{
+            font-size: 2em;
+        }}
+        h2 {{
+            font-size: 1.5em;
+        }}
+        h3 {{
+            font-size: 1.2em;
+        }}
+        p {{
+            margin: 1em 0;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1em 0;
+        }}
+        table th, table td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }}
+        table th {{
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }}
+        img {{
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 1em 0;
+        }}
+        strong {{
+            font-weight: bold;
+        }}
+        em {{
+            font-style: italic;
+        }}
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        {body_content}
+    </div>
+</body>
+</html>"""
+    
+    def _extract_text_blocks(self, page) -> List[str]:
+        """Extract text blocks (paragraphs and headings) from a PDF page."""
+        try:
+            import html as html_escape
+            
+            if not page.chars:
+                return []
+            
+            # Group characters into lines based on y-coordinate
+            lines = []
+            current_line = []
+            current_y = None
+            y_tolerance = 3  # Points tolerance for same line
+            
+            # Sort characters by y position (top to bottom) and x position (left to right)
+            sorted_chars = sorted(page.chars, key=lambda c: (-c.get('top', 0), c.get('x0', 0)))
+            
+            for char in sorted_chars:
+                char_y = char.get('top', 0)
+                char_text = char.get('text', '')
+                
+                if current_y is None:
+                    current_y = char_y
+                    current_line.append(char)
+                elif abs(char_y - current_y) <= y_tolerance:
+                    # Same line
+                    current_line.append(char)
+                else:
+                    # New line
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = [char]
+                    current_y = char_y
+            
+            # Add the last line
+            if current_line:
+                lines.append(current_line)
+            
+            # Group lines into paragraphs based on vertical spacing
+            paragraphs = []
+            current_paragraph = []
+            prev_bottom = None
+            
+            for line in lines:
+                if not line:
+                    continue
+                
+                # Calculate line bounds
+                line_top = min(c.get('top', 0) for c in line)
+                line_bottom = max(c.get('bottom', 0) for c in line)
+                
+                # Check if this line starts a new paragraph
+                if prev_bottom is not None:
+                    vertical_gap = line_top - prev_bottom
+                    # Large gap indicates new paragraph (threshold: ~1.5x line height)
+                    line_height = line_bottom - line_top
+                    if vertical_gap > line_height * 1.5:
+                        if current_paragraph:
+                            paragraphs.append(current_paragraph)
+                        current_paragraph = [line]
+                    else:
+                        current_paragraph.append(line)
+                else:
+                    current_paragraph.append(line)
+                
+                prev_bottom = line_bottom
+            
+            # Add the last paragraph
+            if current_paragraph:
+                paragraphs.append(current_paragraph)
+            
+            # Convert paragraphs to HTML
+            html_blocks = []
+            for para_lines in paragraphs:
+                if not para_lines:
+                    continue
+                
+                # Get all characters in this paragraph
+                para_chars = []
+                for line in para_lines:
+                    para_chars.extend(line)
+                
+                # Determine if this is a heading based on font size
+                font_sizes = [c.get('size', 0) for c in para_chars if c.get('size', 0) > 0]
+                if not font_sizes:
+                    continue
+                
+                avg_font_size = sum(font_sizes) / len(font_sizes)
+                max_font_size = max(font_sizes)
+                
+                # Calculate base font size (most common size)
+                from collections import Counter
+                size_counts = Counter(font_sizes)
+                base_font_size = size_counts.most_common(1)[0][0]
+                
+                # Apply formatting and create HTML
+                formatted_text = self._apply_text_formatting(para_chars)
+                
+                # Determine heading level
+                heading_level = self._detect_heading_level(max_font_size, base_font_size)
+                
+                if heading_level:
+                    html_blocks.append(f"<h{heading_level}>{formatted_text}</h{heading_level}>")
+                else:
+                    html_blocks.append(f"<p>{formatted_text}</p>")
+            
+            return html_blocks
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract text blocks: {str(e)}")
+            return []
+    
+    def _detect_heading_level(self, font_size: float, base_font_size: float) -> int:
+        """Determine heading level based on font size relative to base."""
+        if font_size <= 0 or base_font_size <= 0:
+            return 0
+        
+        ratio = font_size / base_font_size
+        
+        # h1: 1.5x or larger
+        if ratio >= 1.5:
+            return 1
+        # h2: 1.25x to 1.5x
+        elif ratio >= 1.25:
+            return 2
+        # h3: 1.1x to 1.25x
+        elif ratio >= 1.1:
+            return 3
+        # Regular paragraph
+        else:
+            return 0
+    
+    def _apply_text_formatting(self, chars: List[dict]) -> str:
+        """Apply HTML formatting (bold, italic) to text based on character properties."""
+        try:
+            import html as html_escape
+            
+            if not chars:
+                return ""
+            
+            result = []
+            current_segment = []
+            current_bold = None
+            current_italic = None
+            
+            for char in chars:
+                text = char.get('text', '')
+                if not text:
+                    continue
+                
+                font_name = char.get('fontname', '').lower()
+                
+                # Detect bold
+                is_bold = any(keyword in font_name for keyword in [
+                    'bold', 'black', 'heavy', 'demibold', 'semibold'
+                ]) or font_name.endswith('-b') or font_name.endswith('bold')
+                
+                # Detect italic (common patterns)
+                is_italic = 'italic' in font_name or 'oblique' in font_name or font_name.endswith('-i')
+                
+                # Check if formatting changed
+                if current_bold != is_bold or current_italic != is_italic:
+                    # Close previous segment
+                    if current_segment:
+                        segment_text = ''.join(current_segment)
+                        escaped_text = html_escape.escape(segment_text)
+                        
+                        # Apply formatting
+                        if current_bold:
+                            escaped_text = f"<strong>{escaped_text}</strong>"
+                        if current_italic:
+                            escaped_text = f"<em>{escaped_text}</em>"
+                        
+                        result.append(escaped_text)
+                        current_segment = []
+                    
+                    current_bold = is_bold
+                    current_italic = is_italic
+                
+                current_segment.append(text)
+            
+            # Process the last segment
+            if current_segment:
+                segment_text = ''.join(current_segment)
+                escaped_text = html_escape.escape(segment_text)
+                
+                if current_bold:
+                    escaped_text = f"<strong>{escaped_text}</strong>"
+                if current_italic:
+                    escaped_text = f"<em>{escaped_text}</em>"
+                
+                result.append(escaped_text)
+            
+            return ''.join(result)
+            
+        except Exception as e:
+            logger.warning(f"Failed to apply text formatting: {str(e)}")
+            # Fallback: just escape and return text
+            import html as html_escape
+            text = ''.join(c.get('text', '') for c in chars)
+            return html_escape.escape(text)
+    
+    def _extract_tables_as_html(self, page) -> List[str]:
+        """Extract tables from PDF page and convert to HTML table elements."""
+        try:
+            import html as html_escape
+            
+            tables = page.extract_tables()
+            if not tables:
+                return []
+            
+            html_tables = []
+            for table in tables:
+                if not table or len(table) == 0:
+                    continue
+                
+                # Build HTML table
+                html_rows = []
+                
+                # First row is typically header
+                if len(table) > 0:
+                    header_row = table[0]
+                    if header_row and any(cell and str(cell).strip() for cell in header_row):
+                        header_cells = []
+                        for cell in header_row:
+                            cell_text = str(cell).strip() if cell else ""
+                            escaped_text = html_escape.escape(cell_text)
+                            header_cells.append(f"<th>{escaped_text}</th>")
+                        html_rows.append(f"<tr>{''.join(header_cells)}</tr>")
+                
+                # Remaining rows are data rows
+                for row in table[1:]:
+                    if not row:
+                        continue
+                    data_cells = []
+                    for cell in row:
+                        cell_text = str(cell).strip() if cell else ""
+                        escaped_text = html_escape.escape(cell_text)
+                        data_cells.append(f"<td>{escaped_text}</td>")
+                    if data_cells:
+                        html_rows.append(f"<tr>{''.join(data_cells)}</tr>")
+                
+                if html_rows:
+                    table_html = f"<table>{''.join(html_rows)}</table>"
+                    html_tables.append(table_html)
+            
+            return html_tables
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract tables: {str(e)}")
+            return []
+    
+    def _extract_images_as_html(self, page, pdf_path: str, page_num: int) -> List[str]:
+        """Extract images from PDF page and convert to base64 HTML img elements."""
+        try:
+            import base64
+            import fitz
+            
+            images = page.images
+            if not images:
+                return []
+            
+            html_images = []
+            
+            # Open PDF with PyMuPDF for image extraction
+            pdf_document = fitz.open(pdf_path)
+            try:
+                pdf_page = pdf_document[page_num]
+                
+                # Get image list from the page
+                image_list = pdf_page.get_images()
+                
+                for img_index, img in enumerate(image_list):
+                    try:
+                        # Get image data
+                        xref = img[0]
+                        base_image = pdf_document.extract_image(xref)
+                        image_bytes = base_image["image"]
+                        image_ext = base_image["ext"]
+                        
+                        # Convert to base64
+                        img_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                        
+                        # Determine MIME type
+                        mime_type = f"image/{image_ext}" if image_ext in ['png', 'jpg', 'jpeg', 'gif'] else "image/png"
+                        
+                        # Create HTML img tag
+                        img_html = f'<img src="data:{mime_type};base64,{img_base64}" alt="Image {img_index + 1}" />'
+                        html_images.append(img_html)
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to extract image {img_index}: {str(e)}")
+                        continue
+                
+            finally:
+                pdf_document.close()
+            
+            return html_images
+            
+        except ImportError:
+            logger.warning("PyMuPDF (fitz) not available for image extraction, skipping images")
+            return []
+        except Exception as e:
+            logger.warning(f"Failed to extract images: {str(e)}")
+            return []
 
 
 # Global service instance

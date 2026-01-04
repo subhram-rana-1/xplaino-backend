@@ -266,3 +266,27 @@ CREATE TABLE IF NOT EXISTS saved_image (
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- PDF table
+CREATE TABLE IF NOT EXISTS pdf (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    file_name VARCHAR(255) NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_created_by (created_by),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- PDF HTML page table
+CREATE TABLE IF NOT EXISTS pdf_html_page (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    page_no INT NOT NULL,
+    pdf_id CHAR(36) NOT NULL,
+    html_content LONGTEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_page_no (page_no),
+    INDEX idx_pdf_id (pdf_id),
+    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

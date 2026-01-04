@@ -928,3 +928,40 @@ LANGUAGE_MAPPER: Dict[str, Dict[str, str]] = {
     "ZU": {"nameInEnglish": "Zulu", "nameInNative": "isiZulu"},
     "XH": {"nameInEnglish": "Xhosa", "nameInNative": "isiXhosa"},
 }
+
+
+class PdfResponse(BaseModel):
+    """Response model for PDF record."""
+    
+    id: str = Field(..., description="PDF ID (UUID)")
+    file_name: str = Field(..., description="File name")
+    created_by: str = Field(..., description="User ID who created the PDF (UUID)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class PdfHtmlPageResponse(BaseModel):
+    """Response model for PDF HTML page."""
+    
+    id: str = Field(..., description="PDF HTML page ID (UUID)")
+    page_no: int = Field(..., description="Page number (1-indexed)")
+    pdf_id: str = Field(..., description="PDF ID (UUID)")
+    html_content: str = Field(..., description="HTML content for the page")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetAllPdfsResponse(BaseModel):
+    """Response model for getting all PDFs."""
+    
+    pdfs: List[PdfResponse] = Field(..., description="List of PDF records")
+
+
+class GetPdfHtmlPagesResponse(BaseModel):
+    """Response model for getting paginated PDF HTML pages."""
+    
+    pages: List[PdfHtmlPageResponse] = Field(..., description="List of PDF HTML pages")
+    total: int = Field(..., description="Total number of pages")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more pages")
