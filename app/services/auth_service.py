@@ -5,11 +5,27 @@ from fastapi import Request
 from google.auth.transport import requests
 from google.oauth2 import id_token
 import structlog
+import socket
 
 from app.config import settings
 from app.exceptions import CatenException
 
 logger = structlog.get_logger()
+
+# Fix IPv6 timeout issue: Force IPv4 preference for DNS resolution
+# This prevents 40+ second delays when IPv6 connections timeout
+_original_getaddrinfo = socket.getaddrinfo
+
+def _getaddrinfo_ipv4_preferred(*args, **kwargs):
+    """DNS resolver that prefers IPv4 to avoid IPv6 timeout issues."""
+    results = _original_getaddrinfo(*args, **kwargs)
+    # Sort results to prefer IPv4 (AF_INET) over IPv6 (AF_INET6)
+    ipv4_results = [r for r in results if r[0] == socket.AF_INET]
+    ipv6_results = [r for r in results if r[0] == socket.AF_INET6]
+    return ipv4_results + ipv6_results
+
+# Apply the IPv4 preference fix
+socket.getaddrinfo = _getaddrinfo_ipv4_preferred
 
 
 def get_google_client_id(request: Request) -> str:

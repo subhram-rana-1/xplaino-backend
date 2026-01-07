@@ -106,6 +106,12 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     "GET:/api/issue/all": "issue_get_all_api_count_so_far",
     "PATCH:/api/issue/{issue_id}": "issue_patch_api_count_so_far",
     "POST:/api/issue/": "issue_post_api_count_so_far",
+    
+    # PDF APIs (method-specific)
+    "POST:/api/pdf/to-html": "pdf_to_html_api_count_so_far",
+    "GET:/api/pdf": "pdf_get_api_count_so_far",
+    "GET:/api/pdf/": "pdf_get_api_count_so_far",
+    "GET:/api/pdf/{pdf_id}/html": "pdf_get_html_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping (METHOD:URL format)
@@ -188,6 +194,12 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     "GET:/api/issue/all": "issue_get_all_api_max_limit",
     "PATCH:/api/issue/{issue_id}": "issue_patch_api_max_limit",
     "POST:/api/issue/": "issue_post_api_max_limit",
+    
+    # PDF APIs (method-specific)
+    "POST:/api/pdf/to-html": "pdf_to_html_api_max_limit",
+    "GET:/api/pdf": "pdf_get_api_max_limit",
+    "GET:/api/pdf/": "pdf_get_api_max_limit",
+    "GET:/api/pdf/{pdf_id}/html": "pdf_get_html_api_max_limit",
 }
 
 # API endpoint to authenticated max limit config mapping (METHOD:URL format)
@@ -270,6 +282,12 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     "GET:/api/issue/all": "authenticated_issue_get_all_api_max_limit",
     "PATCH:/api/issue/{issue_id}": "authenticated_issue_patch_api_max_limit",
     "POST:/api/issue/": "authenticated_issue_post_api_max_limit",
+    
+    # PDF APIs (method-specific)
+    "POST:/api/pdf/to-html": "authenticated_pdf_to_html_api_max_limit",
+    "GET:/api/pdf": "authenticated_pdf_get_api_max_limit",
+    "GET:/api/pdf/": "authenticated_pdf_get_api_max_limit",
+    "GET:/api/pdf/{pdf_id}/html": "authenticated_pdf_get_html_api_max_limit",
 }
 
 
@@ -293,9 +311,16 @@ def get_api_counter_field_and_limit(request: Request) -> tuple[Optional[str], Op
     
     # If no exact match, try pattern matching for paths with parameters
     if counter_field is None or limit_config is None:
+        # Handle GET endpoints with path parameters
+        # e.g., GET:/api/pdf/abc-123/html -> GET:/api/pdf/{pdf_id}/html
+        if method == "GET":
+            if path.startswith("/api/pdf/") and path.endswith("/html"):
+                pattern_key = f"{method}:/api/pdf/{{pdf_id}}/html"
+                counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
         # Handle DELETE endpoints with path parameters
         # e.g., DELETE:/api/saved-words/abc-123 -> DELETE:/api/saved-words
-        if method == "DELETE":
+        elif method == "DELETE":
             # Try removing the last path segment (the ID parameter)
             path_parts = path.rstrip('/').split('/')
             if len(path_parts) > 0:
@@ -389,9 +414,16 @@ def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Opt
     
     # If no exact match, try pattern matching for paths with parameters
     if counter_field is None or limit_config is None:
+        # Handle GET endpoints with path parameters
+        # e.g., GET:/api/pdf/abc-123/html -> GET:/api/pdf/{pdf_id}/html
+        if method == "GET":
+            if path.startswith("/api/pdf/") and path.endswith("/html"):
+                pattern_key = f"{method}:/api/pdf/{{pdf_id}}/html"
+                counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
         # Handle DELETE endpoints with path parameters
         # e.g., DELETE:/api/saved-words/abc-123 -> DELETE:/api/saved-words
-        if method == "DELETE":
+        elif method == "DELETE":
             # Try removing the last path segment (the ID parameter)
             path_parts = path.rstrip('/').split('/')
             if len(path_parts) > 0:

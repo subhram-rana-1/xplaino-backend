@@ -1,6 +1,6 @@
 """Pydantic models for request/response validation."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -724,3 +724,317 @@ class MoveSavedLinkToFolderRequest(BaseModel):
     """Request model for moving a saved link to a different folder."""
     
     targetFolderId: str = Field(..., description="Target folder ID to move the link to (UUID)")
+
+
+class NativeLanguage(str, Enum):
+    """Native language enum with all supported language codes."""
+    EN = "EN"
+    ES = "ES"
+    FR = "FR"
+    DE = "DE"
+    HI = "HI"
+    JA = "JA"
+    ZH = "ZH"
+    AR = "AR"
+    IT = "IT"
+    PT = "PT"
+    RU = "RU"
+    KO = "KO"
+    NL = "NL"
+    PL = "PL"
+    TR = "TR"
+    VI = "VI"
+    TH = "TH"
+    ID = "ID"
+    CS = "CS"
+    SV = "SV"
+    DA = "DA"
+    NO = "NO"
+    FI = "FI"
+    EL = "EL"
+    HE = "HE"
+    UK = "UK"
+    RO = "RO"
+    HU = "HU"
+    BG = "BG"  # Bulgarian
+    HR = "HR"  # Croatian
+    SK = "SK"  # Slovak
+    SL = "SL"  # Slovenian
+    ET = "ET"  # Estonian
+    LV = "LV"  # Latvian
+    LT = "LT"  # Lithuanian
+    IS = "IS"  # Icelandic
+    GA = "GA"  # Irish
+    MT = "MT"  # Maltese
+    EU = "EU"  # Basque
+    CA = "CA"  # Catalan
+    FA = "FA"  # Persian
+    UR = "UR"  # Urdu
+    BN = "BN"  # Bengali
+    TA = "TA"  # Tamil
+    TE = "TE"  # Telugu
+    ML = "ML"  # Malayalam
+    KN = "KN"  # Kannada
+    GU = "GU"  # Gujarati
+    MR = "MR"  # Marathi
+    PA = "PA"  # Punjabi
+    NE = "NE"  # Nepali
+    SI = "SI"  # Sinhala
+    OR = "OR"  # Odia
+    MY = "MY"  # Burmese
+    KM = "KM"  # Khmer
+    LO = "LO"  # Lao
+    MS = "MS"  # Malay
+    TL = "TL"  # Tagalog
+    SW = "SW"  # Swahili
+    AF = "AF"  # Afrikaans
+    ZU = "ZU"  # Zulu
+    XH = "XH"  # Xhosa
+
+
+class PageTranslationView(str, Enum):
+    """Page translation view enum."""
+    APPEND = "APPEND"
+    REPLACE = "REPLACE"
+
+
+class Theme(str, Enum):
+    """Theme enum."""
+    LIGHT = "LIGHT"
+    DARK = "DARK"
+
+
+class LanguageSettings(BaseModel):
+    """Language settings model."""
+    
+    nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
+    pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
+
+
+class Settings(BaseModel):
+    """User settings model."""
+    
+    language: LanguageSettings = Field(..., description="Language settings")
+    theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+
+
+class UpdateSettingsRequest(BaseModel):
+    """Request model for updating user settings (PATCH)."""
+    
+    language: LanguageSettings = Field(..., description="Language settings")
+    theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+
+
+class SettingsResponse(BaseModel):
+    """Response model for user settings."""
+    
+    language: LanguageSettings = Field(..., description="Language settings")
+    theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+
+
+# Default user settings constant
+DEFAULT_USER_SETTINGS = {
+    "language": {
+        "nativeLanguage": None,
+        "pageTranslationView": "REPLACE"
+    },
+    "theme": "LIGHT"
+}
+
+
+class UserSettingsResponse(BaseModel):
+    """Response model for getting user settings with user ID."""
+    
+    userId: str = Field(..., description="User ID (UUID)")
+    settings: SettingsResponse = Field(..., description="User settings")
+
+
+class LanguageInfo(BaseModel):
+    """Language information model."""
+    
+    languageCode: str = Field(..., description="ISO 639-1 language code (e.g., 'EN', 'ES', 'FR')")
+    languageNameInEnglish: str = Field(..., description="Language name in English")
+    languageNameInNative: str = Field(..., description="Language name in that particular language")
+
+
+class GetAllLanguagesResponse(BaseModel):
+    """Response model for getting all languages."""
+    
+    languages: List[LanguageInfo] = Field(..., description="List of all supported languages")
+
+
+# Language mapper: language code -> {name in English, name in native language}
+LANGUAGE_MAPPER: Dict[str, Dict[str, str]] = {
+    "EN": {"nameInEnglish": "English", "nameInNative": "English"},
+    "ES": {"nameInEnglish": "Spanish", "nameInNative": "Español"},
+    "FR": {"nameInEnglish": "French", "nameInNative": "Français"},
+    "DE": {"nameInEnglish": "German", "nameInNative": "Deutsch"},
+    "HI": {"nameInEnglish": "Hindi", "nameInNative": "हिन्दी"},
+    "JA": {"nameInEnglish": "Japanese", "nameInNative": "日本語"},
+    "ZH": {"nameInEnglish": "Chinese", "nameInNative": "中文"},
+    "AR": {"nameInEnglish": "Arabic", "nameInNative": "العربية"},
+    "IT": {"nameInEnglish": "Italian", "nameInNative": "Italiano"},
+    "PT": {"nameInEnglish": "Portuguese", "nameInNative": "Português"},
+    "RU": {"nameInEnglish": "Russian", "nameInNative": "Русский"},
+    "KO": {"nameInEnglish": "Korean", "nameInNative": "한국어"},
+    "NL": {"nameInEnglish": "Dutch", "nameInNative": "Nederlands"},
+    "PL": {"nameInEnglish": "Polish", "nameInNative": "Polski"},
+    "TR": {"nameInEnglish": "Turkish", "nameInNative": "Türkçe"},
+    "VI": {"nameInEnglish": "Vietnamese", "nameInNative": "Tiếng Việt"},
+    "TH": {"nameInEnglish": "Thai", "nameInNative": "ไทย"},
+    "ID": {"nameInEnglish": "Indonesian", "nameInNative": "Bahasa Indonesia"},
+    "CS": {"nameInEnglish": "Czech", "nameInNative": "Čeština"},
+    "SV": {"nameInEnglish": "Swedish", "nameInNative": "Svenska"},
+    "DA": {"nameInEnglish": "Danish", "nameInNative": "Dansk"},
+    "NO": {"nameInEnglish": "Norwegian", "nameInNative": "Norsk"},
+    "FI": {"nameInEnglish": "Finnish", "nameInNative": "Suomi"},
+    "EL": {"nameInEnglish": "Greek", "nameInNative": "Ελληνικά"},
+    "HE": {"nameInEnglish": "Hebrew", "nameInNative": "עברית"},
+    "UK": {"nameInEnglish": "Ukrainian", "nameInNative": "Українська"},
+    "RO": {"nameInEnglish": "Romanian", "nameInNative": "Română"},
+    "HU": {"nameInEnglish": "Hungarian", "nameInNative": "Magyar"},
+    "BG": {"nameInEnglish": "Bulgarian", "nameInNative": "Български"},
+    "HR": {"nameInEnglish": "Croatian", "nameInNative": "Hrvatski"},
+    "SK": {"nameInEnglish": "Slovak", "nameInNative": "Slovenčina"},
+    "SL": {"nameInEnglish": "Slovenian", "nameInNative": "Slovenščina"},
+    "ET": {"nameInEnglish": "Estonian", "nameInNative": "Eesti"},
+    "LV": {"nameInEnglish": "Latvian", "nameInNative": "Latviešu"},
+    "LT": {"nameInEnglish": "Lithuanian", "nameInNative": "Lietuvių"},
+    "IS": {"nameInEnglish": "Icelandic", "nameInNative": "Íslenska"},
+    "GA": {"nameInEnglish": "Irish", "nameInNative": "Gaeilge"},
+    "MT": {"nameInEnglish": "Maltese", "nameInNative": "Malti"},
+    "EU": {"nameInEnglish": "Basque", "nameInNative": "Euskara"},
+    "CA": {"nameInEnglish": "Catalan", "nameInNative": "Català"},
+    "FA": {"nameInEnglish": "Persian", "nameInNative": "فارسی"},
+    "UR": {"nameInEnglish": "Urdu", "nameInNative": "اردو"},
+    "BN": {"nameInEnglish": "Bengali", "nameInNative": "বাংলা"},
+    "TA": {"nameInEnglish": "Tamil", "nameInNative": "தமிழ்"},
+    "TE": {"nameInEnglish": "Telugu", "nameInNative": "తెలుగు"},
+    "ML": {"nameInEnglish": "Malayalam", "nameInNative": "മലയാളം"},
+    "KN": {"nameInEnglish": "Kannada", "nameInNative": "ಕನ್ನಡ"},
+    "GU": {"nameInEnglish": "Gujarati", "nameInNative": "ગુજરાતી"},
+    "MR": {"nameInEnglish": "Marathi", "nameInNative": "मराठी"},
+    "PA": {"nameInEnglish": "Punjabi", "nameInNative": "ਪੰਜਾਬੀ"},
+    "NE": {"nameInEnglish": "Nepali", "nameInNative": "नेपाली"},
+    "SI": {"nameInEnglish": "Sinhala", "nameInNative": "සිංහල"},
+    "OR": {"nameInEnglish": "Odia", "nameInNative": "ଓଡ଼ିଆ"},
+    "MY": {"nameInEnglish": "Burmese", "nameInNative": "မြန်မာ"},
+    "KM": {"nameInEnglish": "Khmer", "nameInNative": "ខ្មែរ"},
+    "LO": {"nameInEnglish": "Lao", "nameInNative": "ລາວ"},
+    "MS": {"nameInEnglish": "Malay", "nameInNative": "Bahasa Melayu"},
+    "TL": {"nameInEnglish": "Tagalog", "nameInNative": "Tagalog"},
+    "SW": {"nameInEnglish": "Swahili", "nameInNative": "Kiswahili"},
+    "AF": {"nameInEnglish": "Afrikaans", "nameInNative": "Afrikaans"},
+    "ZU": {"nameInEnglish": "Zulu", "nameInNative": "isiZulu"},
+    "XH": {"nameInEnglish": "Xhosa", "nameInNative": "isiXhosa"},
+}
+
+
+class PdfResponse(BaseModel):
+    """Response model for PDF record."""
+    
+    id: str = Field(..., description="PDF ID (UUID)")
+    file_name: str = Field(..., description="File name")
+    created_by: str = Field(..., description="User ID who created the PDF (UUID)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class PdfHtmlPageResponse(BaseModel):
+    """Response model for PDF HTML page."""
+    
+    id: str = Field(..., description="PDF HTML page ID (UUID)")
+    page_no: int = Field(..., description="Page number (1-indexed)")
+    pdf_id: str = Field(..., description="PDF ID (UUID)")
+    html_content: str = Field(..., description="HTML content for the page")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetAllPdfsResponse(BaseModel):
+    """Response model for getting all PDFs."""
+    
+    pdfs: List[PdfResponse] = Field(..., description="List of PDF records")
+
+
+class GetPdfHtmlPagesResponse(BaseModel):
+    """Response model for getting paginated PDF HTML pages."""
+    
+    pages: List[PdfHtmlPageResponse] = Field(..., description="List of PDF HTML pages")
+    total: int = Field(..., description="Total number of pages")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more pages")
+
+
+class CouponStatus(str, Enum):
+    """Coupon status enum."""
+    ENABLED = "ENABLED"
+    DISABLED = "DISABLED"
+
+
+class CreateCouponRequest(BaseModel):
+    """Request model for creating a coupon."""
+    
+    code: str = Field(..., min_length=1, max_length=30, description="Coupon code (max 30 characters)")
+    name: str = Field(..., min_length=1, max_length=100, description="Coupon name (max 100 characters)")
+    description: str = Field(..., min_length=1, max_length=1024, description="Coupon description (max 1024 characters)")
+    discount: float = Field(..., gt=0, le=100, description="Discount percentage (must be > 0 and <= 100)")
+    activation: str = Field(..., description="Activation timestamp (ISO format)")
+    expiry: str = Field(..., description="Expiry timestamp (ISO format)")
+    status: CouponStatus = Field(..., description="Coupon status (ACTIVE or INACTIVE)")
+
+
+class UpdateCouponRequest(BaseModel):
+    """Request model for updating a coupon (PUT - all fields)."""
+    
+    code: Optional[str] = Field(default=None, min_length=1, max_length=30, description="Coupon code (max 30 characters)")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Coupon name (max 100 characters)")
+    description: Optional[str] = Field(default=None, min_length=1, max_length=1024, description="Coupon description (max 1024 characters)")
+    discount: Optional[float] = Field(default=None, gt=0, le=100, description="Discount percentage (must be > 0 and <= 100)")
+    activation: Optional[str] = Field(default=None, description="Activation timestamp (ISO format)")
+    expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
+    status: Optional[CouponStatus] = Field(default=None, description="Coupon status (ACTIVE or INACTIVE)")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether the coupon is highlighted")
+
+
+class CouponResponse(BaseModel):
+    """Response model for a coupon."""
+    
+    id: str = Field(..., description="Coupon ID (UUID)")
+    code: str = Field(..., description="Coupon code")
+    name: str = Field(..., description="Coupon name")
+    description: str = Field(..., description="Coupon description")
+    discount: float = Field(..., description="Discount percentage")
+    activation: str = Field(..., description="Activation timestamp (ISO format)")
+    expiry: str = Field(..., description="Expiry timestamp (ISO format)")
+    status: str = Field(..., description="Coupon status (ACTIVE or INACTIVE)")
+    is_highlighted: bool = Field(..., description="Whether the coupon is highlighted")
+    created_by: UserInfo = Field(..., description="User who created the coupon")
+    created_at: str = Field(..., description="ISO format timestamp when the coupon was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the coupon was last updated")
+
+
+class GetAllCouponsResponse(BaseModel):
+    """Response model for getting all coupons with pagination."""
+    
+    coupons: List[CouponResponse] = Field(..., description="List of coupons")
+    total: int = Field(..., description="Total number of coupons matching the filters")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more coupons to fetch")
+
+
+class GetActiveHighlightedCouponResponse(BaseModel):
+    """Response model for getting active highlighted coupon."""
+    
+    code: Optional[str] = Field(default=None, description="Response code: 'NO_ACTIVE_HIGHLIGHTED_COUPON' if no coupon found, otherwise None")
+    id: Optional[str] = Field(default=None, description="Coupon ID (UUID)")
+    coupon_code: Optional[str] = Field(default=None, description="Coupon code")
+    name: Optional[str] = Field(default=None, description="Coupon name")
+    description: Optional[str] = Field(default=None, description="Coupon description")
+    discount: Optional[float] = Field(default=None, description="Discount percentage")
+    activation: Optional[str] = Field(default=None, description="Activation timestamp (ISO format)")
+    expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
+    status: Optional[str] = Field(default=None, description="Coupon status (ACTIVE or INACTIVE)")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether the coupon is highlighted")

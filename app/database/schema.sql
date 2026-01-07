@@ -5,6 +5,7 @@
 CREATE TABLE IF NOT EXISTS user (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     role ENUM('ADMIN', 'SUPER_ADMIN') NULL,
+    settings JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -263,5 +264,50 @@ CREATE TABLE IF NOT EXISTS saved_image (
     INDEX idx_user_folder_created (user_id, folder_id, created_at),
     FOREIGN KEY (user_id) REFERENCES user(id),
     FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- PDF table
+CREATE TABLE IF NOT EXISTS pdf (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    file_name VARCHAR(255) NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_created_by (created_by),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- PDF HTML page table
+CREATE TABLE IF NOT EXISTS pdf_html_page (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    page_no INT NOT NULL,
+    pdf_id CHAR(36) NOT NULL,
+    html_content LONGTEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_page_no (page_no),
+    INDEX idx_pdf_id (pdf_id),
+    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Coupon table
+CREATE TABLE IF NOT EXISTS coupon (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    code VARCHAR(30) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(1024) NOT NULL,
+    discount FLOAT NOT NULL,
+    activation TIMESTAMP NOT NULL,
+    expiry TIMESTAMP NOT NULL,
+    status ENUM('ENABLED', 'DISABLED') NOT NULL,
+    is_highlighted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_code (code),
+    INDEX idx_activation_expiry (activation, expiry),
+    INDEX idx_is_highlighted_status (is_highlighted, status),
+    FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

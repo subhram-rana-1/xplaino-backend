@@ -13,6 +13,7 @@ import json
 
 from app.config import settings
 from app.services.in_memory_cache.cache_factory import get_in_memory_cache
+from app.models import DEFAULT_USER_SETTINGS
 
 logger = structlog.get_logger()
 
@@ -127,10 +128,10 @@ def get_or_create_user_by_google_sub(
             sub=sub
         )
         
-        # Create user record
+        # Create user record with default settings
         db.execute(
-            text("INSERT INTO user (id) VALUES (:user_id)"),
-            {"user_id": user_id}
+            text("INSERT INTO user (id, settings) VALUES (:user_id, :settings)"),
+            {"user_id": user_id, "settings": json.dumps(DEFAULT_USER_SETTINGS)}
         )
         db.flush()
         
@@ -4403,6 +4404,56 @@ def update_issue(
     return updated_issue
 
 
+def get_user_settings_by_user_id(
+    db: Session,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get user settings by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with settings JSON or None if user not found
+    """
+    logger.info(
+        "Getting user settings by user_id",
+        function="get_user_settings_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("SELECT settings FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "User not found",
+            function="get_user_settings_by_user_id",
+            user_id=user_id
+        )
+        return None
+    
+    settings_json = result[0]
+    
+    # Parse JSON if it's a string
+    if isinstance(settings_json, str):
+        settings_dict = json.loads(settings_json)
+    else:
+        settings_dict = settings_json
+    
+    logger.info(
+        "User settings retrieved successfully",
+        function="get_user_settings_by_user_id",
+        user_id=user_id
+    )
+    
+    return settings_dict
+
+
 def get_user_role_by_user_id(
     db: Session,
     user_id: str
@@ -6394,4 +6445,1108 @@ def delete_domain(
     )
     
     return True
+
+
+def create_pdf(
+    db: Session,
+    user_id: str,
+    file_name: str
+) -> Dict[str, Any]:
+    """
+    Create a new PDF record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        file_name: File name (max 255 characters)
+        
+    Returns:
+        Dictionary with created PDF data
+    """
+    logger.info(
+        "Creating PDF record",
+        function="create_pdf",
+        user_id=user_id,
+        file_name=file_name
+    )
+    
+    # Generate UUID for the new PDF
+    pdf_id = str(uuid.uuid4())
+    
+    # Insert the new PDF
+    db.execute(
+        text("""
+            INSERT INTO pdf (id, file_name, created_by)
+            VALUES (:id, :file_name, :created_by)
+        """),
+        {
+            "id": pdf_id,
+            "file_name": file_name,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, created_at, updated_at
+            FROM pdf
+            WHERE id = :id
+        """),
+        {"id": pdf_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created PDF",
+            function="create_pdf",
+            pdf_id=pdf_id
+        )
+        raise Exception("Failed to retrieve created PDF")
+    
+    pdf_id_val, file_name_val, created_by_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    pdf_data = {
+        "id": pdf_id_val,
+        "file_name": file_name_val,
+        "created_by": created_by_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created PDF record successfully",
+        function="create_pdf",
+        pdf_id=pdf_id_val,
+        user_id=user_id
+    )
+    
+    return pdf_data
+
+
+def create_pdf_html_page(
+    db: Session,
+    pdf_id: str,
+    page_no: int,
+    html_content: str
+) -> Dict[str, Any]:
+    """
+    Create a new PDF HTML page record.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        page_no: Page number (1-indexed)
+        html_content: HTML content for the page (LONGTEXT)
+        
+    Returns:
+        Dictionary with created PDF HTML page data
+    """
+    logger.info(
+        "Creating PDF HTML page record",
+        function="create_pdf_html_page",
+        pdf_id=pdf_id,
+        page_no=page_no,
+        html_content_length=len(html_content)
+    )
+    
+    # Generate UUID for the new PDF HTML page
+    page_id = str(uuid.uuid4())
+    
+    # Insert the new PDF HTML page
+    db.execute(
+        text("""
+            INSERT INTO pdf_html_page (id, page_no, pdf_id, html_content)
+            VALUES (:id, :page_no, :pdf_id, :html_content)
+        """),
+        {
+            "id": page_id,
+            "page_no": page_no,
+            "pdf_id": pdf_id,
+            "html_content": html_content
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
+            FROM pdf_html_page
+            WHERE id = :id
+        """),
+        {"id": page_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created PDF HTML page",
+            function="create_pdf_html_page",
+            page_id=page_id
+        )
+        raise Exception("Failed to retrieve created PDF HTML page")
+    
+    page_id_val, page_no_val, pdf_id_val, html_content_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    page_data = {
+        "id": page_id_val,
+        "page_no": page_no_val,
+        "pdf_id": pdf_id_val,
+        "html_content": html_content_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created PDF HTML page record successfully",
+        function="create_pdf_html_page",
+        page_id=page_id_val,
+        pdf_id=pdf_id_val,
+        page_no=page_no_val
+    )
+    
+    return page_data
+
+
+def get_pdfs_by_user_id(
+    db: Session,
+    user_id: str
+) -> List[Dict[str, Any]]:
+    """
+    Get all PDF records for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        List of PDF dictionaries
+    """
+    logger.info(
+        "Getting PDFs by user_id",
+        function="get_pdfs_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, created_at, updated_at
+            FROM pdf
+            WHERE created_by = :user_id
+            ORDER BY created_at DESC
+        """),
+        {"user_id": user_id}
+    )
+    rows = result.fetchall()
+    
+    pdfs = []
+    for row in rows:
+        pdf_id, file_name, created_by, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        pdfs.append({
+            "id": pdf_id,
+            "file_name": file_name,
+            "created_by": created_by,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved PDFs successfully",
+        function="get_pdfs_by_user_id",
+        user_id=user_id,
+        pdf_count=len(pdfs)
+    )
+    
+    return pdfs
+
+
+def get_pdf_by_id_and_user_id(
+    db: Session,
+    pdf_id: str,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a PDF by ID and verify it belongs to the user.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with PDF data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Getting PDF by id and user_id",
+        function="get_pdf_by_id_and_user_id",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, created_at, updated_at
+            FROM pdf
+            WHERE id = :pdf_id AND created_by = :user_id
+        """),
+        {
+            "pdf_id": pdf_id,
+            "user_id": user_id
+        }
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "PDF not found or doesn't belong to user",
+            function="get_pdf_by_id_and_user_id",
+            pdf_id=pdf_id,
+            user_id=user_id
+        )
+        return None
+    
+    pdf_id_val, file_name, created_by, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    pdf_data = {
+        "id": pdf_id_val,
+        "file_name": file_name,
+        "created_by": created_by,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved PDF successfully",
+        function="get_pdf_by_id_and_user_id",
+        pdf_id=pdf_id_val,
+        user_id=user_id
+    )
+    
+    return pdf_data
+
+
+def get_pdf_html_pages_by_pdf_id(
+    db: Session,
+    pdf_id: str,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get PDF HTML pages for a PDF with pagination, ordered by page_no ASC.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of page dictionaries, total count)
+    """
+    logger.info(
+        "Getting PDF HTML pages by pdf_id",
+        function="get_pdf_html_pages_by_pdf_id",
+        pdf_id=pdf_id,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Get total count
+    count_result = db.execute(
+        text("SELECT COUNT(*) FROM pdf_html_page WHERE pdf_id = :pdf_id"),
+        {"pdf_id": pdf_id}
+    ).fetchone()
+    
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated pages
+    pages_result = db.execute(
+        text("""
+            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
+            FROM pdf_html_page
+            WHERE pdf_id = :pdf_id
+            ORDER BY page_no ASC
+            LIMIT :limit OFFSET :offset
+        """),
+        {
+            "pdf_id": pdf_id,
+            "limit": limit,
+            "offset": offset
+        }
+    )
+    rows = pages_result.fetchall()
+    
+    pages = []
+    for row in rows:
+        page_id, page_no, pdf_id_val, html_content, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        pages.append({
+            "id": page_id,
+            "page_no": page_no,
+            "pdf_id": pdf_id_val,
+            "html_content": html_content,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved PDF HTML pages successfully",
+        function="get_pdf_html_pages_by_pdf_id",
+        pdf_id=pdf_id,
+        pages_count=len(pages),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return pages, total_count
+
+
+def delete_pdf_by_id_and_user_id(
+    db: Session,
+    pdf_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a PDF by ID and verify it belongs to the user.
+    Due to ON DELETE CASCADE constraint, all related pdf_html_page records will be automatically deleted.
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        True if deleted, False if not found or doesn't belong to user
+    """
+    logger.info(
+        "Deleting PDF by id and user_id",
+        function="delete_pdf_by_id_and_user_id",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("""
+            DELETE FROM pdf
+            WHERE id = :pdf_id AND created_by = :user_id
+        """),
+        {
+            "pdf_id": pdf_id,
+            "user_id": user_id
+        }
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "PDF not found or doesn't belong to user",
+            function="delete_pdf_by_id_and_user_id",
+            pdf_id=pdf_id,
+            user_id=user_id
+        )
+        return False
+    
+    logger.info(
+        "Deleted PDF successfully",
+        function="delete_pdf_by_id_and_user_id",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+    
+    return True
+
+
+def create_coupon(
+    db: Session,
+    user_id: str,
+    code: str,
+    name: str,
+    description: str,
+    discount: float,
+    activation: datetime,
+    expiry: datetime,
+    status: str
+) -> Dict[str, Any]:
+    """
+    Create a new coupon record.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID) who is creating the coupon
+        code: Coupon code (VARCHAR(30))
+        name: Coupon name (VARCHAR(100))
+        description: Coupon description (VARCHAR(1024))
+        discount: Discount percentage (FLOAT, 0 < discount <= 100)
+        activation: Activation timestamp
+        expiry: Expiry timestamp
+        status: Coupon status (ENABLED or DISABLED)
+        
+    Returns:
+        Dictionary with created coupon data including user info
+    """
+    logger.info(
+        "Creating coupon",
+        function="create_coupon",
+        user_id=user_id,
+        code=code,
+        name=name,
+        discount=discount,
+        status=status
+    )
+    
+    # Generate UUID for the new coupon
+    coupon_id = str(uuid.uuid4())
+    
+    # Insert the new coupon (is_highlighted is always False for new records)
+    db.execute(
+        text("""
+            INSERT INTO coupon (id, code, name, description, discount, activation, expiry, status, is_highlighted, created_by)
+            VALUES (:id, :code, :name, :description, :discount, :activation, :expiry, :status, FALSE, :created_by)
+        """),
+        {
+            "id": coupon_id,
+            "code": code,
+            "name": name,
+            "description": description,
+            "discount": discount,
+            "activation": activation,
+            "expiry": expiry,
+            "status": status,
+            "created_by": user_id
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    return get_coupon_by_id(db, coupon_id)
+
+
+def get_coupon_by_id(
+    db: Session,
+    coupon_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Get coupon by ID with user info.
+    
+    Args:
+        db: Database session
+        coupon_id: Coupon ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with coupon data including created_by user info, or None if not found
+    """
+    logger.info(
+        "Getting coupon by ID",
+        function="get_coupon_by_id",
+        coupon_id=coupon_id
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, code, name, description, discount, activation, expiry, status, is_highlighted, created_by, created_at, updated_at
+            FROM coupon
+            WHERE id = :id
+        """),
+        {"id": coupon_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "Coupon not found",
+            function="get_coupon_by_id",
+            coupon_id=coupon_id
+        )
+        return None
+    
+    (coupon_id_val, code_val, name_val, description_val, discount_val,
+     activation_val, expiry_val, status_val, is_highlighted_val,
+     created_by_val, created_at, updated_at) = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(activation_val, datetime):
+        activation_str = activation_val.isoformat() + "Z" if activation_val.tzinfo else activation_val.isoformat()
+    else:
+        activation_str = str(activation_val)
+    
+    if isinstance(expiry_val, datetime):
+        expiry_str = expiry_val.isoformat() + "Z" if expiry_val.tzinfo else expiry_val.isoformat()
+    else:
+        expiry_str = str(expiry_val)
+    
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    # Get user info with email
+    user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+    
+    coupon = {
+        "id": coupon_id_val,
+        "code": code_val,
+        "name": name_val,
+        "description": description_val,
+        "discount": float(discount_val),
+        "activation": activation_str,
+        "expiry": expiry_str,
+        "status": status_val,
+        "is_highlighted": bool(is_highlighted_val),
+        "created_by": {
+            "id": created_by_val,
+            "name": user_info.get("name", ""),
+            "email": user_info.get("email"),
+            "role": user_info.get("role")
+        },
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Coupon retrieved successfully",
+        function="get_coupon_by_id",
+        coupon_id=coupon_id_val
+    )
+    
+    return coupon
+
+
+def get_all_coupons(
+    db: Session,
+    code: Optional[str] = None,
+    name: Optional[str] = None,
+    status: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    offset: int = 0,
+    limit: int = 20
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get all coupons with optional filters and pagination.
+    
+    Args:
+        db: Database session
+        code: Optional filter by exact coupon code
+        name: Optional filter by name (LIKE %name%)
+        status: Optional filter by status (ENABLED or DISABLED)
+        is_active: Optional filter - if True, only fetch coupons where expiry > current timestamp
+        offset: Pagination offset (default: 0)
+        limit: Pagination limit (default: 20)
+        
+    Returns:
+        Tuple of (list of coupon dictionaries, total count)
+    """
+    logger.info(
+        "Getting all coupons",
+        function="get_all_coupons",
+        code=code,
+        name=name,
+        status=status,
+        is_active=is_active,
+        offset=offset,
+        limit=limit
+    )
+    
+    # Build WHERE clause
+    where_conditions = []
+    params = {}
+    
+    if code:
+        where_conditions.append("code = :code")
+        params["code"] = code
+    
+    if name:
+        where_conditions.append("name LIKE :name")
+        params["name"] = f"%{name}%"
+    
+    if status:
+        where_conditions.append("status = :status")
+        params["status"] = status
+    
+    if is_active is True:
+        where_conditions.append("expiry > CURRENT_TIMESTAMP")
+    
+    where_clause = ""
+    if where_conditions:
+        where_clause = " WHERE " + " AND ".join(where_conditions)
+    
+    # Get total count
+    count_query = f"SELECT COUNT(*) FROM coupon{where_clause}"
+    count_result = db.execute(text(count_query), params).fetchone()
+    total_count = count_result[0] if count_result else 0
+    
+    # Build paginated query
+    base_query = f"""
+        SELECT id, code, name, description, discount, activation, expiry, status, is_highlighted, created_by, created_at, updated_at
+        FROM coupon{where_clause}
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+    """
+    
+    # Add pagination params
+    params["limit"] = limit
+    params["offset"] = offset
+    
+    result = db.execute(text(base_query), params)
+    rows = result.fetchall()
+    
+    coupons = []
+    for row in rows:
+        (coupon_id, code_val, name_val, description_val, discount_val,
+         activation_val, expiry_val, status_val, is_highlighted_val,
+         created_by_val, created_at, updated_at) = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(activation_val, datetime):
+            activation_str = activation_val.isoformat() + "Z" if activation_val.tzinfo else activation_val.isoformat()
+        else:
+            activation_str = str(activation_val)
+        
+        if isinstance(expiry_val, datetime):
+            expiry_str = expiry_val.isoformat() + "Z" if expiry_val.tzinfo else expiry_val.isoformat()
+        else:
+            expiry_str = str(expiry_val)
+        
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        # Get user info with email
+        user_info = get_user_info_with_email_by_user_id(db, created_by_val)
+        
+        coupon = {
+            "id": coupon_id,
+            "code": code_val,
+            "name": name_val,
+            "description": description_val,
+            "discount": float(discount_val),
+            "activation": activation_str,
+            "expiry": expiry_str,
+            "status": status_val,
+            "is_highlighted": bool(is_highlighted_val),
+            "created_by": {
+                "id": created_by_val,
+                "name": user_info.get("name", ""),
+                "email": user_info.get("email"),
+                "role": user_info.get("role")
+            },
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        }
+        coupons.append(coupon)
+    
+    logger.info(
+        "Retrieved all coupons successfully",
+        function="get_all_coupons",
+        coupon_count=len(coupons),
+        total_count=total_count,
+        offset=offset,
+        limit=limit
+    )
+    
+    return coupons, total_count
+
+
+def check_coupon_highlighted_intersection(
+    db: Session,
+    activation: datetime,
+    expiry: datetime,
+    exclude_coupon_id: Optional[str] = None
+) -> bool:
+    """
+    Check if a coupon's activation period intersects with other ENABLED highlighted coupons.
+    
+    Args:
+        db: Database session
+        activation: Coupon activation timestamp
+        expiry: Coupon expiry timestamp
+        exclude_coupon_id: Optional coupon ID to exclude from intersection check (for updates)
+        
+    Returns:
+        True if intersection exists, False otherwise
+    """
+    logger.info(
+        "Checking coupon highlighted intersection",
+        function="check_coupon_highlighted_intersection",
+        activation=activation.isoformat(),
+        expiry=expiry.isoformat(),
+        exclude_coupon_id=exclude_coupon_id
+    )
+    
+    # Build query for ENABLED highlighted coupons
+    query = """
+        SELECT id, activation, expiry
+        FROM coupon
+        WHERE status = 'ENABLED' AND is_highlighted = TRUE
+    """
+    params = {}
+    
+    if exclude_coupon_id:
+        query += " AND id != :exclude_coupon_id"
+        params["exclude_coupon_id"] = exclude_coupon_id
+    
+    result = db.execute(text(query), params)
+    rows = result.fetchall()
+    
+    # Ensure new timestamps are timezone aware
+    if activation.tzinfo is None:
+        activation = activation.replace(tzinfo=timezone.utc)
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    
+    # Check for intersection: (new_activation < existing_expiry) AND (new_expiry > existing_activation)
+    for row in rows:
+        existing_coupon_id, existing_activation, existing_expiry = row
+        
+        # Ensure timezone awareness
+        if isinstance(existing_activation, datetime):
+            if existing_activation.tzinfo is None:
+                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
+        else:
+            existing_activation = datetime.fromisoformat(str(existing_activation).replace('Z', '+00:00'))
+            if existing_activation.tzinfo is None:
+                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
+        
+        if isinstance(existing_expiry, datetime):
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
+        else:
+            existing_expiry = datetime.fromisoformat(str(existing_expiry).replace('Z', '+00:00'))
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
+        
+        # Check intersection
+        if (activation < existing_expiry) and (expiry > existing_activation):
+            logger.warning(
+                "Coupon highlighted intersection found",
+                function="check_coupon_highlighted_intersection",
+                existing_coupon_id=existing_coupon_id,
+                new_activation=activation.isoformat(),
+                new_expiry=expiry.isoformat(),
+                existing_activation=existing_activation.isoformat(),
+                existing_expiry=existing_expiry.isoformat()
+            )
+            return True
+    
+    logger.info(
+        "No coupon highlighted intersection found",
+        function="check_coupon_highlighted_intersection"
+    )
+    
+    return False
+
+
+def update_coupon(
+    db: Session,
+    coupon_id: str,
+    code: Optional[str] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    discount: Optional[float] = None,
+    activation: Optional[datetime] = None,
+    expiry: Optional[datetime] = None,
+    status: Optional[str] = None,
+    is_highlighted: Optional[bool] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a coupon record (PUT - all fields).
+    
+    Args:
+        db: Database session
+        coupon_id: Coupon ID (CHAR(36) UUID)
+        code: Optional coupon code
+        name: Optional coupon name
+        description: Optional coupon description
+        discount: Optional discount percentage
+        activation: Optional activation timestamp
+        expiry: Optional expiry timestamp
+        status: Optional coupon status
+        is_highlighted: Optional is_highlighted flag
+        
+    Returns:
+        Dictionary with updated coupon data including user info, or None if not found
+    """
+    logger.info(
+        "Updating coupon",
+        function="update_coupon",
+        coupon_id=coupon_id
+    )
+    
+    # Check if coupon exists
+    existing_coupon = get_coupon_by_id(db, coupon_id)
+    if not existing_coupon:
+        logger.warning(
+            "Coupon not found for update",
+            function="update_coupon",
+            coupon_id=coupon_id
+        )
+        return None
+    
+    # Determine final values (use provided or existing)
+    final_code = code if code is not None else existing_coupon["code"]
+    final_name = name if name is not None else existing_coupon["name"]
+    final_description = description if description is not None else existing_coupon["description"]
+    final_discount = discount if discount is not None else existing_coupon["discount"]
+    final_status = status if status is not None else existing_coupon["status"]
+    final_is_highlighted = is_highlighted if is_highlighted is not None else existing_coupon["is_highlighted"]
+    
+    # Parse timestamps
+    if activation is not None:
+        final_activation = activation
+    else:
+        final_activation = datetime.fromisoformat(existing_coupon["activation"].replace('Z', '+00:00'))
+        if final_activation.tzinfo is None:
+            final_activation = final_activation.replace(tzinfo=timezone.utc)
+    
+    if expiry is not None:
+        final_expiry = expiry
+    else:
+        final_expiry = datetime.fromisoformat(existing_coupon["expiry"].replace('Z', '+00:00'))
+        if final_expiry.tzinfo is None:
+            final_expiry = final_expiry.replace(tzinfo=timezone.utc)
+    
+    # Check intersection if status=ENABLED and is_highlighted=True
+    if final_status == "ENABLED" and final_is_highlighted is True:
+        has_intersection = check_coupon_highlighted_intersection(
+            db,
+            final_activation,
+            final_expiry,
+            exclude_coupon_id=coupon_id
+        )
+        if has_intersection:
+            logger.warning(
+                "Cannot update coupon: highlighted intersection detected",
+                function="update_coupon",
+                coupon_id=coupon_id
+            )
+            # Return a special indicator - the API will handle the error
+            return {"error": "HIGHLIGHTED_INTERSECTION"}
+    
+    # Update the coupon
+    db.execute(
+        text("""
+            UPDATE coupon
+            SET code = :code, name = :name, description = :description, discount = :discount,
+                activation = :activation, expiry = :expiry, status = :status, is_highlighted = :is_highlighted,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id
+        """),
+        {
+            "id": coupon_id,
+            "code": final_code,
+            "name": final_name,
+            "description": final_description,
+            "discount": final_discount,
+            "activation": final_activation,
+            "expiry": final_expiry,
+            "status": final_status,
+            "is_highlighted": final_is_highlighted
+        }
+    )
+    db.commit()
+    
+    # Fetch the updated record
+    logger.info(
+        "Coupon updated successfully",
+        function="update_coupon",
+        coupon_id=coupon_id
+    )
+    
+    return get_coupon_by_id(db, coupon_id)
+
+
+def delete_coupon(
+    db: Session,
+    coupon_id: str
+) -> bool:
+    """
+    Delete a coupon by ID.
+    
+    Args:
+        db: Database session
+        coupon_id: Coupon ID (CHAR(36) UUID)
+        
+    Returns:
+        True if deleted, False if not found
+    """
+    logger.info(
+        "Deleting coupon",
+        function="delete_coupon",
+        coupon_id=coupon_id
+    )
+    
+    result = db.execute(
+        text("DELETE FROM coupon WHERE id = :id"),
+        {"id": coupon_id}
+    )
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Coupon not found for deletion",
+            function="delete_coupon",
+            coupon_id=coupon_id
+        )
+        return False
+    
+    logger.info(
+        "Coupon deleted successfully",
+        function="delete_coupon",
+        coupon_id=coupon_id
+    )
+    
+    return True
+
+
+def get_active_highlighted_coupon(
+    db: Session
+) -> Optional[Dict[str, Any]]:
+    """
+    Get the currently active highlighted coupon.
+    If multiple exist, returns the one with highest discount (most recent if tie).
+    Logs a warning if multiple found.
+    
+    Args:
+        db: Database session
+        
+    Returns:
+        Dictionary with coupon data (excluding created_by, created_at, updated_at), or None if none found
+    """
+    logger.info(
+        "Getting active highlighted coupon",
+        function="get_active_highlighted_coupon"
+    )
+    
+    current_time = datetime.now(timezone.utc)
+    
+    # Get all ENABLED highlighted coupons that are currently active (activation <= now <= expiry)
+    result = db.execute(
+        text("""
+            SELECT id, code, name, description, discount, activation, expiry, status, is_highlighted
+            FROM coupon
+            WHERE status = 'ENABLED' 
+              AND is_highlighted = TRUE
+              AND activation <= :current_time
+              AND expiry >= :current_time
+            ORDER BY discount DESC, created_at DESC
+        """),
+        {"current_time": current_time}
+    )
+    rows = result.fetchall()
+    
+    if not rows:
+        logger.info(
+            "No active highlighted coupon found",
+            function="get_active_highlighted_coupon"
+        )
+        return None
+    
+    if len(rows) > 1:
+        logger.warning(
+            "Multiple active highlighted coupons found, returning highest discount (most recent if tie)",
+            function="get_active_highlighted_coupon",
+            count=len(rows)
+        )
+    
+    # Get the first row (highest discount, most recent if tie)
+    (coupon_id, code_val, name_val, description_val, discount_val,
+     activation_val, expiry_val, status_val, is_highlighted_val) = rows[0]
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(activation_val, datetime):
+        activation_str = activation_val.isoformat() + "Z" if activation_val.tzinfo else activation_val.isoformat()
+    else:
+        activation_str = str(activation_val)
+    
+    if isinstance(expiry_val, datetime):
+        expiry_str = expiry_val.isoformat() + "Z" if expiry_val.tzinfo else expiry_val.isoformat()
+    else:
+        expiry_str = str(expiry_val)
+    
+    coupon = {
+        "id": coupon_id,
+        "code": code_val,
+        "name": name_val,
+        "description": description_val,
+        "discount": float(discount_val),
+        "activation": activation_str,
+        "expiry": expiry_str,
+        "status": status_val,
+        "is_highlighted": bool(is_highlighted_val)
+    }
+    
+    logger.info(
+        "Retrieved active highlighted coupon successfully",
+        function="get_active_highlighted_coupon",
+        coupon_id=coupon_id,
+        discount=float(discount_val)
+    )
+    
+    return coupon
 
