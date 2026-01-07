@@ -290,3 +290,24 @@ CREATE TABLE IF NOT EXISTS pdf_html_page (
     FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Coupon table
+CREATE TABLE IF NOT EXISTS coupon (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    code VARCHAR(30) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(1024) NOT NULL,
+    discount FLOAT NOT NULL,
+    activation TIMESTAMP NOT NULL,
+    expiry TIMESTAMP NOT NULL,
+    status ENUM('ACTIVE', 'INACTIVE') NOT NULL,
+    is_highlighted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_code (code),
+    INDEX idx_activation_expiry (activation, expiry),
+    INDEX idx_is_highlighted_status (is_highlighted, status),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

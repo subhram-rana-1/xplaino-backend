@@ -965,3 +965,76 @@ class GetPdfHtmlPagesResponse(BaseModel):
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
     has_next: bool = Field(..., description="Whether there are more pages")
+
+
+class CouponStatus(str, Enum):
+    """Coupon status enum."""
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+class CreateCouponRequest(BaseModel):
+    """Request model for creating a coupon."""
+    
+    code: str = Field(..., min_length=1, max_length=30, description="Coupon code (max 30 characters)")
+    name: str = Field(..., min_length=1, max_length=100, description="Coupon name (max 100 characters)")
+    description: str = Field(..., min_length=1, max_length=1024, description="Coupon description (max 1024 characters)")
+    discount: float = Field(..., gt=0, le=100, description="Discount percentage (must be > 0 and <= 100)")
+    activation: str = Field(..., description="Activation timestamp (ISO format)")
+    expiry: str = Field(..., description="Expiry timestamp (ISO format)")
+    status: CouponStatus = Field(..., description="Coupon status (ACTIVE or INACTIVE)")
+
+
+class UpdateCouponRequest(BaseModel):
+    """Request model for updating a coupon (PUT - all fields)."""
+    
+    code: Optional[str] = Field(default=None, min_length=1, max_length=30, description="Coupon code (max 30 characters)")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Coupon name (max 100 characters)")
+    description: Optional[str] = Field(default=None, min_length=1, max_length=1024, description="Coupon description (max 1024 characters)")
+    discount: Optional[float] = Field(default=None, gt=0, le=100, description="Discount percentage (must be > 0 and <= 100)")
+    activation: Optional[str] = Field(default=None, description="Activation timestamp (ISO format)")
+    expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
+    status: Optional[CouponStatus] = Field(default=None, description="Coupon status (ACTIVE or INACTIVE)")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether the coupon is highlighted")
+
+
+class CouponResponse(BaseModel):
+    """Response model for a coupon."""
+    
+    id: str = Field(..., description="Coupon ID (UUID)")
+    code: str = Field(..., description="Coupon code")
+    name: str = Field(..., description="Coupon name")
+    description: str = Field(..., description="Coupon description")
+    discount: float = Field(..., description="Discount percentage")
+    activation: str = Field(..., description="Activation timestamp (ISO format)")
+    expiry: str = Field(..., description="Expiry timestamp (ISO format)")
+    status: str = Field(..., description="Coupon status (ACTIVE or INACTIVE)")
+    is_highlighted: bool = Field(..., description="Whether the coupon is highlighted")
+    created_by: UserInfo = Field(..., description="User who created the coupon")
+    created_at: str = Field(..., description="ISO format timestamp when the coupon was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the coupon was last updated")
+
+
+class GetAllCouponsResponse(BaseModel):
+    """Response model for getting all coupons with pagination."""
+    
+    coupons: List[CouponResponse] = Field(..., description="List of coupons")
+    total: int = Field(..., description="Total number of coupons matching the filters")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more coupons to fetch")
+
+
+class GetActiveHighlightedCouponResponse(BaseModel):
+    """Response model for getting active highlighted coupon."""
+    
+    code: Optional[str] = Field(default=None, description="Response code: 'NO_ACTIVE_HIGHLIGHTED_COUPON' if no coupon found, otherwise None")
+    id: Optional[str] = Field(default=None, description="Coupon ID (UUID)")
+    coupon_code: Optional[str] = Field(default=None, description="Coupon code")
+    name: Optional[str] = Field(default=None, description="Coupon name")
+    description: Optional[str] = Field(default=None, description="Coupon description")
+    discount: Optional[float] = Field(default=None, description="Discount percentage")
+    activation: Optional[str] = Field(default=None, description="Activation timestamp (ISO format)")
+    expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
+    status: Optional[str] = Field(default=None, description="Coupon status (ACTIVE or INACTIVE)")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether the coupon is highlighted")

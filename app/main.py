@@ -15,7 +15,7 @@ from app.exceptions import (
     general_exception_handler,
     http_exception_handler
 )
-from app.routes import v1_api, v2_api, health, auth_api, saved_words_api, saved_paragraph_api, saved_link_api, saved_image_api, issue_api, comment_api, pricing_api, domain_api, folder_api, user_settings_api, pdf_api
+from app.routes import v1_api, v2_api, health, auth_api, saved_words_api, saved_paragraph_api, saved_link_api, saved_image_api, issue_api, comment_api, pricing_api, domain_api, folder_api, user_settings_api, pdf_api, coupon_api
 from app.services.rate_limiter import rate_limiter
 
 # Configure structured logging
@@ -201,6 +201,7 @@ app.include_router(domain_api.router)
 app.include_router(folder_api.router)
 app.include_router(user_settings_api.router)
 app.include_router(pdf_api.router)
+app.include_router(coupon_api.router)
 
 
 @app.get("/metrics", include_in_schema=False)
