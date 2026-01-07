@@ -558,6 +558,20 @@ async def update_coupon_endpoint(
             }
         )
     
+    # Determine final status and is_highlighted values for validation
+    final_status = body.status.value if body.status is not None else existing_coupon["status"]
+    final_is_highlighted = body.is_highlighted if body.is_highlighted is not None else existing_coupon["is_highlighted"]
+    
+    # Validate: if status is DISABLED, is_highlighted cannot be True
+    if final_status == "DISABLED" and final_is_highlighted is True:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "COUPON_DISABLED_CANNOT_BE_HIGHLIGHTED",
+                "error_message": "Cannot set is_highlighted=True when status=DISABLED"
+            }
+        )
+    
     # Update coupon
     coupon_data = update_coupon(
         db,
