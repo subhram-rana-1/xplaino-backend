@@ -6936,7 +6936,7 @@ def create_coupon(
         discount: Discount percentage (FLOAT, 0 < discount <= 100)
         activation: Activation timestamp
         expiry: Expiry timestamp
-        status: Coupon status (ACTIVE or INACTIVE)
+        status: Coupon status (ENABLED or DISABLED)
         
     Returns:
         Dictionary with created coupon data including user info
@@ -7077,6 +7077,7 @@ def get_all_coupons(
     code: Optional[str] = None,
     name: Optional[str] = None,
     status: Optional[str] = None,
+    is_active: Optional[bool] = None,
     offset: int = 0,
     limit: int = 20
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -7087,7 +7088,8 @@ def get_all_coupons(
         db: Database session
         code: Optional filter by exact coupon code
         name: Optional filter by name (LIKE %name%)
-        status: Optional filter by status (ACTIVE or INACTIVE)
+        status: Optional filter by status (ENABLED or DISABLED)
+        is_active: Optional filter - if True, only fetch coupons where expiry > current timestamp
         offset: Pagination offset (default: 0)
         limit: Pagination limit (default: 20)
         
@@ -7100,6 +7102,7 @@ def get_all_coupons(
         code=code,
         name=name,
         status=status,
+        is_active=is_active,
         offset=offset,
         limit=limit
     )
@@ -7119,6 +7122,9 @@ def get_all_coupons(
     if status:
         where_conditions.append("status = :status")
         params["status"] = status
+    
+    if is_active is True:
+        where_conditions.append("expiry > CURRENT_TIMESTAMP")
     
     where_clause = ""
     if where_conditions:
@@ -7214,7 +7220,7 @@ def check_coupon_highlighted_intersection(
     exclude_coupon_id: Optional[str] = None
 ) -> bool:
     """
-    Check if a coupon's activation period intersects with other ACTIVE highlighted coupons.
+    Check if a coupon's activation period intersects with other ENABLED highlighted coupons.
     
     Args:
         db: Database session
@@ -7233,11 +7239,11 @@ def check_coupon_highlighted_intersection(
         exclude_coupon_id=exclude_coupon_id
     )
     
-    # Build query for ACTIVE highlighted coupons
+    # Build query for ENABLED highlighted coupons
     query = """
         SELECT id, activation, expiry
         FROM coupon
-        WHERE status = 'ACTIVE' AND is_highlighted = TRUE
+        WHERE status = 'ENABLED' AND is_highlighted = TRUE
     """
     params = {}
     
@@ -7365,8 +7371,8 @@ def update_coupon(
         if final_expiry.tzinfo is None:
             final_expiry = final_expiry.replace(tzinfo=timezone.utc)
     
-    # Check intersection if status=ACTIVE and is_highlighted=True
-    if final_status == "ACTIVE" and final_is_highlighted is True:
+    # Check intersection if status=ENABLED and is_highlighted=True
+    if final_status == "ENABLED" and final_is_highlighted is True:
         has_intersection = check_coupon_highlighted_intersection(
             db,
             final_activation,
@@ -7479,12 +7485,12 @@ def get_active_highlighted_coupon(
     
     current_time = datetime.now(timezone.utc)
     
-    # Get all ACTIVE highlighted coupons that are currently active (activation <= now <= expiry)
+    # Get all ENABLED highlighted coupons that are currently active (activation <= now <= expiry)
     result = db.execute(
         text("""
             SELECT id, code, name, description, discount, activation, expiry, status, is_highlighted
             FROM coupon
-            WHERE status = 'ACTIVE' 
+            WHERE status = 'ENABLED' 
               AND is_highlighted = TRUE
               AND activation <= :current_time
               AND expiry >= :current_time

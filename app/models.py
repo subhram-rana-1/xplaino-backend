@@ -969,8 +969,8 @@ class GetPdfHtmlPagesResponse(BaseModel):
 
 class CouponStatus(str, Enum):
     """Coupon status enum."""
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
+    ENABLED = "ENABLED"
+    DISABLED = "DISABLED"
 
 
 class CreateCouponRequest(BaseModel):

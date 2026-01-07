@@ -204,7 +204,8 @@ async def get_all_coupons_endpoint(
     response: Response,
     code: Optional[str] = Query(default=None, description="Filter by exact coupon code"),
     name: Optional[str] = Query(default=None, description="Filter by name (LIKE %name%)"),
-    status: Optional[str] = Query(default=None, description="Filter by status (ACTIVE or INACTIVE)"),
+    status: Optional[str] = Query(default=None, description="Filter by status (ENABLED or DISABLED)"),
+    is_active: Optional[bool] = Query(default=None, description="If true, only fetch coupons where expiry > current timestamp"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=20, ge=1, le=100, description="Pagination limit (max 100)"),
     auth_context: dict = Depends(authenticate),
@@ -262,6 +263,7 @@ async def get_all_coupons_endpoint(
         code=code,
         name=name,
         status=status,
+        is_active=is_active,
         offset=offset,
         limit=limit
     )
@@ -576,7 +578,7 @@ async def update_coupon_endpoint(
             status_code=422,
             detail={
                 "error_code": "COUPON_HIGHLIGHTED_INTERSECTION",
-                "error_message": "Cannot set status=ACTIVE and is_highlighted=True: another ACTIVE highlighted coupon has an intersecting activation period"
+                "error_message": "Cannot set status=ENABLED and is_highlighted=True: another ENABLED highlighted coupon has an intersecting activation period"
             }
         )
     
