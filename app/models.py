@@ -804,40 +804,34 @@ class Theme(str, Enum):
     DARK = "DARK"
 
 
-class LanguageSettings(BaseModel):
-    """Language settings model."""
-    
-    nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
-    pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
-
-
 class Settings(BaseModel):
     """User settings model."""
     
-    language: LanguageSettings = Field(..., description="Language settings")
+    nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
+    pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
 
 
 class UpdateSettingsRequest(BaseModel):
     """Request model for updating user settings (PATCH)."""
     
-    language: LanguageSettings = Field(..., description="Language settings")
+    nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
+    pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
 
 
 class SettingsResponse(BaseModel):
     """Response model for user settings."""
     
-    language: LanguageSettings = Field(..., description="Language settings")
+    nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
+    pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
 
 
 # Default user settings constant
 DEFAULT_USER_SETTINGS = {
-    "language": {
-        "nativeLanguage": None,
-        "pageTranslationView": "REPLACE"
-    },
+    "nativeLanguage": None,
+    "pageTranslationView": "REPLACE",
     "theme": "LIGHT"
 }
 

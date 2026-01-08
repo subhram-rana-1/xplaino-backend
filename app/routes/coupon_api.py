@@ -316,6 +316,49 @@ async def get_all_coupons_endpoint(
 
 
 @router.get(
+    "/active-highlighted",
+    response_model=GetActiveHighlightedCouponResponse,
+    summary="Get current highlighted coupon",
+    description="Get the currently active highlighted coupon. No authentication required."
+)
+async def get_active_highlighted_coupon_endpoint(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    """Get the currently active highlighted coupon."""
+    coupon_data = get_active_highlighted_coupon(db)
+    
+    if not coupon_data:
+        logger.info(
+            "No active highlighted coupon found",
+            function="get_active_highlighted_coupon_endpoint"
+        )
+        return GetActiveHighlightedCouponResponse(
+            code="NO_ACTIVE_HIGHLIGHTED_COUPON"
+        )
+    
+    logger.info(
+        "Retrieved active highlighted coupon successfully",
+        coupon_id=coupon_data["id"],
+        discount=coupon_data["discount"]
+    )
+    
+    return GetActiveHighlightedCouponResponse(
+        code=None,
+        id=coupon_data["id"],
+        coupon_code=coupon_data["code"],
+        name=coupon_data["name"],
+        description=coupon_data["description"],
+        discount=coupon_data["discount"],
+        activation=coupon_data["activation"],
+        expiry=coupon_data["expiry"],
+        status=coupon_data["status"],
+        is_highlighted=coupon_data["is_highlighted"]
+    )
+
+
+@router.get(
     "/{coupon_id}",
     response_model=CouponResponse,
     summary="Get coupon by ID",
@@ -721,46 +764,3 @@ async def delete_coupon_endpoint(
     )
     
     return {"message": "Coupon deleted successfully"}
-
-
-@router.get(
-    "/active-highlighted",
-    response_model=GetActiveHighlightedCouponResponse,
-    summary="Get current highlighted coupon",
-    description="Get the currently active highlighted coupon. No authentication required."
-)
-async def get_active_highlighted_coupon_endpoint(
-    request: Request,
-    response: Response,
-    db: Session = Depends(get_db)
-):
-    """Get the currently active highlighted coupon."""
-    coupon_data = get_active_highlighted_coupon(db)
-    
-    if not coupon_data:
-        logger.info(
-            "No active highlighted coupon found",
-            function="get_active_highlighted_coupon_endpoint"
-        )
-        return GetActiveHighlightedCouponResponse(
-            code="NO_ACTIVE_HIGHLIGHTED_COUPON"
-        )
-    
-    logger.info(
-        "Retrieved active highlighted coupon successfully",
-        coupon_id=coupon_data["id"],
-        discount=coupon_data["discount"]
-    )
-    
-    return GetActiveHighlightedCouponResponse(
-        code=None,
-        id=coupon_data["id"],
-        coupon_code=coupon_data["code"],
-        name=coupon_data["name"],
-        description=coupon_data["description"],
-        discount=coupon_data["discount"],
-        activation=coupon_data["activation"],
-        expiry=coupon_data["expiry"],
-        status=coupon_data["status"],
-        is_highlighted=coupon_data["is_highlighted"]
-    )

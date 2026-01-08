@@ -7562,8 +7562,7 @@ def get_active_highlighted_coupon(
         function="get_active_highlighted_coupon"
     )
     
-    current_time = datetime.now(timezone.utc)
-    
+    # Use MariaDB's NOW() function instead of Python datetime to avoid timezone issues
     # Get all ENABLED highlighted coupons that are currently active (activation <= now <= expiry)
     result = db.execute(
         text("""
@@ -7571,11 +7570,10 @@ def get_active_highlighted_coupon(
             FROM coupon
             WHERE status = 'ENABLED' 
               AND is_highlighted = TRUE
-              AND activation <= :current_time
-              AND expiry >= :current_time
+              AND activation <= NOW()
+              AND expiry >= NOW()
             ORDER BY discount DESC, created_at DESC
-        """),
-        {"current_time": current_time}
+        """)
     )
     rows = result.fetchall()
     
