@@ -2040,6 +2040,85 @@ def get_saved_paragraph_by_id_and_user_id(
     return saved_paragraph
 
 
+def get_saved_paragraphs_by_ids_and_user_id(
+    db: Session,
+    paragraph_ids: List[str],
+    user_id: str
+) -> List[Dict[str, Any]]:
+    """
+    Get multiple saved paragraphs by IDs and verify they all belong to the user.
+    
+    Args:
+        db: Database session
+        paragraph_ids: List of saved paragraph IDs (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        List of dictionaries with saved paragraph data. Only returns paragraphs that belong to the user.
+        If some IDs don't belong to the user or don't exist, they are silently excluded.
+    """
+    logger.info(
+        "Getting saved paragraphs by ids and user_id",
+        function="get_saved_paragraphs_by_ids_and_user_id",
+        paragraph_ids=paragraph_ids,
+        user_id=user_id,
+        ids_count=len(paragraph_ids)
+    )
+    
+    if not paragraph_ids:
+        return []
+    
+    # Build query with IN clause
+    placeholders = ",".join([f":id_{i}" for i in range(len(paragraph_ids))])
+    params = {f"id_{i}": para_id for i, para_id in enumerate(paragraph_ids)}
+    params["user_id"] = user_id
+    
+    result = db.execute(
+        text(f"""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id IN ({placeholders}) AND user_id = :user_id
+        """),
+        params
+    ).fetchall()
+    
+    paragraphs = []
+    for row in result:
+        para_id, source_url, name, content, folder_id, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        paragraphs.append({
+            "id": para_id,
+            "source_url": source_url,
+            "name": name,
+            "content": content,
+            "folder_id": folder_id,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved paragraphs successfully",
+        function="get_saved_paragraphs_by_ids_and_user_id",
+        requested_count=len(paragraph_ids),
+        retrieved_count=len(paragraphs),
+        user_id=user_id
+    )
+    
+    return paragraphs
+
+
 def update_saved_paragraph_folder_id(
     db: Session,
     paragraph_id: str,

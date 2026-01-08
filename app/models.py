@@ -1038,3 +1038,33 @@ class GetActiveHighlightedCouponResponse(BaseModel):
     expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
     status: Optional[str] = Field(default=None, description="Coupon status (ACTIVE or INACTIVE)")
     is_highlighted: Optional[bool] = Field(default=None, description="Whether the coupon is highlighted")
+
+
+class ChatMessage(BaseModel):
+    """Model for chat message in ask API."""
+    
+    role: str = Field(..., description="Role of the message sender (user/assistant)")
+    content: str = Field(..., description="Content of the message")
+
+
+class UserQuestionType(str, Enum):
+    """User question type enum for ask-ai endpoint."""
+    SHORT_SUMMARY = "SHORT_SUMMARY"
+    DESCRIPTIVE_NOTE = "DESCRIPTIVE_NOTE"
+    CUSTOM = "CUSTOM"
+
+
+class AskSavedParagraphsRequest(BaseModel):
+    """Request model for asking AI about saved paragraphs."""
+    
+    initialContext: List[str] = Field(..., min_items=1, description="Array of strings containing the context/content to analyze")
+    chatHistory: List[ChatMessage] = Field(default=[], description="Previous chat history for context (can be empty)")
+    userQuestionType: UserQuestionType = Field(..., description="Type of question: SHORT_SUMMARY, DESCRIPTIVE_NOTE, or CUSTOM")
+    userQuestion: Optional[str] = Field(default=None, description="Custom user question (required when userQuestionType is CUSTOM, must have length > 0)")
+    languageCode: Optional[str] = Field(default=None, max_length=10, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected.")
+
+
+class AskSavedParagraphsResponse(BaseModel):
+    """Response model for ask-ai endpoint."""
+    
+    answer: str = Field(..., description="AI-generated answer")

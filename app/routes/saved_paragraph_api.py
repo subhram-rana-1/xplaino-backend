@@ -1,10 +1,11 @@
 """API routes for saved paragraphs management."""
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query
-from fastapi.responses import Response as FastAPIResponse
+from fastapi.responses import Response as FastAPIResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 import structlog
+import json
 
 from app.models import (
     SaveParagraphRequest,
@@ -12,7 +13,11 @@ from app.models import (
     GetAllSavedParagraphResponse,
     FolderResponse,
     CreateParagraphFolderRequest,
-    MoveSavedParagraphToFolderRequest
+    MoveSavedParagraphToFolderRequest,
+    AskSavedParagraphsRequest,
+    AskSavedParagraphsResponse,
+    UserQuestionType,
+    ChatMessage
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
@@ -28,6 +33,8 @@ from app.services.database_service import (
     get_saved_paragraph_by_id_and_user_id,
     update_saved_paragraph_folder_id
 )
+from app.services.llm.open_ai import openai_service
+from app.prompts.prompt import SHORT_SUMMARY_PROMPT, DESCRIPTIVE_NOTE_PROMPT
 
 logger = structlog.get_logger()
 
@@ -643,4 +650,175 @@ async def delete_paragraph_folder(
     )
     
     return FastAPIResponse(status_code=204)
+
+
+@router.post(
+    "/ask-ai",
+    summary="Ask AI about content",
+    description="Ask questions about provided content with chat history context. Returns streaming word-by-word response via Server-Sent Events. Supports SHORT_SUMMARY, DESCRIPTIVE_NOTE, or CUSTOM question types. Content is provided via initialContext array. Optional languageCode parameter forces response in specific language."
+)
+async def ask_ai_saved_paragraphs(
+    request: Request,
+    response: Response,
+    body: AskSavedParagraphsRequest,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Ask AI about provided content with streaming response."""
+    # Verify user is authenticated
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "LOGIN_REQUIRED",
+                "error_message": "Authentication required"
+            }
+        )
+    
+    # Get user_id from auth_context
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_001",
+                "error_message": "Invalid session data"
+            }
+        )
+    
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_002",
+                "error_message": "Missing auth vendor ID"
+            }
+        )
+    
+    # Get user_id from auth_vendor_id
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "AUTH_003",
+                "error_message": "User not found"
+            }
+        )
+    
+    # Validate userQuestion when userQuestionType is CUSTOM
+    if body.userQuestionType == UserQuestionType.CUSTOM:
+        if not body.userQuestion or len(body.userQuestion.strip()) == 0:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "VAL_001",
+                    "error_message": "userQuestion is required and must have length > 0 when userQuestionType is CUSTOM"
+                }
+            )
+    
+    # Validate initialContext is not empty
+    if not body.initialContext or len(body.initialContext) == 0:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VAL_002",
+                "error_message": "initialContext must contain at least one string"
+            }
+        )
+    
+    # Build initial context by concatenating the strings from initialContext array
+    initial_context = "\n\n---\n\n".join(body.initialContext)
+    
+    # Determine the question based on userQuestionType
+    if body.userQuestionType == UserQuestionType.SHORT_SUMMARY:
+        question = SHORT_SUMMARY_PROMPT
+    elif body.userQuestionType == UserQuestionType.DESCRIPTIVE_NOTE:
+        question = DESCRIPTIVE_NOTE_PROMPT
+    else:  # CUSTOM
+        question = body.userQuestion
+    
+    async def generate_streaming_answer():
+        """Generate SSE stream of answer chunks."""
+        accumulated_answer = ""
+        try:
+            # Convert chat history to list format expected by OpenAI service
+            chat_history_list = []
+            for msg in body.chatHistory:
+                if isinstance(msg, ChatMessage):
+                    chat_history_list.append(msg)
+                elif isinstance(msg, dict):
+                    chat_history_list.append(ChatMessage(role=msg.get("role", "user"), content=msg.get("content", "")))
+            
+            # Stream answer chunks from OpenAI
+            async for chunk in openai_service.generate_contextual_answer_stream(
+                question,
+                chat_history_list,
+                initial_context,
+                body.languageCode,  # language_code
+                "TEXT"  # context_type
+            ):
+                accumulated_answer += chunk
+
+                # Send each chunk as it arrives
+                chunk_data = {
+                    "chunk": chunk,
+                    "accumulated": accumulated_answer
+                }
+                event_data = f"data: {json.dumps(chunk_data)}\n\n"
+                yield event_data
+
+            # Send final response with complete answer
+            final_data = {
+                "type": "complete",
+                "answer": accumulated_answer
+            }
+            event_data = f"data: {json.dumps(final_data)}\n\n"
+            yield event_data
+
+            # Send final completion event
+            yield "data: [DONE]\n\n"
+
+            logger.info(
+                "Successfully streamed AI answer for saved paragraphs",
+                user_id=user_id,
+                question_type=body.userQuestionType.value,
+                initial_context_count=len(body.initialContext),
+                answer_length=len(accumulated_answer),
+                chat_history_length=len(body.chatHistory),
+                language_code=body.languageCode
+            )
+
+        except Exception as e:
+            logger.error("Error in ask-ai stream", error=str(e), user_id=user_id)
+            error_event = {
+                "type": "error",
+                "error_code": "STREAM_001",
+                "error_message": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+
+    logger.info(
+        "Starting ask-ai stream",
+        user_id=user_id,
+        question_type=body.userQuestionType.value,
+        initial_context_count=len(body.initialContext),
+        chat_history_length=len(body.chatHistory),
+        language_code=body.languageCode
+    )
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"  # Disable nginx buffering
+    }
+    if auth_context.get("is_new_unauthenticated_user"):
+        headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+
+    return StreamingResponse(
+        generate_streaming_answer(),
+        media_type="text/event-stream",
+        headers=headers
+    )
 
