@@ -147,7 +147,7 @@ class OpenAIService:
 
             # Simple test call to verify connection
             response = await self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": "Hello"}],
                 max_tokens=5,
                 temperature=0
@@ -705,8 +705,6 @@ class OpenAIService:
                 return response
 
             except Exception as api_error:
-                print(f'api_error -----------> {api_error}')
-
                 error_type = type(api_error).__name__
                 error_msg = str(api_error)
 

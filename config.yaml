@@ -10,8 +10,8 @@ server:
 openai:
 #  gpt4_turbo_model: "gpt-4-turbo-2024-04-09"
 #  gpt4o_model: "gpt-4o"
-  gpt4_turbo_model: "gpt-4-turbo-2024-04-09"
-  gpt4o_model: "gpt-4"
+  gpt4_turbo_model: "gpt-4o-mini"
+  gpt4o_model: "gpt-4o-mini"
   max_tokens: 2000
   temperature: 0.7
 
