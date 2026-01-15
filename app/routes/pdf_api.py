@@ -147,8 +147,8 @@ async def convert_pdf_to_html_endpoint(
         )
 
     try:
-        # Convert PDF to HTML
-        html_pages = pdf_service.convert_pdf_to_html(file_data)
+        # Convert PDF to HTML using GPT-4 Vision
+        html_pages = await pdf_service.convert_pdf_to_html(file_data)
         
         if not html_pages:
             raise HTTPException(

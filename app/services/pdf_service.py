@@ -7,6 +7,7 @@ from typing import Tuple, List
 import PyPDF2
 import pdfplumber
 from pdf2markdown4llm import PDF2Markdown4LLM
+from pdf2image import convert_from_bytes
 import structlog
 
 from app.config import settings
@@ -319,9 +320,13 @@ class PdfService:
         
         return '\n'.join(fixed_lines)
     
-    def convert_pdf_to_html(self, pdf_data: bytes) -> List[str]:
+    async def convert_pdf_to_html(self, pdf_data: bytes) -> List[str]:
         """
-        Convert PDF to HTML with structured text content, tables, and images.
+        Convert PDF to HTML using GPT-4 Vision for accurate layout preservation.
+        
+        This method converts each PDF page to an image using pdf2image, then
+        sends each image to GPT-4 Vision to generate HTML that accurately
+        replicates the original PDF layout.
         
         Args:
             pdf_data: PDF file data as bytes
@@ -329,75 +334,133 @@ class PdfService:
         Returns:
             List of HTML strings, one per page
         """
+        # Import OpenAI service here to avoid circular imports
+        from app.services.llm.open_ai import OpenAIService
+        
         try:
-            import base64
-            import html as html_escape
+            logger.info("Starting PDF to HTML conversion using GPT-4 Vision")
             
-            logger.info("Starting PDF to HTML conversion using pdfplumber")
-            
-            # Create a temporary file to store the PDF data
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-                temp_file.write(pdf_data)
-                temp_file_path = temp_file.name
-            
+            # Convert PDF pages to images using pdf2image
+            # Using DPI of 200 for good balance of quality and performance
+            # PNG format for lossless quality
             try:
-                html_pages = []
-                
-                with pdfplumber.open(temp_file_path) as pdf:
-                    for page_num, page in enumerate(pdf.pages):
-                        # Extract different content types
-                        text_blocks_html = self._extract_text_blocks(page)
-                        tables_html = self._extract_tables_as_html(page)
-                        images_html = self._extract_images_as_html(page, temp_file_path, page_num)
-                        
-                        # Combine all content in order (text, tables, images)
-                        page_content = []
-                        if text_blocks_html:
-                            page_content.extend(text_blocks_html)
-                        if tables_html:
-                            page_content.extend(tables_html)
-                        if images_html:
-                            page_content.extend(images_html)
-                        
-                        # If no content found, add a placeholder
-                        if not page_content:
-                            page_content = ["<p>No readable content found on this page.</p>"]
-                        
-                        # Create complete HTML document
-                        html_content = self._create_html_document(
-                            page_num + 1,
-                            "\n".join(page_content)
-                        )
-                        
-                        html_pages.append(html_content)
-                        
-                        logger.debug(
-                            "Converted PDF page to HTML",
-                            page_num=page_num + 1,
-                            html_size=len(html_content),
-                            text_blocks=len(text_blocks_html),
-                            tables=len(tables_html),
-                            images=len(images_html)
-                        )
-                
-                logger.info(
-                    "Successfully converted PDF to HTML",
-                    total_pages=len(html_pages),
-                    total_html_size=sum(len(html) for html in html_pages)
+                images = convert_from_bytes(
+                    pdf_data,
+                    dpi=200,
+                    fmt='png',
+                    thread_count=2  # Limit threads for memory efficiency
                 )
-                
-                return html_pages
-                
-            finally:
-                # Clean up temporary file
+            except Exception as e:
+                logger.error("Failed to convert PDF to images", error=str(e))
+                raise PdfProcessingError(f"Failed to convert PDF pages to images: {str(e)}")
+            
+            if not images:
+                raise PdfProcessingError("PDF contains no pages or could not be converted to images")
+            
+            total_pages = len(images)
+            logger.info(f"Converted PDF to {total_pages} images, processing with GPT-4 Vision")
+            
+            # Initialize OpenAI service
+            openai_service = OpenAIService()
+            
+            html_pages = []
+            
+            # Process each page image through GPT-4 Vision
+            for page_num, image in enumerate(images, start=1):
                 try:
-                    os.unlink(temp_file_path)
-                except OSError:
-                    logger.warning(f"Failed to delete temporary file: {temp_file_path}")
+                    # Convert PIL Image to PNG bytes
+                    img_buffer = io.BytesIO()
+                    image.save(img_buffer, format='PNG', optimize=True)
+                    img_bytes = img_buffer.getvalue()
+                    
+                    logger.debug(
+                        "Processing page with GPT-4 Vision",
+                        page_num=page_num,
+                        total_pages=total_pages,
+                        image_size_kb=len(img_bytes) / 1024
+                    )
+                    
+                    # Call OpenAI Vision API to generate HTML
+                    html_content = await openai_service.convert_image_to_html(
+                        image_data=img_bytes,
+                        image_format="png"
+                    )
+                    
+                    html_pages.append(html_content)
+                    
+                    logger.debug(
+                        "Successfully converted page to HTML",
+                        page_num=page_num,
+                        html_size=len(html_content)
+                    )
+                    
+                except Exception as e:
+                    logger.error(
+                        "Failed to convert page to HTML",
+                        page_num=page_num,
+                        error=str(e)
+                    )
+                    # Add fallback HTML for failed pages
+                    fallback_html = self._create_fallback_html(page_num, str(e))
+                    html_pages.append(fallback_html)
+            
+            logger.info(
+                "Successfully converted PDF to HTML using GPT-4 Vision",
+                total_pages=total_pages,
+                total_html_size=sum(len(html) for html in html_pages)
+            )
+            
+            return html_pages
                 
+        except PdfProcessingError:
+            raise
         except Exception as e:
             logger.error("PDF to HTML conversion failed", error=str(e))
             raise PdfProcessingError(f"Failed to convert PDF to HTML: {str(e)}")
+    
+    def _create_fallback_html(self, page_num: int, error_message: str) -> str:
+        """Create fallback HTML when page conversion fails."""
+        import html as html_escape
+        escaped_error = html_escape.escape(error_message)
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page {page_num}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            color: #333;
+        }}
+        .error-container {{
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }}
+        .error-title {{
+            color: #856404;
+            margin: 0 0 10px 0;
+        }}
+        .error-message {{
+            color: #666;
+            font-size: 14px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h2 class="error-title">Page {page_num} - Conversion Error</h2>
+        <p class="error-message">Unable to convert this page to HTML. Error: {escaped_error}</p>
+    </div>
+</body>
+</html>"""
     
     def _create_html_document(self, page_num: int, body_content: str) -> str:
         """Create a complete HTML document with proper structure and styling."""

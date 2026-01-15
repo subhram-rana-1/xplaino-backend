@@ -222,6 +222,158 @@ class OpenAIService:
                 raise
             raise LLMServiceError(f"Failed to process image: {str(e)}")
 
+    async def convert_image_to_html(self, image_data: bytes, image_format: str = "png") -> str:
+        """Convert a PDF page image to HTML using GPT-4 Vision.
+        
+        This method takes an image of a PDF page and generates accurate HTML
+        that preserves the original layout, formatting, and structure.
+        
+        Args:
+            image_data: Image bytes of the PDF page
+            image_format: Image format (default: png)
+            
+        Returns:
+            Complete HTML document string with embedded CSS
+        """
+        try:
+            # Convert image to base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+
+            # Optimized prompt for PDF to HTML conversion
+            prompt = """You are a highly skilled assistant who converts PDF page images into accurate HTML. Your goal is to closely replicate the layout of the source document.
+
+INSTRUCTIONS:
+
+1. OUTPUT FORMAT
+   - Generate a complete HTML document: <!DOCTYPE html><html><head>...</head><body>...</body></html>
+   - Include CSS in a <style> block to match fonts, sizes, margins, spacing, and layout
+   - Do NOT include any explanations or markdown code blocks - output ONLY the raw HTML
+
+2. STRUCTURE & ELEMENTS
+   - Use semantic HTML elements appropriately:
+     * <h1> to <h6> for headings based on visual hierarchy (size, boldness)
+     * <p> for paragraphs
+     * <strong> for bold text, <em> for italic text
+     * <ul>/<ol> with <li> for lists
+     * <table>, <thead>, <tbody>, <tr>, <th>, <td> for tables with proper borders
+   - Preserve the visual hierarchy: larger/bolder text = higher heading level
+
+3. LAYOUT REPLICATION
+   - If the page has multiple columns, use CSS flexbox or grid to replicate
+   - Maintain proper spacing between elements (margins, padding)
+   - Align text appropriately (left, center, right, justified)
+   - Preserve indentation for nested content
+
+4. TEXT & FORMATTING
+   - Extract ALL text accurately, maintaining reading order
+   - Preserve bold, italic, underline formatting
+   - Keep font size relationships (headings larger than body text)
+   - Maintain text colors if visually distinct
+
+5. TABLES
+   - Replicate table structure with proper rows and columns
+   - Include borders and cell alignment
+   - Use <th> for header cells, <td> for data cells
+
+6. QUALITY RULES
+   - If text is unclear or illegible, use [UNREADABLE_TEXT] placeholder
+   - Maintain the visual relationship between images and captions
+   - Preserve footnotes and references at the bottom
+
+7. CSS STYLING
+   - Use a clean, readable base font: font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif
+   - Set appropriate line-height (1.5-1.6 for body text)
+   - Use max-width container for readability
+   - Include responsive adjustments
+
+Convert the attached PDF page image into HTML with the layout preserved. Output ONLY the HTML document, no explanations."""
+
+            # Prepare the message with image
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{image_format};base64,{base64_image}",
+                                "detail": "high"
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            # Use GPT-4o for best vision capabilities
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=messages,
+                max_tokens=4096,  # Higher token limit for complete HTML output
+                temperature=0.2  # Lower temperature for more consistent output
+            )
+
+            html_content = response.choices[0].message.content.strip()
+
+            # Clean up the response - remove markdown code blocks if present
+            if html_content.startswith("```html"):
+                html_content = html_content[7:]
+            elif html_content.startswith("```"):
+                html_content = html_content[3:]
+            if html_content.endswith("```"):
+                html_content = html_content[:-3]
+            html_content = html_content.strip()
+
+            # Validate that we got HTML
+            if not html_content or not html_content.startswith("<!DOCTYPE") and not html_content.startswith("<html"):
+                # If response doesn't look like HTML, wrap it
+                if html_content and not html_content.startswith("<"):
+                    logger.warning("OpenAI returned non-HTML response, wrapping in basic HTML")
+                    html_content = self._wrap_text_in_html(html_content)
+
+            logger.info("Successfully converted image to HTML", html_length=len(html_content))
+            return html_content
+
+        except Exception as e:
+            logger.error("Failed to convert image to HTML", error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to convert PDF page to HTML: {str(e)}")
+
+    def _wrap_text_in_html(self, text: str) -> str:
+        """Wrap plain text in a basic HTML document structure."""
+        import html as html_escape
+        escaped_text = html_escape.escape(text)
+        paragraphs = escaped_text.split('\n\n')
+        body_content = '\n'.join(f'<p>{p}</p>' for p in paragraphs if p.strip())
+        
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }}
+        p {{
+            margin: 1em 0;
+        }}
+    </style>
+</head>
+<body>
+    {body_content}
+</body>
+</html>"""
+
     async def get_important_words(self, text: str, language_code: Optional[str] = None) -> List[str]:
         """Get top 10 most important/difficult words from text in the order they appear."""
         try:
