@@ -357,6 +357,23 @@ class CreateFolderResponse(BaseModel):
     user: "UserInfo" = Field(..., description="User information (id, name, email, role)")
 
 
+class RenameFolderRequest(BaseModel):
+    """Request model for renaming a folder."""
+    
+    name: str = Field(..., min_length=1, max_length=50, description="New folder name (max 50 characters)")
+
+
+class RenameFolderResponse(BaseModel):
+    """Response model for a renamed folder."""
+    
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
+    user_id: str = Field(..., description="User ID who owns the folder (UUID)")
+    created_at: str = Field(..., description="ISO format timestamp when the folder was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
+
+
 # Update forward reference for recursive model
 FolderWithSubFoldersResponse.model_rebuild()
 CreateFolderResponse.model_rebuild()

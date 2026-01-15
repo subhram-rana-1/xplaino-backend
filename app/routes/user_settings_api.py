@@ -146,6 +146,7 @@ async def get_user_settings(
     summary="Get all languages",
     description="Get all supported languages with their codes, English names, and native names. This is an unauthenticated endpoint."
 )
+
 async def get_all_languages(
     request: Request,
     response: Response

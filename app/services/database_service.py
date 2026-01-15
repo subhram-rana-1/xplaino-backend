@@ -2409,6 +2409,106 @@ def delete_folder_by_id_and_user_id(
         return False
 
 
+def update_folder_name_by_id_and_user_id(
+    db: Session,
+    folder_id: str,
+    user_id: str,
+    new_name: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a folder's name by ID if it belongs to the user.
+    
+    Args:
+        db: Database session
+        folder_id: Folder ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        new_name: New folder name (max 50 characters)
+        
+    Returns:
+        Dictionary with updated folder data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating folder name by id and user_id",
+        function="update_folder_name_by_id_and_user_id",
+        folder_id=folder_id,
+        user_id=user_id,
+        new_name=new_name
+    )
+    
+    result = db.execute(
+        text("""
+            UPDATE folder
+            SET name = :name, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :folder_id AND user_id = :user_id
+        """),
+        {
+            "name": new_name,
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Folder not found or doesn't belong to user",
+            function="update_folder_name_by_id_and_user_id",
+            folder_id=folder_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    result = db.execute(
+        text("""
+            SELECT id, name, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE id = :folder_id
+        """),
+        {"folder_id": folder_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve updated folder",
+            function="update_folder_name_by_id_and_user_id",
+            folder_id=folder_id
+        )
+        return None
+    
+    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    folder = {
+        "id": folder_id_val,
+        "name": name,
+        "parent_id": parent_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated folder name successfully",
+        function="update_folder_name_by_id_and_user_id",
+        folder_id=folder_id_val,
+        user_id=user_id
+    )
+    
+    return folder
+
+
 def create_paragraph_folder(
     db: Session,
     user_id: str,

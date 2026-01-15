@@ -11,6 +11,8 @@ from app.models import (
     FolderWithSubFoldersResponse,
     CreateFolderRequest,
     CreateFolderResponse,
+    RenameFolderRequest,
+    RenameFolderResponse,
     UserInfo
 )
 from app.database.connection import get_db
@@ -21,7 +23,8 @@ from app.services.database_service import (
     create_paragraph_folder,
     get_folder_by_id_and_user_id,
     get_user_info_with_email_by_user_id,
-    delete_folder_by_id_and_user_id
+    delete_folder_by_id_and_user_id,
+    update_folder_name_by_id_and_user_id
 )
 
 logger = structlog.get_logger()
@@ -268,4 +271,82 @@ async def delete_folder(
         response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
     
     return FastAPIResponse(status_code=204)
+
+
+@router.patch(
+    "/{folder_id}",
+    response_model=RenameFolderResponse,
+    summary="Rename a folder",
+    description="Rename a folder by ID. The folder must belong to the authenticated user."
+)
+async def rename_folder(
+    request: Request,
+    response: Response,
+    folder_id: str = Path(..., description="Folder ID (UUID)"),
+    body: RenameFolderRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Rename a folder for authenticated or unauthenticated users (unauthenticated will be blocked by rate limit)."""
+    # Extract user_id based on authentication status
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+    else:
+        user_id = auth_context["unauthenticated_user_id"]
+    
+    # Validate name length (Pydantic already validates min_length=1, but we check max_length explicitly)
+    if len(body.name) > 50:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VAL_001",
+                "error_message": "Name length exceeds maximum of 50 characters"
+            }
+        )
+    
+    # Verify folder exists and belongs to user
+    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
+    # Update folder name
+    updated_folder = update_folder_name_by_id_and_user_id(db, folder_id, user_id, body.name)
+    
+    if not updated_folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+    
+    logger.info(
+        "Renamed folder successfully",
+        folder_id=folder_id,
+        user_id=user_id,
+        new_name=body.name,
+        authenticated=auth_context.get("authenticated", False)
+    )
+    
+    # Add X-Unauthenticated-User-Id header for new unauthenticated users
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+    
+    return RenameFolderResponse(
+        id=updated_folder["id"],
+        name=updated_folder["name"],
+        parent_id=updated_folder["parent_id"],
+        user_id=updated_folder["user_id"],
+        created_at=updated_folder["created_at"],
+        updated_at=updated_folder["updated_at"]
+    )
 
