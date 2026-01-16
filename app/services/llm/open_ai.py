@@ -239,54 +239,119 @@ class OpenAIService:
             # Convert image to base64
             base64_image = base64.b64encode(image_data).decode('utf-8')
 
-            # Optimized prompt for PDF to HTML conversion
-            prompt = """You are a highly skilled assistant who converts PDF page images into accurate HTML. Your goal is to closely replicate the layout of the source document.
+            # Optimized prompt for PDF to HTML conversion - layout preservation is critical
+            prompt = """You are an expert HTML/CSS developer who converts PDF page images into pixel-perfect HTML replicas. Your PRIMARY goal is to EXACTLY replicate the visual layout, positioning, colors, and formatting of the original PDF.
 
-INSTRUCTIONS:
+MOST CRITICAL REQUIREMENT - LAYOUT PRESERVATION:
 
-1. OUTPUT FORMAT
-   - Generate a complete HTML document: <!DOCTYPE html><html><head>...</head><body>...</body></html>
-   - Include CSS in a <style> block to match fonts, sizes, margins, spacing, and layout
-   - Do NOT include any explanations or markdown code blocks - output ONLY the raw HTML
+The HTML output MUST look IDENTICAL to the input image. If the PDF has:
+- TWO COLUMNS → Create TWO COLUMNS using CSS Grid or Flexbox
+- THREE COLUMNS → Create THREE COLUMNS
+- Sidebar on left → Put sidebar content on LEFT
+- Content on right → Put main content on RIGHT
 
-2. STRUCTURE & ELEMENTS
-   - Use semantic HTML elements appropriately:
-     * <h1> to <h6> for headings based on visual hierarchy (size, boldness)
-     * <p> for paragraphs
-     * <strong> for bold text, <em> for italic text
-     * <ul>/<ol> with <li> for lists
-     * <table>, <thead>, <tbody>, <tr>, <th>, <td> for tables with proper borders
-   - Preserve the visual hierarchy: larger/bolder text = higher heading level
+DETAILED INSTRUCTIONS:
 
-3. LAYOUT REPLICATION
-   - If the page has multiple columns, use CSS flexbox or grid to replicate
-   - Maintain proper spacing between elements (margins, padding)
-   - Align text appropriately (left, center, right, justified)
-   - Preserve indentation for nested content
+1. LAYOUT REPLICATION (HIGHEST PRIORITY)
+   - CAREFULLY analyze the page layout BEFORE generating HTML
+   - If content is in MULTIPLE COLUMNS, you MUST use CSS Grid or Flexbox:
+     * Two-column layout example:
+       .page-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+       .left-column { } .right-column { }
+     * Or with flexbox:
+       .page-container { display: flex; gap: 40px; }
+       .left-column { flex: 1; } .right-column { flex: 1; }
+   - Match the EXACT column widths as seen in the image (e.g., 40%-60% split)
+   - Preserve the vertical alignment of sections across columns
+   - DO NOT convert a two-column layout into a single-column layout
 
-4. TEXT & FORMATTING
-   - Extract ALL text accurately, maintaining reading order
-   - Preserve bold, italic, underline formatting
-   - Keep font size relationships (headings larger than body text)
-   - Maintain text colors if visually distinct
+2. COLOR PRESERVATION (VERY IMPORTANT)
+   - Extract and use the EXACT colors from the image:
+     * Headings often have specific colors (blue, dark gray, etc.)
+     * Some text may be colored (orange, blue, etc.) for emphasis
+     * Use hex color codes: #2B547E for blue, #CC5500 for orange, etc.
+   - Apply colors using CSS: color: #hexcode;
+   - Bold colored text should use: <strong style="color: #hexcode;">text</strong>
+   - Or define CSS classes: .text-blue { color: #2B547E; }
 
-5. TABLES
-   - Replicate table structure with proper rows and columns
-   - Include borders and cell alignment
-   - Use <th> for header cells, <td> for data cells
+3. TEXT FORMATTING (VERY IMPORTANT)
+   - BOLD text MUST be wrapped in <strong> tags
+   - Italic text MUST be wrapped in <em> tags
+   - Preserve ALL formatting visible in the image:
+     * If "CCTV" appears bold → <strong>CCTV</strong>
+     * If "fire alerts" appears bold and colored → <strong class="text-orange">fire alerts</strong>
+   - Use CSS font-weight: 600 or 700 for bold headings
+   - Preserve SMALL CAPS if present: font-variant: small-caps;
 
-6. QUALITY RULES
-   - If text is unclear or illegible, use [UNREADABLE_TEXT] placeholder
-   - Maintain the visual relationship between images and captions
-   - Preserve footnotes and references at the bottom
+4. OUTPUT FORMAT
+   - Generate complete HTML: <!DOCTYPE html><html><head>...</head><body>...</body></html>
+   - Include all CSS in a <style> block
+   - Output ONLY raw HTML - no explanations, no markdown code blocks
 
-7. CSS STYLING
-   - Use a clean, readable base font: font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif
-   - Set appropriate line-height (1.5-1.6 for body text)
-   - Use max-width container for readability
-   - Include responsive adjustments
+5. STRUCTURE & COMPONENTS
+   - Use semantic HTML: <header>, <main>, <section>, <article>, <aside>
+   - Each section (Education, Experience, Skills) should be in its own container
+   - Nest elements properly:
+     <section class="education-section">
+       <h2>EDUCATION</h2>
+       <article class="education-item">
+         <h3>School Name</h3>
+         <div class="details">
+           <p><span class="label">Course:</span> <span class="value">Course Name</span></p>
+         </div>
+       </article>
+     </section>
 
-Convert the attached PDF page image into HTML with the layout preserved. Output ONLY the HTML document, no explanations."""
+6. TYPOGRAPHY
+   - Match font sizes relatively (headings larger than body)
+   - Section headings: font-size: 1.3em; font-weight: bold; text-transform: uppercase;
+   - Subsection headings: font-size: 1.1em; font-weight: bold;
+   - Body text: font-size: 1em; line-height: 1.5;
+   - Use letter-spacing if headings appear spaced out
+
+7. SPACING & ALIGNMENT
+   - Match margins and padding to replicate whitespace
+   - Align text as seen: left, center, or right
+   - Use consistent spacing between sections
+   - Preserve indentation for nested content and lists
+
+8. LISTS
+   - Use <ul> for bullet lists with proper <li> items
+   - Style bullets to match: list-style-type: disc; or custom bullets
+   - Preserve indentation levels for nested lists
+
+9. KEY-VALUE PAIRS (like "Course: Engineering")
+   - Structure as: <div class="field"><span class="label">Course:</span> <span class="value">Engineering</span></div>
+   - Style labels differently: font-weight: bold; or font-variant: small-caps;
+
+10. CSS ORGANIZATION
+    - Define CSS variables for colors: --primary-color: #2B547E; --accent-color: #CC5500;
+    - Create layout classes: .two-column, .left-column, .right-column
+    - Create text utility classes: .text-bold, .text-blue, .text-orange, .small-caps
+
+EXAMPLE CSS FOR TWO-COLUMN RESUME:
+```css
+.page-container {
+  display: grid;
+  grid-template-columns: 35% 65%;
+  gap: 30px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.left-column { }
+.right-column { }
+.section-title {
+  color: #2B547E;
+  font-size: 1.2em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 15px;
+}
+```
+
+REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF image - same columns, same colors, same bold text, same alignment. Output ONLY the HTML document."""
 
             # Prepare the message with image
             messages = [

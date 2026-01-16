@@ -320,7 +320,7 @@ class PdfService:
         
         return '\n'.join(fixed_lines)
     
-    async def convert_pdf_to_html(self, pdf_data: bytes) -> List[str]:
+    async def convert_pdf_to_html(self, pdf_data: bytes, save_debug_images: bool = True) -> List[str]:
         """
         Convert PDF to HTML using GPT-4 Vision for accurate layout preservation.
         
@@ -330,23 +330,26 @@ class PdfService:
         
         Args:
             pdf_data: PDF file data as bytes
+            save_debug_images: Whether to save intermediate images for debugging (default: True)
             
         Returns:
             List of HTML strings, one per page
         """
         # Import OpenAI service here to avoid circular imports
         from app.services.llm.open_ai import OpenAIService
+        import uuid
+        from datetime import datetime
         
         try:
             logger.info("Starting PDF to HTML conversion using GPT-4 Vision")
             
             # Convert PDF pages to images using pdf2image
-            # Using DPI of 200 for good balance of quality and performance
+            # Using DPI of 300 for higher quality (better for Vision API)
             # PNG format for lossless quality
             try:
                 images = convert_from_bytes(
                     pdf_data,
-                    dpi=200,
+                    dpi=300,  # Increased DPI for better quality
                     fmt='png',
                     thread_count=2  # Limit threads for memory efficiency
                 )
@@ -359,6 +362,17 @@ class PdfService:
             
             total_pages = len(images)
             logger.info(f"Converted PDF to {total_pages} images, processing with GPT-4 Vision")
+            
+            # Create debug directory for intermediate images
+            debug_dir = None
+            if save_debug_images:
+                debug_dir = os.path.join(tempfile.gettempdir(), "pdf_to_html_debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                # Create a unique folder for this conversion session
+                session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                session_dir = os.path.join(debug_dir, session_id)
+                os.makedirs(session_dir, exist_ok=True)
+                logger.info(f"Saving debug images to: {session_dir}")
             
             # Initialize OpenAI service
             openai_service = OpenAIService()
@@ -373,6 +387,13 @@ class PdfService:
                     image.save(img_buffer, format='PNG', optimize=True)
                     img_bytes = img_buffer.getvalue()
                     
+                    # Save intermediate image for debugging
+                    if save_debug_images and session_dir:
+                        debug_image_path = os.path.join(session_dir, f"page_{page_num}.png")
+                        with open(debug_image_path, 'wb') as f:
+                            f.write(img_bytes)
+                        logger.info(f"Saved debug image: {debug_image_path}")
+                    
                     logger.debug(
                         "Processing page with GPT-4 Vision",
                         page_num=page_num,
@@ -385,6 +406,13 @@ class PdfService:
                         image_data=img_bytes,
                         image_format="png"
                     )
+                    
+                    # Save generated HTML for debugging
+                    if save_debug_images and session_dir:
+                        debug_html_path = os.path.join(session_dir, f"page_{page_num}.html")
+                        with open(debug_html_path, 'w', encoding='utf-8') as f:
+                            f.write(html_content)
+                        logger.info(f"Saved debug HTML: {debug_html_path}")
                     
                     html_pages.append(html_content)
                     
@@ -404,10 +432,16 @@ class PdfService:
                     fallback_html = self._create_fallback_html(page_num, str(e))
                     html_pages.append(fallback_html)
             
+            log_data = {
+                "total_pages": total_pages,
+                "total_html_size": sum(len(html) for html in html_pages)
+            }
+            if save_debug_images and session_dir:
+                log_data["debug_folder"] = session_dir
+            
             logger.info(
                 "Successfully converted PDF to HTML using GPT-4 Vision",
-                total_pages=total_pages,
-                total_html_size=sum(len(html) for html in html_pages)
+                **log_data
             )
             
             return html_pages
