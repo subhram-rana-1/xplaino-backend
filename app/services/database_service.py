@@ -383,6 +383,12 @@ def get_or_create_user_session(
                     "access_token_expires_at": access_token_expires_at
                 }
             )
+            
+            # Invalidate cached session data to prevent stale access_token_expires_at
+            cache = get_in_memory_cache()
+            cache_key = f"USER_SESSION_INFO:{session_id}"
+            cache.invalidate_key(cache_key)
+            
             logger.info(
                 "Updated existing session",
                 function="get_or_create_user_session",
@@ -497,6 +503,22 @@ def invalidate_user_session(
         auth_vendor_type=auth_vendor_type
     )
     
+    # First, get the session IDs that will be affected (for cache invalidation)
+    session_ids_result = db.execute(
+        text("""
+            SELECT id FROM user_session
+            WHERE auth_vendor_type = :auth_vendor_type 
+            AND auth_vendor_id = :auth_vendor_id
+            AND access_token_state = 'VALID'
+        """),
+        {
+            "auth_vendor_type": auth_vendor_type,
+            "auth_vendor_id": google_auth_info_id
+        }
+    ).fetchall()
+    
+    session_ids_to_invalidate = [row[0] for row in session_ids_result]
+    
     # Update the session to mark it as INVALID
     result = db.execute(
         text("""
@@ -512,6 +534,12 @@ def invalidate_user_session(
             "auth_vendor_id": google_auth_info_id
         }
     )
+    
+    # Invalidate cached session data for all affected sessions
+    cache = get_in_memory_cache()
+    for session_id in session_ids_to_invalidate:
+        cache_key = f"USER_SESSION_INFO:{session_id}"
+        cache.invalidate_key(cache_key)
     
     db.commit()
     
@@ -1107,6 +1135,11 @@ def update_user_session_refresh_token(
                 "refresh_token_expires_at": expires_at
             }
         )
+    
+    # Invalidate cached session data to prevent stale access_token_expires_at
+    cache = get_in_memory_cache()
+    cache_key = f"USER_SESSION_INFO:{session_id}"
+    cache.invalidate_key(cache_key)
     
     db.commit()
     
