@@ -60,6 +60,40 @@ def get_language_name(language_code: Optional[str]) -> Optional[str]:
         "UK": "Ukrainian",
         "RO": "Romanian",
         "HU": "Hungarian",
+        "BG": "Bulgarian",
+        "HR": "Croatian",
+        "SK": "Slovak",
+        "SL": "Slovenian",
+        "ET": "Estonian",
+        "LV": "Latvian",
+        "LT": "Lithuanian",
+        "IS": "Icelandic",
+        "GA": "Irish",
+        "MT": "Maltese",
+        "EU": "Basque",
+        "CA": "Catalan",
+        "FA": "Persian",
+        "UR": "Urdu",
+        "BN": "Bengali",
+        "TA": "Tamil",
+        "TE": "Telugu",
+        "ML": "Malayalam",
+        "KN": "Kannada",
+        "GU": "Gujarati",
+        "MR": "Marathi",
+        "PA": "Punjabi",
+        "NE": "Nepali",
+        "SI": "Sinhala",
+        "OR": "Odia",
+        "MY": "Burmese",
+        "KM": "Khmer",
+        "LO": "Lao",
+        "MS": "Malay",
+        "TL": "Tagalog",
+        "SW": "Swahili",
+        "AF": "Afrikaans",
+        "ZU": "Zulu",
+        "XH": "Xhosa",
     }
 
     return language_map.get(language_code.upper())
@@ -113,7 +147,7 @@ class OpenAIService:
 
             # Simple test call to verify connection
             response = await self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": "Hello"}],
                 max_tokens=5,
                 temperature=0
@@ -187,6 +221,223 @@ class OpenAIService:
             if isinstance(e, LLMServiceError):
                 raise
             raise LLMServiceError(f"Failed to process image: {str(e)}")
+
+    async def convert_image_to_html(self, image_data: bytes, image_format: str = "png") -> str:
+        """Convert a PDF page image to HTML using GPT-4 Vision.
+        
+        This method takes an image of a PDF page and generates accurate HTML
+        that preserves the original layout, formatting, and structure.
+        
+        Args:
+            image_data: Image bytes of the PDF page
+            image_format: Image format (default: png)
+            
+        Returns:
+            Complete HTML document string with embedded CSS
+        """
+        try:
+            # Convert image to base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+
+            # Optimized prompt for PDF to HTML conversion - layout preservation is critical
+            prompt = """You are an expert HTML/CSS developer who converts PDF page images into pixel-perfect HTML replicas. Your PRIMARY goal is to EXACTLY replicate the visual layout, positioning, colors, and formatting of the original PDF.
+
+MOST CRITICAL REQUIREMENT - LAYOUT PRESERVATION:
+
+The HTML output MUST look IDENTICAL to the input image. If the PDF has:
+- TWO COLUMNS → Create TWO COLUMNS using CSS Grid or Flexbox
+- THREE COLUMNS → Create THREE COLUMNS
+- Sidebar on left → Put sidebar content on LEFT
+- Content on right → Put main content on RIGHT
+
+DETAILED INSTRUCTIONS:
+
+1. LAYOUT REPLICATION (HIGHEST PRIORITY)
+   - CAREFULLY analyze the page layout BEFORE generating HTML
+   - If content is in MULTIPLE COLUMNS, you MUST use CSS Grid or Flexbox:
+     * Two-column layout example:
+       .page-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+       .left-column { } .right-column { }
+     * Or with flexbox:
+       .page-container { display: flex; gap: 40px; }
+       .left-column { flex: 1; } .right-column { flex: 1; }
+   - Match the EXACT column widths as seen in the image (e.g., 40%-60% split)
+   - Preserve the vertical alignment of sections across columns
+   - DO NOT convert a two-column layout into a single-column layout
+
+2. COLOR PRESERVATION (VERY IMPORTANT)
+   - Extract and use the EXACT colors from the image:
+     * Headings often have specific colors (blue, dark gray, etc.)
+     * Some text may be colored (orange, blue, etc.) for emphasis
+     * Use hex color codes: #2B547E for blue, #CC5500 for orange, etc.
+   - Apply colors using CSS: color: #hexcode;
+   - Bold colored text should use: <strong style="color: #hexcode;">text</strong>
+   - Or define CSS classes: .text-blue { color: #2B547E; }
+
+3. TEXT FORMATTING (VERY IMPORTANT)
+   - BOLD text MUST be wrapped in <strong> tags
+   - Italic text MUST be wrapped in <em> tags
+   - Preserve ALL formatting visible in the image:
+     * If "CCTV" appears bold → <strong>CCTV</strong>
+     * If "fire alerts" appears bold and colored → <strong class="text-orange">fire alerts</strong>
+   - Use CSS font-weight: 600 or 700 for bold headings
+   - Preserve SMALL CAPS if present: font-variant: small-caps;
+
+4. OUTPUT FORMAT
+   - Generate complete HTML: <!DOCTYPE html><html><head>...</head><body>...</body></html>
+   - Include all CSS in a <style> block
+   - Output ONLY raw HTML - no explanations, no markdown code blocks
+
+5. STRUCTURE & COMPONENTS
+   - Use semantic HTML: <header>, <main>, <section>, <article>, <aside>
+   - Each section (Education, Experience, Skills) should be in its own container
+   - Nest elements properly:
+     <section class="education-section">
+       <h2>EDUCATION</h2>
+       <article class="education-item">
+         <h3>School Name</h3>
+         <div class="details">
+           <p><span class="label">Course:</span> <span class="value">Course Name</span></p>
+         </div>
+       </article>
+     </section>
+
+6. TYPOGRAPHY
+   - Match font sizes relatively (headings larger than body)
+   - Section headings: font-size: 1.3em; font-weight: bold; text-transform: uppercase;
+   - Subsection headings: font-size: 1.1em; font-weight: bold;
+   - Body text: font-size: 1em; line-height: 1.5;
+   - Use letter-spacing if headings appear spaced out
+
+7. SPACING & ALIGNMENT
+   - Match margins and padding to replicate whitespace
+   - Align text as seen: left, center, or right
+   - Use consistent spacing between sections
+   - Preserve indentation for nested content and lists
+
+8. LISTS
+   - Use <ul> for bullet lists with proper <li> items
+   - Style bullets to match: list-style-type: disc; or custom bullets
+   - Preserve indentation levels for nested lists
+
+9. KEY-VALUE PAIRS (like "Course: Engineering")
+   - Structure as: <div class="field"><span class="label">Course:</span> <span class="value">Engineering</span></div>
+   - Style labels differently: font-weight: bold; or font-variant: small-caps;
+
+10. CSS ORGANIZATION
+    - Define CSS variables for colors: --primary-color: #2B547E; --accent-color: #CC5500;
+    - Create layout classes: .two-column, .left-column, .right-column
+    - Create text utility classes: .text-bold, .text-blue, .text-orange, .small-caps
+
+EXAMPLE CSS FOR TWO-COLUMN RESUME:
+```css
+.page-container {
+  display: grid;
+  grid-template-columns: 35% 65%;
+  gap: 30px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.left-column { }
+.right-column { }
+.section-title {
+  color: #2B547E;
+  font-size: 1.2em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 15px;
+}
+```
+
+REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF image - same columns, same colors, same bold text, same alignment. Output ONLY the HTML document."""
+
+            # Prepare the message with image
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{image_format};base64,{base64_image}",
+                                "detail": "high"
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            # Use GPT-4o for best vision capabilities
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=messages,
+                max_tokens=4096,  # Higher token limit for complete HTML output
+                temperature=0.2  # Lower temperature for more consistent output
+            )
+
+            html_content = response.choices[0].message.content.strip()
+
+            # Clean up the response - remove markdown code blocks if present
+            if html_content.startswith("```html"):
+                html_content = html_content[7:]
+            elif html_content.startswith("```"):
+                html_content = html_content[3:]
+            if html_content.endswith("```"):
+                html_content = html_content[:-3]
+            html_content = html_content.strip()
+
+            # Validate that we got HTML
+            if not html_content or not html_content.startswith("<!DOCTYPE") and not html_content.startswith("<html"):
+                # If response doesn't look like HTML, wrap it
+                if html_content and not html_content.startswith("<"):
+                    logger.warning("OpenAI returned non-HTML response, wrapping in basic HTML")
+                    html_content = self._wrap_text_in_html(html_content)
+
+            logger.info("Successfully converted image to HTML", html_length=len(html_content))
+            return html_content
+
+        except Exception as e:
+            logger.error("Failed to convert image to HTML", error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to convert PDF page to HTML: {str(e)}")
+
+    def _wrap_text_in_html(self, text: str) -> str:
+        """Wrap plain text in a basic HTML document structure."""
+        import html as html_escape
+        escaped_text = html_escape.escape(text)
+        paragraphs = escaped_text.split('\n\n')
+        body_content = '\n'.join(f'<p>{p}</p>' for p in paragraphs if p.strip())
+        
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }}
+        p {{
+            margin: 1em 0;
+        }}
+    </style>
+</head>
+<body>
+    {body_content}
+</body>
+</html>"""
 
     async def get_important_words(self, text: str, language_code: Optional[str] = None) -> List[str]:
         """Get top 10 most important/difficult words from text in the order they appear."""
@@ -671,8 +922,6 @@ class OpenAIService:
                 return response
 
             except Exception as api_error:
-                print(f'api_error -----------> {api_error}')
-
                 error_type = type(api_error).__name__
                 error_msg = str(api_error)
 

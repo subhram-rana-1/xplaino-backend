@@ -383,6 +383,12 @@ def get_or_create_user_session(
                     "access_token_expires_at": access_token_expires_at
                 }
             )
+            
+            # Invalidate cached session data to prevent stale access_token_expires_at
+            cache = get_in_memory_cache()
+            cache_key = f"USER_SESSION_INFO:{session_id}"
+            cache.invalidate_key(cache_key)
+            
             logger.info(
                 "Updated existing session",
                 function="get_or_create_user_session",
@@ -497,6 +503,22 @@ def invalidate_user_session(
         auth_vendor_type=auth_vendor_type
     )
     
+    # First, get the session IDs that will be affected (for cache invalidation)
+    session_ids_result = db.execute(
+        text("""
+            SELECT id FROM user_session
+            WHERE auth_vendor_type = :auth_vendor_type 
+            AND auth_vendor_id = :auth_vendor_id
+            AND access_token_state = 'VALID'
+        """),
+        {
+            "auth_vendor_type": auth_vendor_type,
+            "auth_vendor_id": google_auth_info_id
+        }
+    ).fetchall()
+    
+    session_ids_to_invalidate = [row[0] for row in session_ids_result]
+    
     # Update the session to mark it as INVALID
     result = db.execute(
         text("""
@@ -512,6 +534,12 @@ def invalidate_user_session(
             "auth_vendor_id": google_auth_info_id
         }
     )
+    
+    # Invalidate cached session data for all affected sessions
+    cache = get_in_memory_cache()
+    for session_id in session_ids_to_invalidate:
+        cache_key = f"USER_SESSION_INFO:{session_id}"
+        cache.invalidate_key(cache_key)
     
     db.commit()
     
@@ -1107,6 +1135,11 @@ def update_user_session_refresh_token(
                 "refresh_token_expires_at": expires_at
             }
         )
+    
+    # Invalidate cached session data to prevent stale access_token_expires_at
+    cache = get_in_memory_cache()
+    cache_key = f"USER_SESSION_INFO:{session_id}"
+    cache.invalidate_key(cache_key)
     
     db.commit()
     
@@ -2040,6 +2073,85 @@ def get_saved_paragraph_by_id_and_user_id(
     return saved_paragraph
 
 
+def get_saved_paragraphs_by_ids_and_user_id(
+    db: Session,
+    paragraph_ids: List[str],
+    user_id: str
+) -> List[Dict[str, Any]]:
+    """
+    Get multiple saved paragraphs by IDs and verify they all belong to the user.
+    
+    Args:
+        db: Database session
+        paragraph_ids: List of saved paragraph IDs (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        List of dictionaries with saved paragraph data. Only returns paragraphs that belong to the user.
+        If some IDs don't belong to the user or don't exist, they are silently excluded.
+    """
+    logger.info(
+        "Getting saved paragraphs by ids and user_id",
+        function="get_saved_paragraphs_by_ids_and_user_id",
+        paragraph_ids=paragraph_ids,
+        user_id=user_id,
+        ids_count=len(paragraph_ids)
+    )
+    
+    if not paragraph_ids:
+        return []
+    
+    # Build query with IN clause
+    placeholders = ",".join([f":id_{i}" for i in range(len(paragraph_ids))])
+    params = {f"id_{i}": para_id for i, para_id in enumerate(paragraph_ids)}
+    params["user_id"] = user_id
+    
+    result = db.execute(
+        text(f"""
+            SELECT id, source_url, name, content, folder_id, user_id, created_at, updated_at
+            FROM saved_paragraph
+            WHERE id IN ({placeholders}) AND user_id = :user_id
+        """),
+        params
+    ).fetchall()
+    
+    paragraphs = []
+    for row in result:
+        para_id, source_url, name, content, folder_id, user_id_val, created_at, updated_at = row
+        
+        # Convert timestamps to ISO format strings
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+        else:
+            created_at_str = str(created_at)
+        
+        if isinstance(updated_at, datetime):
+            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+        else:
+            updated_at_str = str(updated_at)
+        
+        paragraphs.append({
+            "id": para_id,
+            "source_url": source_url,
+            "name": name,
+            "content": content,
+            "folder_id": folder_id,
+            "user_id": user_id_val,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str
+        })
+    
+    logger.info(
+        "Retrieved saved paragraphs successfully",
+        function="get_saved_paragraphs_by_ids_and_user_id",
+        requested_count=len(paragraph_ids),
+        retrieved_count=len(paragraphs),
+        user_id=user_id
+    )
+    
+    return paragraphs
+
+
 def update_saved_paragraph_folder_id(
     db: Session,
     paragraph_id: str,
@@ -2328,6 +2440,106 @@ def delete_folder_by_id_and_user_id(
             rows_deleted=result.rowcount
         )
         return False
+
+
+def update_folder_name_by_id_and_user_id(
+    db: Session,
+    folder_id: str,
+    user_id: str,
+    new_name: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a folder's name by ID if it belongs to the user.
+    
+    Args:
+        db: Database session
+        folder_id: Folder ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID)
+        new_name: New folder name (max 50 characters)
+        
+    Returns:
+        Dictionary with updated folder data or None if not found or doesn't belong to user
+    """
+    logger.info(
+        "Updating folder name by id and user_id",
+        function="update_folder_name_by_id_and_user_id",
+        folder_id=folder_id,
+        user_id=user_id,
+        new_name=new_name
+    )
+    
+    result = db.execute(
+        text("""
+            UPDATE folder
+            SET name = :name, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :folder_id AND user_id = :user_id
+        """),
+        {
+            "name": new_name,
+            "folder_id": folder_id,
+            "user_id": user_id
+        }
+    )
+    
+    db.commit()
+    
+    if result.rowcount == 0:
+        logger.warning(
+            "Folder not found or doesn't belong to user",
+            function="update_folder_name_by_id_and_user_id",
+            folder_id=folder_id,
+            user_id=user_id
+        )
+        return None
+    
+    # Fetch the updated record
+    result = db.execute(
+        text("""
+            SELECT id, name, parent_id, user_id, created_at, updated_at
+            FROM folder
+            WHERE id = :folder_id
+        """),
+        {"folder_id": folder_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve updated folder",
+            function="update_folder_name_by_id_and_user_id",
+            folder_id=folder_id
+        )
+        return None
+    
+    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    folder = {
+        "id": folder_id_val,
+        "name": name,
+        "parent_id": parent_id,
+        "user_id": user_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Updated folder name successfully",
+        function="update_folder_name_by_id_and_user_id",
+        folder_id=folder_id_val,
+        user_id=user_id
+    )
+    
+    return folder
 
 
 def create_paragraph_folder(
@@ -7483,8 +7695,7 @@ def get_active_highlighted_coupon(
         function="get_active_highlighted_coupon"
     )
     
-    current_time = datetime.now(timezone.utc)
-    
+    # Use MariaDB's NOW() function instead of Python datetime to avoid timezone issues
     # Get all ENABLED highlighted coupons that are currently active (activation <= now <= expiry)
     result = db.execute(
         text("""
@@ -7492,11 +7703,10 @@ def get_active_highlighted_coupon(
             FROM coupon
             WHERE status = 'ENABLED' 
               AND is_highlighted = TRUE
-              AND activation <= :current_time
-              AND expiry >= :current_time
+              AND activation <= NOW()
+              AND expiry >= NOW()
             ORDER BY discount DESC, created_at DESC
-        """),
-        {"current_time": current_time}
+        """)
     )
     rows = result.fetchall()
     

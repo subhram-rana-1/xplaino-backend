@@ -7,6 +7,7 @@ from typing import Tuple, List
 import PyPDF2
 import pdfplumber
 from pdf2markdown4llm import PDF2Markdown4LLM
+from pdf2image import convert_from_bytes
 import structlog
 
 from app.config import settings
@@ -319,85 +320,181 @@ class PdfService:
         
         return '\n'.join(fixed_lines)
     
-    def convert_pdf_to_html(self, pdf_data: bytes) -> List[str]:
+    async def convert_pdf_to_html(self, pdf_data: bytes, save_debug_images: bool = True) -> List[str]:
         """
-        Convert PDF to HTML with structured text content, tables, and images.
+        Convert PDF to HTML using GPT-4 Vision for accurate layout preservation.
+        
+        This method converts each PDF page to an image using pdf2image, then
+        sends each image to GPT-4 Vision to generate HTML that accurately
+        replicates the original PDF layout.
         
         Args:
             pdf_data: PDF file data as bytes
+            save_debug_images: Whether to save intermediate images for debugging (default: True)
             
         Returns:
             List of HTML strings, one per page
         """
+        # Import OpenAI service here to avoid circular imports
+        from app.services.llm.open_ai import OpenAIService
+        import uuid
+        from datetime import datetime
+        
         try:
-            import base64
-            import html as html_escape
+            logger.info("Starting PDF to HTML conversion using GPT-4 Vision")
             
-            logger.info("Starting PDF to HTML conversion using pdfplumber")
-            
-            # Create a temporary file to store the PDF data
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-                temp_file.write(pdf_data)
-                temp_file_path = temp_file.name
-            
+            # Convert PDF pages to images using pdf2image
+            # Using DPI of 300 for higher quality (better for Vision API)
+            # PNG format for lossless quality
             try:
-                html_pages = []
-                
-                with pdfplumber.open(temp_file_path) as pdf:
-                    for page_num, page in enumerate(pdf.pages):
-                        # Extract different content types
-                        text_blocks_html = self._extract_text_blocks(page)
-                        tables_html = self._extract_tables_as_html(page)
-                        images_html = self._extract_images_as_html(page, temp_file_path, page_num)
-                        
-                        # Combine all content in order (text, tables, images)
-                        page_content = []
-                        if text_blocks_html:
-                            page_content.extend(text_blocks_html)
-                        if tables_html:
-                            page_content.extend(tables_html)
-                        if images_html:
-                            page_content.extend(images_html)
-                        
-                        # If no content found, add a placeholder
-                        if not page_content:
-                            page_content = ["<p>No readable content found on this page.</p>"]
-                        
-                        # Create complete HTML document
-                        html_content = self._create_html_document(
-                            page_num + 1,
-                            "\n".join(page_content)
-                        )
-                        
-                        html_pages.append(html_content)
-                        
-                        logger.debug(
-                            "Converted PDF page to HTML",
-                            page_num=page_num + 1,
-                            html_size=len(html_content),
-                            text_blocks=len(text_blocks_html),
-                            tables=len(tables_html),
-                            images=len(images_html)
-                        )
-                
-                logger.info(
-                    "Successfully converted PDF to HTML",
-                    total_pages=len(html_pages),
-                    total_html_size=sum(len(html) for html in html_pages)
+                images = convert_from_bytes(
+                    pdf_data,
+                    dpi=300,  # Increased DPI for better quality
+                    fmt='png',
+                    thread_count=2  # Limit threads for memory efficiency
                 )
-                
-                return html_pages
-                
-            finally:
-                # Clean up temporary file
+            except Exception as e:
+                logger.error("Failed to convert PDF to images", error=str(e))
+                raise PdfProcessingError(f"Failed to convert PDF pages to images: {str(e)}")
+            
+            if not images:
+                raise PdfProcessingError("PDF contains no pages or could not be converted to images")
+            
+            total_pages = len(images)
+            logger.info(f"Converted PDF to {total_pages} images, processing with GPT-4 Vision")
+            
+            # Create debug directory for intermediate images
+            debug_dir = None
+            if save_debug_images:
+                debug_dir = os.path.join(tempfile.gettempdir(), "pdf_to_html_debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                # Create a unique folder for this conversion session
+                session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                session_dir = os.path.join(debug_dir, session_id)
+                os.makedirs(session_dir, exist_ok=True)
+                logger.info(f"Saving debug images to: {session_dir}")
+            
+            # Initialize OpenAI service
+            openai_service = OpenAIService()
+            
+            html_pages = []
+            
+            # Process each page image through GPT-4 Vision
+            for page_num, image in enumerate(images, start=1):
                 try:
-                    os.unlink(temp_file_path)
-                except OSError:
-                    logger.warning(f"Failed to delete temporary file: {temp_file_path}")
+                    # Convert PIL Image to PNG bytes
+                    img_buffer = io.BytesIO()
+                    image.save(img_buffer, format='PNG', optimize=True)
+                    img_bytes = img_buffer.getvalue()
+                    
+                    # Save intermediate image for debugging
+                    if save_debug_images and session_dir:
+                        debug_image_path = os.path.join(session_dir, f"page_{page_num}.png")
+                        with open(debug_image_path, 'wb') as f:
+                            f.write(img_bytes)
+                        logger.info(f"Saved debug image: {debug_image_path}")
+                    
+                    logger.debug(
+                        "Processing page with GPT-4 Vision",
+                        page_num=page_num,
+                        total_pages=total_pages,
+                        image_size_kb=len(img_bytes) / 1024
+                    )
+                    
+                    # Call OpenAI Vision API to generate HTML
+                    html_content = await openai_service.convert_image_to_html(
+                        image_data=img_bytes,
+                        image_format="png"
+                    )
+                    
+                    # Save generated HTML for debugging
+                    if save_debug_images and session_dir:
+                        debug_html_path = os.path.join(session_dir, f"page_{page_num}.html")
+                        with open(debug_html_path, 'w', encoding='utf-8') as f:
+                            f.write(html_content)
+                        logger.info(f"Saved debug HTML: {debug_html_path}")
+                    
+                    html_pages.append(html_content)
+                    
+                    logger.debug(
+                        "Successfully converted page to HTML",
+                        page_num=page_num,
+                        html_size=len(html_content)
+                    )
+                    
+                except Exception as e:
+                    logger.error(
+                        "Failed to convert page to HTML",
+                        page_num=page_num,
+                        error=str(e)
+                    )
+                    # Add fallback HTML for failed pages
+                    fallback_html = self._create_fallback_html(page_num, str(e))
+                    html_pages.append(fallback_html)
+            
+            log_data = {
+                "total_pages": total_pages,
+                "total_html_size": sum(len(html) for html in html_pages)
+            }
+            if save_debug_images and session_dir:
+                log_data["debug_folder"] = session_dir
+            
+            logger.info(
+                "Successfully converted PDF to HTML using GPT-4 Vision",
+                **log_data
+            )
+            
+            return html_pages
                 
+        except PdfProcessingError:
+            raise
         except Exception as e:
             logger.error("PDF to HTML conversion failed", error=str(e))
             raise PdfProcessingError(f"Failed to convert PDF to HTML: {str(e)}")
+    
+    def _create_fallback_html(self, page_num: int, error_message: str) -> str:
+        """Create fallback HTML when page conversion fails."""
+        import html as html_escape
+        escaped_error = html_escape.escape(error_message)
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page {page_num}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            color: #333;
+        }}
+        .error-container {{
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }}
+        .error-title {{
+            color: #856404;
+            margin: 0 0 10px 0;
+        }}
+        .error-message {{
+            color: #666;
+            font-size: 14px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h2 class="error-title">Page {page_num} - Conversion Error</h2>
+        <p class="error-message">Unable to convert this page to HTML. Error: {escaped_error}</p>
+    </div>
+</body>
+</html>"""
     
     def _create_html_document(self, page_num: int, body_content: str) -> str:
         """Create a complete HTML document with proper structure and styling."""
@@ -405,65 +502,90 @@ class PdfService:
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Page {page_num}</title>
     <style>
+        * {{
+            box-sizing: border-box;
+        }}
         body {{
             margin: 0;
             padding: 20px;
-            background-color: #f5f5f5;
+            background-color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             line-height: 1.6;
             color: #333;
         }}
         .page-container {{
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             background-color: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             padding: 40px;
         }}
-        h1, h2, h3 {{
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
+        h1, h2, h3, h4, h5, h6 {{
+            margin-top: 1.2em;
+            margin-bottom: 0.6em;
             font-weight: bold;
+            line-height: 1.3;
+            color: inherit;
         }}
         h1 {{
-            font-size: 2em;
+            margin-top: 0.8em;
         }}
-        h2 {{
-            font-size: 1.5em;
-        }}
-        h3 {{
-            font-size: 1.2em;
+        h1:first-child, h2:first-child, h3:first-child {{
+            margin-top: 0;
         }}
         p {{
-            margin: 1em 0;
+            margin: 0.8em 0;
+            line-height: 1.6;
+        }}
+        p:first-child {{
+            margin-top: 0;
+        }}
+        p:last-child {{
+            margin-bottom: 0;
         }}
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin: 1em 0;
+            margin: 1.5em 0;
+            border: 1px solid #ddd;
         }}
         table th, table td {{
             border: 1px solid #ddd;
-            padding: 8px;
+            padding: 10px 12px;
             text-align: left;
         }}
         table th {{
-            background-color: #f2f2f2;
+            background-color: #f8f9fa;
             font-weight: bold;
+        }}
+        table tr:nth-child(even) {{
+            background-color: #fafafa;
         }}
         img {{
             max-width: 100%;
             height: auto;
             display: block;
-            margin: 1em 0;
+            margin: 1.5em 0;
         }}
         strong {{
             font-weight: bold;
         }}
         em {{
             font-style: italic;
+        }}
+        span {{
+            /* Preserve inline color styles */
+        }}
+        /* Responsive adjustments */
+        @media (max-width: 768px) {{
+            body {{
+                padding: 10px;
+            }}
+            .page-container {{
+                padding: 20px;
+            }}
         }}
     </style>
 </head>
@@ -474,6 +596,90 @@ class PdfService:
 </body>
 </html>"""
     
+    def _analyze_page_statistics(self, page) -> dict:
+        """Analyze page to extract global statistics for better text classification."""
+        try:
+            from collections import Counter
+            import statistics
+            
+            if not page.chars:
+                return {
+                    'base_font_size': 12.0,
+                    'avg_line_height': 15.0,
+                    'font_size_distribution': {},
+                    'colors': [],
+                    'page_height': 792.0
+                }
+            
+            # Collect all font sizes
+            font_sizes = [c.get('size', 0) for c in page.chars if c.get('size', 0) > 0]
+            
+            if not font_sizes:
+                return {
+                    'base_font_size': 12.0,
+                    'avg_line_height': 15.0,
+                    'font_size_distribution': {},
+                    'colors': [],
+                    'page_height': page.height if hasattr(page, 'height') else 792.0
+                }
+            
+            # Calculate base font size (most common size in the document)
+            size_counts = Counter(font_sizes)
+            base_font_size = size_counts.most_common(1)[0][0]
+            
+            # Calculate font size statistics
+            font_size_stats = {
+                'mean': statistics.mean(font_sizes),
+                'median': statistics.median(font_sizes),
+                'mode': base_font_size,
+                'min': min(font_sizes),
+                'max': max(font_sizes)
+            }
+            
+            # Calculate average line height
+            sorted_chars = sorted(page.chars, key=lambda c: (-c.get('top', 0), c.get('x0', 0)))
+            line_heights = []
+            prev_bottom = None
+            
+            for char in sorted_chars:
+                char_top = char.get('top', 0)
+                char_bottom = char.get('bottom', 0)
+                
+                if prev_bottom is not None:
+                    gap = char_top - prev_bottom
+                    if 0 < gap < 50:  # Reasonable line spacing
+                        line_heights.append(gap)
+                
+                prev_bottom = char_bottom
+            
+            avg_line_height = statistics.mean(line_heights) if line_heights else 15.0
+            
+            # Extract colors (for future use)
+            colors = []
+            for char in page.chars:
+                # Extract color information if available
+                if 'non_stroking_color' in char:
+                    colors.append(char['non_stroking_color'])
+            
+            return {
+                'base_font_size': base_font_size,
+                'avg_line_height': avg_line_height,
+                'font_size_stats': font_size_stats,
+                'font_size_distribution': size_counts,
+                'colors': list(set(colors)),
+                'page_height': page.height if hasattr(page, 'height') else 792.0
+            }
+            
+        except Exception as e:
+            logger.warning(f"Failed to analyze page statistics: {str(e)}")
+            return {
+                'base_font_size': 12.0,
+                'avg_line_height': 15.0,
+                'font_size_distribution': {},
+                'colors': [],
+                'page_height': 792.0
+            }
+    
     def _extract_text_blocks(self, page) -> List[str]:
         """Extract text blocks (paragraphs and headings) from a PDF page."""
         try:
@@ -481,6 +687,9 @@ class PdfService:
             
             if not page.chars:
                 return []
+            
+            # First, analyze the entire page to get global statistics
+            page_stats = self._analyze_page_statistics(page)
             
             # Group characters into lines based on y-coordinate
             lines = []
@@ -512,10 +721,11 @@ class PdfService:
             if current_line:
                 lines.append(current_line)
             
-            # Group lines into paragraphs based on vertical spacing
+            # Group lines into paragraphs based on vertical spacing (using dynamic threshold)
             paragraphs = []
             current_paragraph = []
             prev_bottom = None
+            dynamic_threshold = page_stats['avg_line_height'] * 1.2  # More conservative threshold
             
             for line in lines:
                 if not line:
@@ -524,13 +734,14 @@ class PdfService:
                 # Calculate line bounds
                 line_top = min(c.get('top', 0) for c in line)
                 line_bottom = max(c.get('bottom', 0) for c in line)
+                line_height = line_bottom - line_top
                 
                 # Check if this line starts a new paragraph
                 if prev_bottom is not None:
                     vertical_gap = line_top - prev_bottom
-                    # Large gap indicates new paragraph (threshold: ~1.5x line height)
-                    line_height = line_bottom - line_top
-                    if vertical_gap > line_height * 1.5:
+                    # Use dynamic threshold based on page statistics
+                    # Large gap indicates new paragraph
+                    if vertical_gap > dynamic_threshold:
                         if current_paragraph:
                             paragraphs.append(current_paragraph)
                         current_paragraph = [line]
@@ -556,29 +767,40 @@ class PdfService:
                 for line in para_lines:
                     para_chars.extend(line)
                 
-                # Determine if this is a heading based on font size
-                font_sizes = [c.get('size', 0) for c in para_chars if c.get('size', 0) > 0]
-                if not font_sizes:
+                if not para_chars:
                     continue
                 
-                avg_font_size = sum(font_sizes) / len(font_sizes)
-                max_font_size = max(font_sizes)
+                # Apply formatting and create HTML (with color support)
+                formatted_text, avg_font_size = self._apply_text_formatting(para_chars, page_stats)
                 
-                # Calculate base font size (most common size)
-                from collections import Counter
-                size_counts = Counter(font_sizes)
-                base_font_size = size_counts.most_common(1)[0][0]
+                # Skip empty or very short blocks
+                text_content = formatted_text.replace('<strong>', '').replace('</strong>', '').replace('<em>', '').replace('</em>', '').strip()
+                if len(text_content) < 3:
+                    continue
                 
-                # Apply formatting and create HTML
-                formatted_text = self._apply_text_formatting(para_chars)
+                # Calculate position on page (for heading detection)
+                para_top = min(c.get('top', 0) for c in para_chars)
+                position_ratio = para_top / page_stats['page_height']
                 
-                # Determine heading level
-                heading_level = self._detect_heading_level(max_font_size, base_font_size)
+                # Determine heading level using enhanced detection
+                heading_level = self._detect_heading_level(
+                    para_chars=para_chars,
+                    para_lines=para_lines,
+                    text_content=text_content,
+                    page_stats=page_stats,
+                    position_ratio=position_ratio
+                )
                 
+                # Create HTML with inline styles for font size
                 if heading_level:
-                    html_blocks.append(f"<h{heading_level}>{formatted_text}</h{heading_level}>")
+                    # Headings should not be too long
+                    if len(text_content) > 150:
+                        # Too long to be a heading, make it a paragraph
+                        html_blocks.append(f'<p style="font-size: {avg_font_size:.1f}pt;">{formatted_text}</p>')
+                    else:
+                        html_blocks.append(f'<h{heading_level} style="font-size: {avg_font_size:.1f}pt;">{formatted_text}</h{heading_level}>')
                 else:
-                    html_blocks.append(f"<p>{formatted_text}</p>")
+                    html_blocks.append(f'<p style="font-size: {avg_font_size:.1f}pt;">{formatted_text}</p>')
             
             return html_blocks
             
@@ -586,38 +808,107 @@ class PdfService:
             logger.warning(f"Failed to extract text blocks: {str(e)}")
             return []
     
-    def _detect_heading_level(self, font_size: float, base_font_size: float) -> int:
-        """Determine heading level based on font size relative to base."""
-        if font_size <= 0 or base_font_size <= 0:
+    def _detect_heading_level(self, para_chars: List[dict], para_lines: List[List[dict]], 
+                              text_content: str, page_stats: dict, position_ratio: float) -> int:
+        """Determine heading level using multi-factor analysis."""
+        try:
+            if not para_chars:
+                return 0
+            
+            # Get font sizes
+            font_sizes = [c.get('size', 0) for c in para_chars if c.get('size', 0) > 0]
+            if not font_sizes:
+                return 0
+            
+            max_font_size = max(font_sizes)
+            avg_font_size = sum(font_sizes) / len(font_sizes)
+            base_font_size = page_stats['base_font_size']
+            
+            if base_font_size <= 0:
+                return 0
+            
+            # Factor 1: Font size ratio
+            ratio = max_font_size / base_font_size
+            
+            # Factor 2: Text length (headings are typically short)
+            text_length = len(text_content)
+            
+            # Factor 3: Number of lines (headings are typically 1-3 lines)
+            num_lines = len(para_lines)
+            
+            # Factor 4: Bold/weight detection
+            is_bold = False
+            for char in para_chars:
+                font_name = char.get('fontname', '').lower()
+                if any(keyword in font_name for keyword in ['bold', 'black', 'heavy', 'demibold', 'semibold']):
+                    is_bold = True
+                    break
+            
+            # Factor 5: Position on page (headings near top more likely)
+            is_near_top = position_ratio < 0.3
+            
+            # Apply rules with multiple factors
+            
+            # Rule out headings that are too long
+            if text_length > 150:
+                return 0
+            
+            # Rule out multi-line paragraphs (more than 4 lines unlikely to be heading)
+            if num_lines > 4:
+                return 0
+            
+            # H1: Large font (1.5x+), short text, bold, or near top
+            if ratio >= 1.5 and text_length < 100:
+                return 1
+            
+            # H2: Medium-large font (1.25x+), reasonable length
+            if ratio >= 1.3 and text_length < 120:
+                # More likely if bold or near top
+                if is_bold or is_near_top:
+                    return 2
+                elif ratio >= 1.4:
+                    return 2
+            
+            # H3: Slightly larger font (1.15x+), short text
+            if ratio >= 1.15 and text_length < 100:
+                # More likely if bold
+                if is_bold:
+                    return 3
+                elif ratio >= 1.2 and num_lines <= 2:
+                    return 3
+            
+            # H3: Bold text that's reasonably short, even if same size
+            if is_bold and text_length < 80 and num_lines <= 2 and ratio >= 1.0:
+                return 3
+            
+            # Default: Regular paragraph
             return 0
-        
-        ratio = font_size / base_font_size
-        
-        # h1: 1.5x or larger
-        if ratio >= 1.5:
-            return 1
-        # h2: 1.25x to 1.5x
-        elif ratio >= 1.25:
-            return 2
-        # h3: 1.1x to 1.25x
-        elif ratio >= 1.1:
-            return 3
-        # Regular paragraph
-        else:
+            
+        except Exception as e:
+            logger.warning(f"Failed to detect heading level: {str(e)}")
             return 0
     
-    def _apply_text_formatting(self, chars: List[dict]) -> str:
-        """Apply HTML formatting (bold, italic) to text based on character properties."""
+    def _apply_text_formatting(self, chars: List[dict], page_stats: dict) -> tuple:
+        """Apply HTML formatting (bold, italic, color) to text based on character properties.
+        
+        Returns:
+            tuple: (formatted_text, average_font_size)
+        """
         try:
             import html as html_escape
             
             if not chars:
-                return ""
+                return "", 12.0
             
             result = []
             current_segment = []
             current_bold = None
             current_italic = None
+            current_color = None
+            
+            # Collect font sizes for average calculation
+            font_sizes = [c.get('size', 0) for c in chars if c.get('size', 0) > 0]
+            avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 12.0
             
             for char in chars:
                 text = char.get('text', '')
@@ -634,12 +925,19 @@ class PdfService:
                 # Detect italic (common patterns)
                 is_italic = 'italic' in font_name or 'oblique' in font_name or font_name.endswith('-i')
                 
+                # Extract color information
+                color = self._extract_color_from_char(char)
+                
                 # Check if formatting changed
-                if current_bold != is_bold or current_italic != is_italic:
+                if current_bold != is_bold or current_italic != is_italic or current_color != color:
                     # Close previous segment
                     if current_segment:
                         segment_text = ''.join(current_segment)
                         escaped_text = html_escape.escape(segment_text)
+                        
+                        # Apply color styling if non-default
+                        if current_color and current_color != '#000000':
+                            escaped_text = f'<span style="color: {current_color};">{escaped_text}</span>'
                         
                         # Apply formatting
                         if current_bold:
@@ -652,6 +950,7 @@ class PdfService:
                     
                     current_bold = is_bold
                     current_italic = is_italic
+                    current_color = color
                 
                 current_segment.append(text)
             
@@ -660,6 +959,10 @@ class PdfService:
                 segment_text = ''.join(current_segment)
                 escaped_text = html_escape.escape(segment_text)
                 
+                # Apply color styling if non-default
+                if current_color and current_color != '#000000':
+                    escaped_text = f'<span style="color: {current_color};">{escaped_text}</span>'
+                
                 if current_bold:
                     escaped_text = f"<strong>{escaped_text}</strong>"
                 if current_italic:
@@ -667,14 +970,50 @@ class PdfService:
                 
                 result.append(escaped_text)
             
-            return ''.join(result)
+            return ''.join(result), avg_font_size
             
         except Exception as e:
             logger.warning(f"Failed to apply text formatting: {str(e)}")
             # Fallback: just escape and return text
             import html as html_escape
             text = ''.join(c.get('text', '') for c in chars)
-            return html_escape.escape(text)
+            return html_escape.escape(text), 12.0
+    
+    def _extract_color_from_char(self, char: dict) -> str:
+        """Extract color from character and convert to hex format."""
+        try:
+            # Try to get non_stroking_color (text fill color)
+            color = char.get('non_stroking_color')
+            
+            if color is None:
+                # Try stroking_color as fallback
+                color = char.get('stroking_color')
+            
+            if color is None:
+                return '#000000'  # Default black
+            
+            # Handle different color formats
+            if isinstance(color, (list, tuple)):
+                if len(color) == 3:
+                    # RGB format (0-1 range)
+                    r = int(color[0] * 255)
+                    g = int(color[1] * 255)
+                    b = int(color[2] * 255)
+                    return f'#{r:02x}{g:02x}{b:02x}'
+                elif len(color) == 1:
+                    # Grayscale (0-1 range)
+                    gray = int(color[0] * 255)
+                    return f'#{gray:02x}{gray:02x}{gray:02x}'
+            elif isinstance(color, (int, float)):
+                # Single value grayscale
+                gray = int(color * 255) if color <= 1 else int(color)
+                return f'#{gray:02x}{gray:02x}{gray:02x}'
+            
+            return '#000000'  # Default black
+            
+        except Exception as e:
+            logger.debug(f"Failed to extract color: {str(e)}")
+            return '#000000'
     
     def _extract_tables_as_html(self, page) -> List[str]:
         """Extract tables from PDF page and convert to HTML table elements."""

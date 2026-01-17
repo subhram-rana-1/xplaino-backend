@@ -660,7 +660,9 @@ async def refresh_access_token(
         refresh_token_from_db = session_data.get("refresh_token")
         if refresh_token_from_request != refresh_token_from_db:
             logger.warning(
-                "Refresh token mismatch",
+                f"Refresh token mismatch, \n "
+                f"refresh_token_from_request: {refresh_token_from_request}, "
+                f"\n refresh_token_from_db: {refresh_token_from_db}",
                 user_session_pk=user_session_pk
             )
             raise HTTPException(

@@ -10,7 +10,6 @@ from app.models import (
     UpdateSettingsRequest,
     SettingsResponse,
     UserSettingsResponse,
-    LanguageSettings,
     Theme,
     NativeLanguage,
     PageTranslationView,
@@ -81,9 +80,18 @@ async def get_user_settings(
             }
         )
     
-    # Parse settings from dictionary
-    language_dict = settings_dict.get("language", {})
-    native_language_value = language_dict.get("nativeLanguage")
+    # Parse settings from dictionary (handle both old nested and new flat structures)
+    # Check if old nested structure exists
+    language_dict = settings_dict.get("language")
+    if language_dict and isinstance(language_dict, dict):
+        # Old nested structure
+        native_language_value = language_dict.get("nativeLanguage")
+        page_translation_view_value = language_dict.get("pageTranslationView", "REPLACE")
+    else:
+        # New flat structure
+        native_language_value = settings_dict.get("nativeLanguage")
+        page_translation_view_value = settings_dict.get("pageTranslationView", "REPLACE")
+    
     native_language = None
     if native_language_value:
         try:
@@ -96,7 +104,6 @@ async def get_user_settings(
             )
             native_language = None
     
-    page_translation_view_value = language_dict.get("pageTranslationView", "REPLACE")
     try:
         page_translation_view = PageTranslationView(page_translation_view_value)
     except ValueError:
@@ -126,10 +133,8 @@ async def get_user_settings(
     return UserSettingsResponse(
         userId=user_id,
         settings=SettingsResponse(
-            language=LanguageSettings(
-                nativeLanguage=native_language,
-                pageTranslationView=page_translation_view
-            ),
+            nativeLanguage=native_language,
+            pageTranslationView=page_translation_view,
             theme=theme
         )
     )
@@ -141,6 +146,7 @@ async def get_user_settings(
     summary="Get all languages",
     description="Get all supported languages with their codes, English names, and native names. This is an unauthenticated endpoint."
 )
+
 async def get_all_languages(
     request: Request,
     response: Response
@@ -210,16 +216,14 @@ async def update_user_settings(
         "Updating user settings",
         user_id=user_id,
         theme=body.theme.value,
-        nativeLanguage=body.language.nativeLanguage.value if body.language.nativeLanguage else None,
-        pageTranslationView=body.language.pageTranslationView.value
+        nativeLanguage=body.nativeLanguage.value if body.nativeLanguage else None,
+        pageTranslationView=body.pageTranslationView.value
     )
     
-    # Convert settings to JSON
+    # Convert settings to JSON (flattened structure)
     settings_dict = {
-        "language": {
-            "nativeLanguage": body.language.nativeLanguage.value if body.language.nativeLanguage else None,
-            "pageTranslationView": body.language.pageTranslationView.value
-        },
+        "nativeLanguage": body.nativeLanguage.value if body.nativeLanguage else None,
+        "pageTranslationView": body.pageTranslationView.value,
         "theme": body.theme.value
     }
     settings_json = json.dumps(settings_dict)
@@ -258,10 +262,8 @@ async def update_user_settings(
     
     # Return the updated settings
     return SettingsResponse(
-        language=LanguageSettings(
-            nativeLanguage=body.language.nativeLanguage,
-            pageTranslationView=body.language.pageTranslationView
-        ),
+        nativeLanguage=body.nativeLanguage,
+        pageTranslationView=body.pageTranslationView,
         theme=body.theme
     )
 

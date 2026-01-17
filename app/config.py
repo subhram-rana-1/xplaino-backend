@@ -57,8 +57,8 @@ class Settings(BaseSettings):
         return self.max_image_file_size_mb * 1024 * 1024
     
     # LLM Configuration
-    gpt4_turbo_model: str = Field(default="gpt-4-turbo-2024-04-09", description="GPT-4 Turbo model name")
-    gpt4o_model: str = Field(default="gpt-4o", description="GPT-4o model name")
+    gpt4_turbo_model: str = Field(default="gpt-4o-mini", description="GPT-4 Turbo model name")
+    gpt4o_model: str = Field(default="gpt-4o-mini", description="GPT-4o model name")
     max_tokens: int = Field(default=2000, description="Maximum tokens for LLM responses")
     temperature: float = Field(default=0.7, description="Temperature for LLM responses")
     
