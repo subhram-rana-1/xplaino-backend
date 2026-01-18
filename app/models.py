@@ -1079,3 +1079,16 @@ class AskSavedParagraphsResponse(BaseModel):
     """Response model for ask-ai endpoint."""
     
     answer: str = Field(..., description="AI-generated answer")
+
+
+class Feature(BaseModel):
+    """Model for a single feature."""
+    
+    name: str = Field(..., description="Feature name")
+    description: str = Field(..., description="Feature description")
+
+
+class FeaturesResponse(BaseModel):
+    """Response model for features list."""
+    
+    features: List[Feature] = Field(..., description="List of available features")
