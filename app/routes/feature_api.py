@@ -17,8 +17,57 @@ logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/feature", tags=["Feature"])
 
-# Features constant - empty list to be filled later
-FEATURES: List[Feature] = []
+# Features constant - list of available features
+FEATURES: List[Feature] = [
+    Feature(
+        name="TEXT_EXPLANATION",
+        description="Get explanations and simplified meanings for text content"
+    ),
+    Feature(
+        name="IMAGE_EXPLANATION",
+        description="Get explanations and descriptions for images"
+    ),
+    Feature(
+        name="WORD_VOCABULARY",
+        description="Build and manage your vocabulary with word definitions and examples"
+    ),
+    Feature(
+        name="SUMMARISE_WEBPAGE",
+        description="Summarize web pages and extract key information"
+    ),
+    Feature(
+        name="CHAT_WITH_TEXT",
+        description="Have interactive conversations about text content"
+    ),
+    Feature(
+        name="CHAT_WITH_IMAGE",
+        description="Have interactive conversations about images"
+    ),
+    Feature(
+        name="CHAT_WITH_WEBPAGE",
+        description="Have interactive conversations about webpage content"
+    ),
+    Feature(
+        name="SAVE_WORD_TEXT_IMAGE_PAGE",
+        description="Save words, text, images, and pages for later reference"
+    ),
+    Feature(
+        name="SAVE_WEBPAGE_SUMMARY",
+        description="Save webpage summaries for quick access"
+    ),
+    Feature(
+        name="CHAT_WITH_SAVED_CONTENTS",
+        description="Have conversations about your saved content"
+    ),
+    Feature(
+        name="SUMMARISE_PDF",
+        description="Summarize PDF documents and extract key information"
+    ),
+    Feature(
+        name="CHAT_WITH_PDF",
+        description="Have interactive conversations about PDF content"
+    ),
+]
 
 
 def _check_admin_role(user_id: str, db: Session) -> None:

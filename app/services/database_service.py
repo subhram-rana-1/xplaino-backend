@@ -5598,202 +5598,18 @@ def get_enabled_pricings_for_validation(
     return pricings
 
 
-def check_pricing_intersection(
-    db: Session,
-    recurring_period: str,
-    recurring_period_count: int,
-    activation: datetime,
-    expiry: datetime
-) -> bool:
-    """
-    Check if a new pricing period intersects with existing ENABLED pricings
-    that have the same recurring_period and recurring_period_count.
-    
-    Args:
-        db: Database session
-        recurring_period: Recurring period (MONTH or YEAR)
-        recurring_period_count: Recurring period count
-        activation: New pricing activation timestamp
-        expiry: New pricing expiry timestamp
-        
-    Returns:
-        True if intersection exists, False otherwise
-    """
-    logger.info(
-        "Checking pricing intersection",
-        function="check_pricing_intersection",
-        recurring_period=recurring_period,
-        recurring_period_count=recurring_period_count,
-        activation=activation.isoformat(),
-        expiry=expiry.isoformat()
-    )
-    
-    # Get ENABLED pricings with same recurring_period and recurring_period_count
-    enabled_pricings = get_enabled_pricings_for_validation(
-        db, recurring_period, recurring_period_count
-    )
-    
-    # Check for intersection: (new_activation < existing_expiry) AND (new_expiry > existing_activation)
-    for pricing in enabled_pricings:
-        existing_activation = pricing["activation"]
-        existing_expiry = pricing["expiry"]
-        
-        # Ensure timezone awareness
-        if isinstance(existing_activation, datetime):
-            if existing_activation.tzinfo is None:
-                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
-        else:
-            existing_activation = datetime.fromisoformat(str(existing_activation).replace('Z', '+00:00'))
-            if existing_activation.tzinfo is None:
-                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
-        
-        if isinstance(existing_expiry, datetime):
-            if existing_expiry.tzinfo is None:
-                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
-        else:
-            existing_expiry = datetime.fromisoformat(str(existing_expiry).replace('Z', '+00:00'))
-            if existing_expiry.tzinfo is None:
-                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
-        
-        # Ensure new timestamps are timezone aware
-        if activation.tzinfo is None:
-            activation = activation.replace(tzinfo=timezone.utc)
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
-        
-        # Check intersection
-        if (activation < existing_expiry) and (expiry > existing_activation):
-            logger.warning(
-                "Pricing intersection found",
-                function="check_pricing_intersection",
-                existing_pricing_id=pricing["id"],
-                new_activation=activation.isoformat(),
-                new_expiry=expiry.isoformat(),
-                existing_activation=existing_activation.isoformat(),
-                existing_expiry=existing_expiry.isoformat()
-            )
-            return True
-    
-    logger.info(
-        "No pricing intersection found",
-        function="check_pricing_intersection",
-        recurring_period=recurring_period,
-        recurring_period_count=recurring_period_count
-    )
-    
-    return False
-
-
-def check_pricing_intersection_excluding_self(
-    db: Session,
-    exclude_pricing_id: str,
-    recurring_period: str,
-    recurring_period_count: int,
-    activation: datetime,
-    expiry: datetime
-) -> bool:
-    """
-    Check if a pricing period intersects with existing ENABLED pricings
-    that have the same recurring_period and recurring_period_count,
-    excluding a specific pricing by ID.
-    
-    Args:
-        db: Database session
-        exclude_pricing_id: Pricing ID to exclude from intersection check
-        recurring_period: Recurring period (MONTH or YEAR)
-        recurring_period_count: Recurring period count
-        activation: Pricing activation timestamp
-        expiry: Pricing expiry timestamp
-        
-    Returns:
-        True if intersection exists with any other ENABLED pricing (excluding the specified one), False otherwise
-    """
-    logger.info(
-        "Checking pricing intersection excluding self",
-        function="check_pricing_intersection_excluding_self",
-        exclude_pricing_id=exclude_pricing_id,
-        recurring_period=recurring_period,
-        recurring_period_count=recurring_period_count,
-        activation=activation.isoformat(),
-        expiry=expiry.isoformat()
-    )
-    
-    # Get ENABLED pricings with same recurring_period and recurring_period_count
-    enabled_pricings = get_enabled_pricings_for_validation(
-        db, recurring_period, recurring_period_count
-    )
-    
-    # Filter out the pricing to exclude
-    filtered_pricings = [
-        pricing for pricing in enabled_pricings
-        if pricing["id"] != exclude_pricing_id
-    ]
-    
-    # Ensure new timestamps are timezone aware
-    if activation.tzinfo is None:
-        activation = activation.replace(tzinfo=timezone.utc)
-    if expiry.tzinfo is None:
-        expiry = expiry.replace(tzinfo=timezone.utc)
-    
-    # Check for intersection: (new_activation < existing_expiry) AND (new_expiry > existing_activation)
-    for pricing in filtered_pricings:
-        existing_activation = pricing["activation"]
-        existing_expiry = pricing["expiry"]
-        
-        # Ensure timezone awareness
-        if isinstance(existing_activation, datetime):
-            if existing_activation.tzinfo is None:
-                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
-        else:
-            existing_activation = datetime.fromisoformat(str(existing_activation).replace('Z', '+00:00'))
-            if existing_activation.tzinfo is None:
-                existing_activation = existing_activation.replace(tzinfo=timezone.utc)
-        
-        if isinstance(existing_expiry, datetime):
-            if existing_expiry.tzinfo is None:
-                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
-        else:
-            existing_expiry = datetime.fromisoformat(str(existing_expiry).replace('Z', '+00:00'))
-            if existing_expiry.tzinfo is None:
-                existing_expiry = existing_expiry.replace(tzinfo=timezone.utc)
-        
-        # Check intersection
-        if (activation < existing_expiry) and (expiry > existing_activation):
-            logger.warning(
-                "Pricing intersection found",
-                function="check_pricing_intersection_excluding_self",
-                existing_pricing_id=pricing["id"],
-                exclude_pricing_id=exclude_pricing_id,
-                new_activation=activation.isoformat(),
-                new_expiry=expiry.isoformat(),
-                existing_activation=existing_activation.isoformat(),
-                existing_expiry=existing_expiry.isoformat()
-            )
-            return True
-    
-    logger.info(
-        "No pricing intersection found",
-        function="check_pricing_intersection_excluding_self",
-        exclude_pricing_id=exclude_pricing_id,
-        recurring_period=recurring_period,
-        recurring_period_count=recurring_period_count
-    )
-    
-    return False
-
-
 def create_pricing(
     db: Session,
     user_id: str,
     name: str,
-    recurring_period: str,
-    recurring_period_count: int,
     activation: datetime,
     expiry: datetime,
     status: str,
-    features: str,
+    features: list,
     currency: str,
-    amount: float
+    pricing_details: dict,
+    description: str,
+    is_highlighted: Optional[bool] = None
 ) -> Dict[str, Any]:
     """
     Create a new pricing record.
@@ -5802,50 +5618,53 @@ def create_pricing(
         db: Database session
         user_id: User ID (CHAR(36) UUID) who is creating the pricing
         name: Pricing name (VARCHAR(30))
-        recurring_period: Recurring period (MONTH or YEAR)
-        recurring_period_count: Recurring period count (INT)
         activation: Activation timestamp
         expiry: Expiry timestamp
         status: Pricing status (ENABLED or DISABLED)
-        features: Pricing features (TEXT)
+        features: Pricing features (JSON array)
         currency: Currency (USD)
-        amount: Pricing amount (FLOAT)
+        pricing_details: Pricing details JSON (monthly/yearly prices and discounts)
+        description: Pricing description (VARCHAR(500))
+        is_highlighted: Whether pricing is highlighted (BOOLEAN, nullable)
         
     Returns:
         Dictionary with created pricing data including user info
     """
+    import json
+    
     logger.info(
         "Creating pricing",
         function="create_pricing",
         user_id=user_id,
         name=name,
-        recurring_period=recurring_period,
-        recurring_period_count=recurring_period_count,
         status=status,
-        currency=currency,
-        amount=amount
+        currency=currency
     )
     
     # Generate UUID for the new pricing
     pricing_id = str(uuid.uuid4())
     
+    # Convert features list and pricing_details dict to JSON strings
+    features_json = json.dumps(features)
+    pricing_details_json = json.dumps(pricing_details)
+    
     # Insert the new pricing
     db.execute(
         text("""
-            INSERT INTO pricing (id, name, recurring_period, recurring_period_count, activation, expiry, status, features, currency, amount, created_by)
-            VALUES (:id, :name, :recurring_period, :recurring_period_count, :activation, :expiry, :status, :features, :currency, :amount, :created_by)
+            INSERT INTO pricing (id, name, activation, expiry, status, features, currency, pricing_details, description, is_highlighted, created_by)
+            VALUES (:id, :name, :activation, :expiry, :status, :features, :currency, :pricing_details, :description, :is_highlighted, :created_by)
         """),
         {
             "id": pricing_id,
             "name": name,
-            "recurring_period": recurring_period,
-            "recurring_period_count": recurring_period_count,
             "activation": activation,
             "expiry": expiry,
             "status": status,
-            "features": features,
+            "features": features_json,
             "currency": currency,
-            "amount": amount,
+            "pricing_details": pricing_details_json,
+            "description": description,
+            "is_highlighted": is_highlighted,
             "created_by": user_id
         }
     )
@@ -5869,6 +5688,8 @@ def get_pricing_by_id(
     Returns:
         Dictionary with pricing data including created_by user info
     """
+    import json
+    
     logger.info(
         "Getting pricing by ID",
         function="get_pricing_by_id",
@@ -5877,8 +5698,8 @@ def get_pricing_by_id(
     
     result = db.execute(
         text("""
-            SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
-                   currency, amount, created_by, created_at, updated_at
+            SELECT id, name, activation, expiry, status, features,
+                   currency, pricing_details, description, is_highlighted, created_by, created_at, updated_at
             FROM pricing
             WHERE id = :id
         """),
@@ -5893,9 +5714,8 @@ def get_pricing_by_id(
         )
         return None
     
-    (pricing_id_val, name_val, recurring_period_val, recurring_period_count_val,
-     activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
-     created_by_val, created_at, updated_at) = result
+    (pricing_id_val, name_val, activation_val, expiry_val, status_val, features_val, 
+     currency_val, pricing_details_val, description_val, is_highlighted_val, created_by_val, created_at, updated_at) = result
     
     # Convert timestamps to ISO format strings
     if isinstance(activation_val, datetime):
@@ -5918,20 +5738,24 @@ def get_pricing_by_id(
     else:
         updated_at_str = str(updated_at)
     
+    # Parse JSON fields
+    features_list = json.loads(features_val) if isinstance(features_val, str) else features_val
+    pricing_details_dict = json.loads(pricing_details_val) if isinstance(pricing_details_val, str) else pricing_details_val
+    
     # Get user name and role
     user_info = get_user_name_and_role_by_user_id(db, created_by_val)
     
     pricing = {
         "id": pricing_id_val,
         "name": name_val,
-        "recurring_period": recurring_period_val,
-        "recurring_period_count": recurring_period_count_val,
         "activation": activation_str,
         "expiry": expiry_str,
         "status": status_val,
-        "features": features_val,
+        "features": features_list,
         "currency": currency_val,
-        "amount": float(amount_val),
+        "pricing_details": pricing_details_dict,
+        "description": description_val,
+        "is_highlighted": bool(is_highlighted_val) if is_highlighted_val is not None else None,
         "created_by": {
             "id": created_by_val,
             "name": user_info.get("name", ""),
@@ -5958,9 +5782,11 @@ def update_pricing(
     activation: Optional[datetime] = None,
     expiry: Optional[datetime] = None,
     status: Optional[str] = None,
-    features: Optional[str] = None,
+    features: Optional[list] = None,
     currency: Optional[str] = None,
-    amount: Optional[float] = None
+    pricing_details: Optional[dict] = None,
+    description: Optional[str] = None,
+    is_highlighted: Optional[bool] = None
 ) -> Dict[str, Any]:
     """
     Update a pricing record (partial update - only non-null fields).
@@ -5972,13 +5798,17 @@ def update_pricing(
         activation: Optional activation timestamp
         expiry: Optional expiry timestamp
         status: Optional pricing status
-        features: Optional pricing features
+        features: Optional pricing features (list)
         currency: Optional currency (USD)
-        amount: Optional pricing amount
+        pricing_details: Optional pricing details dict
+        description: Optional pricing description
+        is_highlighted: Optional whether pricing is highlighted
         
     Returns:
         Dictionary with updated pricing data including user info
     """
+    import json
+    
     logger.info(
         "Updating pricing",
         function="update_pricing",
@@ -5989,7 +5819,9 @@ def update_pricing(
         has_status=status is not None,
         has_features=features is not None,
         has_currency=currency is not None,
-        has_amount=amount is not None
+        has_pricing_details=pricing_details is not None,
+        has_description=description is not None,
+        has_is_highlighted=is_highlighted is not None
     )
     
     # Build dynamic UPDATE query
@@ -6014,15 +5846,23 @@ def update_pricing(
     
     if features is not None:
         update_fields.append("features = :features")
-        params["features"] = features
+        params["features"] = json.dumps(features)
     
     if currency is not None:
         update_fields.append("currency = :currency")
         params["currency"] = currency
     
-    if amount is not None:
-        update_fields.append("amount = :amount")
-        params["amount"] = amount
+    if pricing_details is not None:
+        update_fields.append("pricing_details = :pricing_details")
+        params["pricing_details"] = json.dumps(pricing_details)
+    
+    if description is not None:
+        update_fields.append("description = :description")
+        params["description"] = description
+    
+    if is_highlighted is not None:
+        update_fields.append("is_highlighted = :is_highlighted")
+        params["is_highlighted"] = is_highlighted
     
     if not update_fields:
         # No fields to update, just return existing record
@@ -6091,6 +5931,8 @@ def get_all_pricings(
     Returns:
         List of dictionaries with pricing data including created_by user info
     """
+    import json
+    
     logger.info(
         "Getting all pricings",
         function="get_all_pricings"
@@ -6098,8 +5940,8 @@ def get_all_pricings(
     
     result = db.execute(
         text("""
-            SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
-                   currency, amount, created_by, created_at, updated_at
+            SELECT id, name, activation, expiry, status, features,
+                   currency, pricing_details, description, is_highlighted, created_by, created_at, updated_at
             FROM pricing
             ORDER BY created_at DESC
         """)
@@ -6107,9 +5949,8 @@ def get_all_pricings(
     
     pricings = []
     for row in result:
-        (pricing_id, name_val, recurring_period_val, recurring_period_count_val,
-         activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
-         created_by_val, created_at, updated_at) = row
+        (pricing_id, name_val, activation_val, expiry_val, status_val, features_val, 
+         currency_val, pricing_details_val, description_val, is_highlighted_val, created_by_val, created_at, updated_at) = row
         
         # Convert timestamps to ISO format strings
         if isinstance(activation_val, datetime):
@@ -6132,20 +5973,24 @@ def get_all_pricings(
         else:
             updated_at_str = str(updated_at)
         
+        # Parse JSON fields
+        features_list = json.loads(features_val) if isinstance(features_val, str) else features_val
+        pricing_details_dict = json.loads(pricing_details_val) if isinstance(pricing_details_val, str) else pricing_details_val
+        
         # Get user name and role
         user_info = get_user_name_and_role_by_user_id(db, created_by_val)
         
         pricing = {
             "id": pricing_id,
             "name": name_val,
-            "recurring_period": recurring_period_val,
-            "recurring_period_count": recurring_period_count_val,
             "activation": activation_str,
             "expiry": expiry_str,
             "status": status_val,
-            "features": features_val,
+            "features": features_list,
             "currency": currency_val,
-            "amount": float(amount_val),
+            "pricing_details": pricing_details_dict,
+            "description": description_val,
+            "is_highlighted": bool(is_highlighted_val) if is_highlighted_val is not None else None,
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),
@@ -6178,6 +6023,8 @@ def get_live_pricings(
     Returns:
         List of dictionaries with pricing data including created_by user info
     """
+    import json
+    
     logger.info(
         "Getting live pricings",
         function="get_live_pricings"
@@ -6187,8 +6034,8 @@ def get_live_pricings(
     
     result = db.execute(
         text("""
-            SELECT id, name, recurring_period, recurring_period_count, activation, expiry, status, features,
-                   currency, amount, created_by, created_at, updated_at
+            SELECT id, name, activation, expiry, status, features,
+                   currency, pricing_details, description, is_highlighted, created_by, created_at, updated_at
             FROM pricing
             WHERE status = 'ENABLED'
             AND activation < :current_time
@@ -6200,9 +6047,8 @@ def get_live_pricings(
     
     pricings = []
     for row in result:
-        (pricing_id, name_val, recurring_period_val, recurring_period_count_val,
-         activation_val, expiry_val, status_val, features_val, currency_val, amount_val,
-         created_by_val, created_at, updated_at) = row
+        (pricing_id, name_val, activation_val, expiry_val, status_val, features_val, 
+         currency_val, pricing_details_val, description_val, is_highlighted_val, created_by_val, created_at, updated_at) = row
         
         # Convert timestamps to ISO format strings
         if isinstance(activation_val, datetime):
@@ -6225,20 +6071,24 @@ def get_live_pricings(
         else:
             updated_at_str = str(updated_at)
         
+        # Parse JSON fields
+        features_list = json.loads(features_val) if isinstance(features_val, str) else features_val
+        pricing_details_dict = json.loads(pricing_details_val) if isinstance(pricing_details_val, str) else pricing_details_val
+        
         # Get user name and role
         user_info = get_user_name_and_role_by_user_id(db, created_by_val)
         
         pricing = {
             "id": pricing_id,
             "name": name_val,
-            "recurring_period": recurring_period_val,
-            "recurring_period_count": recurring_period_count_val,
             "activation": activation_str,
             "expiry": expiry_str,
             "status": status_val,
-            "features": features_val,
+            "features": features_list,
             "currency": currency_val,
-            "amount": float(amount_val),
+            "pricing_details": pricing_details_dict,
+            "description": description_val,
+            "is_highlighted": bool(is_highlighted_val) if is_highlighted_val is not None else None,
             "created_by": {
                 "id": created_by_val,
                 "name": user_info.get("name", ""),

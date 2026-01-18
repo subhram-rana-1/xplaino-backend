@@ -201,23 +201,20 @@ CREATE TABLE IF NOT EXISTS comment (
 CREATE TABLE IF NOT EXISTS pricing (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     name VARCHAR(30) NOT NULL,
-    recurring_period ENUM('MONTH', 'YEAR') NOT NULL,
-    recurring_period_count INT NOT NULL,
     activation TIMESTAMP NOT NULL,
     expiry TIMESTAMP NOT NULL,
     status ENUM('ENABLED', 'DISABLED') NOT NULL,
-    features TEXT NOT NULL,
+    features JSON NOT NULL,
     currency ENUM('USD') NOT NULL,
-    amount FLOAT NOT NULL,
+    pricing_details JSON NOT NULL,
+    description VARCHAR(500) NOT NULL,
+    is_highlighted BOOLEAN NULL,
     created_by CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_recurring_period (recurring_period),
-    INDEX idx_recurring_period_count (recurring_period_count),
     INDEX idx_status (status),
     INDEX idx_activation (activation),
     INDEX idx_expiry (expiry),
-    INDEX idx_recurring_combo (recurring_period, recurring_period_count),
     FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
