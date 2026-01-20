@@ -12,6 +12,7 @@ from structlog.processors import ExceptionPrettyPrinter
 from app.config import settings
 from app.database.connection import get_db
 from app.services.jwt_service import decode_access_token
+from app.utils.utils import get_client_ip
 from app.services.database_service import (
     get_user_session_by_id,
     get_unauthenticated_user_usage,
@@ -589,13 +590,16 @@ async def authenticate(
             elif not api_counter_field or max_limit is None:
                 raise_subscription_required()
             else:
+                # CRITICAL STEP: Extract IP address from request
+                ip_address = get_client_ip(request)
+                
                 # CRITICAL STEP: Get or create authenticated user API usage record
-                api_usage = get_authenticated_user_api_usage(db, user_id)
+                api_usage = get_authenticated_user_api_usage(db, user_id, ip_address)
                 if not api_usage:
                     # Create new record with all counters initialized to 0
-                    create_authenticated_user_api_usage(db, user_id, api_counter_field)
+                    create_authenticated_user_api_usage(db, user_id, api_counter_field, ip_address)
                     # Re-fetch to get the newly created record
-                    api_usage = get_authenticated_user_api_usage(db, user_id)
+                    api_usage = get_authenticated_user_api_usage(db, user_id, ip_address)
                     if not api_usage:
                         raise_subscription_required()
 

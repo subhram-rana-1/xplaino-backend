@@ -843,39 +843,64 @@ def check_api_usage_limit(
 
 def get_authenticated_user_api_usage(
     db: Session,
-    user_id: str
+    user_id: str,
+    ip_address: str
 ) -> Optional[Dict[str, Any]]:
     """
     Get authenticated user API usage record.
+    Queries by user_id OR ip_address and returns aggregated maximum values across all matching records.
     
     Args:
         db: Database session
         user_id: User ID (UUID) - foreign key to user table
+        ip_address: IP address from request header
         
     Returns:
-        Dictionary with api_usage JSON data or None if not found
+        Dictionary with api_usage JSON data aggregated with maximum values, or None if not found
     """
-    result = db.execute(
-        text("SELECT api_usage FROM unsubscribed_user_api_usage WHERE user_id = :user_id"),
-        {"user_id": user_id}
-    ).fetchone()
+    results = db.execute(
+        text("SELECT api_usage FROM unsubscribed_user_api_usage WHERE user_id = :user_id OR ip_address = :ip_address"),
+        {"user_id": user_id, "ip_address": ip_address}
+    ).fetchall()
     
-    if not result:
+    if not results:
         return None
     
-    api_usage_json = result[0]
-    if isinstance(api_usage_json, str):
-        api_usage = json.loads(api_usage_json)
-    else:
-        api_usage = api_usage_json
+    # Collect all api_usage JSON objects
+    api_usage_list = []
+    for result in results:
+        api_usage_json = result[0]
+        if isinstance(api_usage_json, str):
+            api_usage = json.loads(api_usage_json)
+        else:
+            api_usage = api_usage_json
+        api_usage_list.append(api_usage)
     
-    return api_usage
+    # Aggregate maximum values across all records
+    aggregated_usage = {}
+    all_keys = set()
+    
+    # Collect all unique keys from all records
+    for api_usage in api_usage_list:
+        all_keys.update(api_usage.keys())
+    
+    # For each key, find the maximum value across all records
+    for key in all_keys:
+        max_value = 0
+        for api_usage in api_usage_list:
+            value = api_usage.get(key, 0)
+            if isinstance(value, (int, float)):
+                max_value = max(max_value, value)
+        aggregated_usage[key] = max_value
+    
+    return aggregated_usage
 
 
 def create_authenticated_user_api_usage(
     db: Session,
     user_id: str,
-    api_name: str
+    api_name: str,
+    ip_address: str
 ) -> None:
     """
     Create a new authenticated user API usage record.
@@ -884,6 +909,7 @@ def create_authenticated_user_api_usage(
         db: Database session
         user_id: User ID (UUID) - foreign key to user table
         api_name: Name of the API being called (used to initialize counter)
+        ip_address: IP address from request header
     """
     # Initialize API usage JSON with all counters set to 0
     # Note: We initialize to 0 because the caller will increment it after creation
@@ -937,18 +963,19 @@ def create_authenticated_user_api_usage(
     db.execute(
         text("""
             INSERT INTO unsubscribed_user_api_usage 
-            (user_id, api_usage)
+            (user_id, ip_address, api_usage)
             VALUES 
-            (:user_id, :api_usage)
+            (:user_id, :ip_address, :api_usage)
         """),
         {
             "user_id": user_id,
+            "ip_address": ip_address,
             "api_usage": json.dumps(api_usage)
         }
     )
     db.commit()
     
-    logger.info("Created authenticated user API usage record", user_id=user_id, api_name=api_name)
+    logger.info("Created authenticated user API usage record", user_id=user_id, api_name=api_name, ip_address=ip_address)
 
 
 def increment_authenticated_api_usage(
