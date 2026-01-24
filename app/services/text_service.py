@@ -109,13 +109,14 @@ class TextService:
         language_code: str
     ) -> WordInfo:
         """Get explanation for a single word."""
-        explanation_data = await openai_service.get_word_explanation(word, context, language_code)
+        raw_response = await openai_service.get_word_explanation(word, context, language_code)
         
         return WordInfo(
             location=location,
             word=word,
-            meaning=explanation_data['meaning'],
-            examples=explanation_data['examples'],
+            raw_response=raw_response,
+            meaning=None,
+            examples=None,
             languageCode=language_code
         )
     
@@ -146,6 +147,42 @@ class TextService:
             
         except Exception as e:
             logger.error("Failed to generate more examples", word=word, error=str(e))
+            raise
+    
+    async def get_synonyms_of_word(self, word: str) -> List[str]:
+        """Get synonyms for a word. Returns up to 3 synonyms, at least 1."""
+        if not word or not word.strip():
+            raise ValidationError("Word cannot be empty")
+        
+        if len(word) > 100:
+            raise ValidationError("Word exceeds maximum length of 100 characters")
+        
+        try:
+            synonyms = await openai_service.get_synonyms_of_word(word)
+            
+            logger.info("Successfully got synonyms", word=word, count=len(synonyms))
+            return synonyms
+            
+        except Exception as e:
+            logger.error("Failed to get synonyms", word=word, error=str(e))
+            raise
+    
+    async def get_opposite_of_word(self, word: str) -> List[str]:
+        """Get antonyms (opposites) for a word. Returns up to 2 antonyms, at least 1."""
+        if not word or not word.strip():
+            raise ValidationError("Word cannot be empty")
+        
+        if len(word) > 100:
+            raise ValidationError("Word exceeds maximum length of 100 characters")
+        
+        try:
+            antonyms = await openai_service.get_opposite_of_word(word)
+            
+            logger.info("Successfully got antonyms", word=word, count=len(antonyms))
+            return antonyms
+            
+        except Exception as e:
+            logger.error("Failed to get antonyms", word=word, error=str(e))
             raise
 
 

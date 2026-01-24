@@ -126,6 +126,18 @@ pip install pytest pytest-asyncio httpx
 pytest tests/ -v
 ```
 
+### Database migrations
+
+For local development, the MariaDB schema is defined in `app/database/schema.sql` and applied on first setup.
+If you are upgrading an existing database, you may need to run manual `ALTER TABLE` statements.
+
+For example, to add the `contextual_meaning` column used by the saved words APIs:
+
+```sql
+ALTER TABLE saved_word
+ADD COLUMN contextual_meaning VARCHAR(1000) NULL;
+```
+
 ### Code Quality
 
 ```bash

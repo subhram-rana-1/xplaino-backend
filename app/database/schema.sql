@@ -4,6 +4,8 @@
 -- User table
 CREATE TABLE IF NOT EXISTS user (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    role ENUM('ADMIN', 'SUPER_ADMIN') NULL,
+    settings JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -57,5 +59,254 @@ CREATE TABLE IF NOT EXISTS unauthenticated_user_api_usage (
     api_usage JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Unsubscribed user API usage table (for authenticated users without subscription)
+CREATE TABLE IF NOT EXISTS unsubscribed_user_api_usage (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    user_id CHAR(36) NOT NULL,
+    ip_address VARCHAR(255) NOT NULL,
+    api_usage JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_ip_address (ip_address),
+    FOREIGN KEY (user_id) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Folder table
+CREATE TABLE IF NOT EXISTS folder (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    name VARCHAR(50) NOT NULL,
+    parent_id CHAR(36) NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_parent_id (parent_id),
+    INDEX idx_user_parent (user_id, parent_id),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (parent_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Saved words table
+CREATE TABLE IF NOT EXISTS saved_word (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    word VARCHAR(32) NOT NULL,
+    source_url VARCHAR(1024) NOT NULL,
+    contextual_meaning VARCHAR(1000) NULL,
+    folder_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_user_created_at (user_id, created_at),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Saved paragraph table
+CREATE TABLE IF NOT EXISTS saved_paragraph (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    source_url VARCHAR(1024) NOT NULL,
+    name VARCHAR(50) NULL,
+    content TEXT NOT NULL,
+    folder_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Saved link table
+CREATE TABLE IF NOT EXISTS saved_link (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    url VARCHAR(1024) NOT NULL,
+    name VARCHAR(100) NULL,
+    type ENUM('WEBPAGE', 'YOUTUBE', 'LINKEDIN', 'TWITTER', 'REDDIT', 'FACEBOOK', 'INSTAGRAM') NOT NULL DEFAULT 'WEBPAGE',
+    summary TEXT NULL,
+    metadata JSON NULL,
+    folder_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_url (url),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    UNIQUE KEY uk_url_user_id (url, user_id),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- File upload table
+CREATE TABLE IF NOT EXISTS file_upload (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    file_name VARCHAR(50) NOT NULL,
+    file_type ENUM('IMAGE', 'PDF') NOT NULL,
+    entity_type ENUM('ISSUE') NOT NULL,
+    entity_id CHAR(36) NOT NULL,
+    s3_url VARCHAR(2044),
+    metadata JSON,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_entity_id (entity_id),
+    INDEX idx_entity_type (entity_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Issue table
+CREATE TABLE IF NOT EXISTS issue (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    ticket_id VARCHAR(14) NOT NULL UNIQUE,
+    type ENUM('GLITCH', 'SUBSCRIPTION', 'AUTHENTICATION', 'FEATURE_REQUEST', 'OTHERS') NOT NULL,
+    heading VARCHAR(100) NULL,
+    description TEXT NOT NULL,
+    webpage_url VARCHAR(1024),
+    status ENUM('OPEN', 'WORK_IN_PROGRESS', 'DISCARDED', 'RESOLVED') NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    closed_by CHAR(36) NULL,
+    closed_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_created_by (created_by),
+    INDEX idx_status (status),
+    INDEX idx_ticket_id (ticket_id),
+    INDEX idx_created_at (created_at),
+    FOREIGN KEY (created_by) REFERENCES user(id),
+    FOREIGN KEY (closed_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Comments table
+CREATE TABLE IF NOT EXISTS comment (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    content VARCHAR(1024) NOT NULL,
+    entity_type ENUM('ISSUE') NOT NULL,
+    entity_id CHAR(36) NOT NULL,
+    parent_comment_id CHAR(36) NULL,
+    visibility ENUM('PUBLIC', 'INTERNAL') NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_entity (entity_type, entity_id),
+    INDEX idx_parent_comment (parent_comment_id),
+    INDEX idx_created_by (created_by),
+    FOREIGN KEY (parent_comment_id) REFERENCES comment(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Pricing table
+CREATE TABLE IF NOT EXISTS pricing (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    name VARCHAR(30) NOT NULL,
+    activation TIMESTAMP NOT NULL,
+    expiry TIMESTAMP NOT NULL,
+    status ENUM('ENABLED', 'DISABLED') NOT NULL,
+    features JSON NOT NULL,
+    currency ENUM('USD') NOT NULL,
+    pricing_details JSON NOT NULL,
+    description VARCHAR(500) NOT NULL,
+    is_highlighted BOOLEAN NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_activation (activation),
+    INDEX idx_expiry (expiry),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Subscription table
+CREATE TABLE IF NOT EXISTS subscription (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    pricing_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    starts_at TIMESTAMP NOT NULL,
+    ends_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_pricing_id (pricing_id),
+    INDEX idx_user_id (user_id),
+    FOREIGN KEY (pricing_id) REFERENCES pricing(id) ON DELETE RESTRICT,
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Domain table
+CREATE TABLE IF NOT EXISTS domain (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    url VARCHAR(100) NOT NULL,
+    status ENUM('ALLOWED', 'BANNED') NOT NULL DEFAULT 'ALLOWED',
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_url (url),
+    INDEX idx_status (status),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Saved image table
+CREATE TABLE IF NOT EXISTS saved_image (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    source_url VARCHAR(1024) NOT NULL,
+    image_url VARCHAR(1024) NOT NULL,
+    name VARCHAR(100) NULL,
+    folder_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_folder_id (folder_id),
+    INDEX idx_user_folder_created (user_id, folder_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- PDF table
+CREATE TABLE IF NOT EXISTS pdf (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    file_name VARCHAR(255) NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_created_by (created_by),
+    FOREIGN KEY (created_by) REFERENCES user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- PDF HTML page table
+CREATE TABLE IF NOT EXISTS pdf_html_page (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    page_no INT NOT NULL,
+    pdf_id CHAR(36) NOT NULL,
+    html_content LONGTEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_page_no (page_no),
+    INDEX idx_pdf_id (pdf_id),
+    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Coupon table
+CREATE TABLE IF NOT EXISTS coupon (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    code VARCHAR(30) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(1024) NOT NULL,
+    discount FLOAT NOT NULL,
+    activation TIMESTAMP NOT NULL,
+    expiry TIMESTAMP NOT NULL,
+    status ENUM('ENABLED', 'DISABLED') NOT NULL,
+    is_highlighted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_code (code),
+    INDEX idx_activation_expiry (activation, expiry),
+    INDEX idx_is_highlighted_status (is_highlighted, status),
+    FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

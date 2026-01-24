@@ -1,68 +1,294 @@
 """Authentication middleware for API endpoints."""
 
+import sys
 from typing import Optional, Dict, Any
 from fastapi import Request, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
 import structlog
 from datetime import datetime, timezone
 
+from structlog.processors import ExceptionPrettyPrinter
+
 from app.config import settings
 from app.database.connection import get_db
 from app.services.jwt_service import decode_access_token
+from app.utils.utils import get_client_ip
 from app.services.database_service import (
     get_user_session_by_id,
     get_unauthenticated_user_usage,
     create_unauthenticated_user_usage,
     increment_api_usage,
-    check_api_usage_limit
+    check_api_usage_limit,
+    get_authenticated_user_api_usage,
+    create_authenticated_user_api_usage,
+    increment_authenticated_api_usage,
+    get_user_id_by_auth_vendor_id
 )
 
 logger = structlog.get_logger()
 
-# API endpoint to counter field name mapping
+# API endpoint to counter field name mapping (METHOD:URL format)
 API_ENDPOINT_TO_COUNTER_FIELD = {
     # v1 APIs
-    "/api/v1/image-to-text": "image_to_text_api_count_so_far",
-    "/api/v1/pdf-to-text": "pdf_to_text_api_count_so_far",
-    "/api/v1/important-words-from-text": "important_words_from_text_v1_api_count_so_far",
-    "/api/v1/words-explanation": "words_explanation_v1_api_count_so_far",
-    "/api/v1/get-more-explanations": "get_more_explanations_api_count_so_far",
-    "/api/v1/get-random-paragraph": "get_random_paragraph_api_count_so_far",
+    "POST:/api/v1/image-to-text": "image_to_text_api_count_so_far",
+    "POST:/api/v1/pdf-to-text": "pdf_to_text_api_count_so_far",
+    "POST:/api/v1/important-words-from-text": "important_words_from_text_v1_api_count_so_far",
+    "POST:/api/v1/words-explanation": "words_explanation_v1_api_count_so_far",
+    "POST:/api/v1/get-more-explanations": "get_more_explanations_api_count_so_far",
+    "GET:/api/v1/get-random-paragraph": "get_random_paragraph_api_count_so_far",
     
     # v2 APIs
-    "/api/v2/words-explanation": "words_explanation_api_count_so_far",
-    "/api/v2/simplify": "simplify_api_count_so_far",
-    "/api/v2/important-words-from-text": "important_words_from_text_v2_api_count_so_far",
-    "/api/v2/ask": "ask_api_count_so_far",
-    "/api/v2/pronunciation": "pronunciation_api_count_so_far",
-    "/api/v2/voice-to-text": "voice_to_text_api_count_so_far",
-    "/api/v2/translate": "translate_api_count_so_far",
-    "/api/v2/summarise": "summarise_api_count_so_far",
-    "/api/v2/web-search": "web_search_api_count_so_far",
-    "/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
+    "POST:/api/v2/words-explanation": "words_explanation_api_count_so_far",
+    "POST:/api/v2/simplify": "simplify_api_count_so_far",
+    "POST:/api/v2/important-words-from-text": "important_words_from_text_v2_api_count_so_far",
+    "POST:/api/v2/ask": "ask_api_count_so_far",
+    "POST:/api/v2/pronunciation": "pronunciation_api_count_so_far",
+    "POST:/api/v2/voice-to-text": "voice_to_text_api_count_so_far",
+    "POST:/api/v2/translate": "translate_api_count_so_far",
+    "POST:/api/v2/summarise": "summarise_api_count_so_far",
+    "POST:/api/v2/web-search": "web_search_api_count_so_far",
+    "POST:/api/v2/web-search-stream": "web_search_stream_api_count_so_far",
+    "POST:/api/v2/synonyms": "synonyms_api_count_so_far",
+    "POST:/api/v2/antonyms": "antonyms_api_count_so_far",
+    "POST:/api/v2/simplify-image": "simplify_image_api_count_so_far",
+    "POST:/api/v2/ask-image": "ask_image_api_count_so_far",
+    
+    # Saved words APIs (method-specific)
+    "GET:/api/saved-words": "saved_words_get_api_count_so_far",
+    "GET:/api/saved-words/": "saved_words_get_api_count_so_far",
+    "POST:/api/saved-words": "saved_words_post_api_count_so_far",
+    "POST:/api/saved-words/": "saved_words_post_api_count_so_far",
+    "DELETE:/api/saved-words": "saved_words_delete_api_count_so_far",
+    "DELETE:/api/saved-words/": "saved_words_delete_api_count_so_far",
+    
+    # Saved paragraph APIs (method-specific)
+    "GET:/api/saved-paragraph": "saved_paragraph_get_api_count_so_far",
+    "GET:/api/saved-paragraph/": "saved_paragraph_get_api_count_so_far",
+    "POST:/api/saved-paragraph": "saved_paragraph_post_api_count_so_far",
+    "POST:/api/saved-paragraph/": "saved_paragraph_post_api_count_so_far",
+    "DELETE:/api/saved-paragraph": "saved_paragraph_delete_api_count_so_far",
+    "DELETE:/api/saved-paragraph/": "saved_paragraph_delete_api_count_so_far",
+    "POST:/api/saved-paragraph/folder": "saved_paragraph_folder_post_api_count_so_far",
+    "DELETE:/api/saved-paragraph/folder": "saved_paragraph_folder_delete_api_count_so_far",
+    
+    # Saved link APIs (method-specific)
+    "GET:/api/saved-link": "saved_link_get_api_count_so_far",
+    "GET:/api/saved-link/": "saved_link_get_api_count_so_far",
+    "GET:/api/saved-link/{link_id}": "saved_link_get_api_count_so_far",
+    "POST:/api/saved-link": "saved_link_post_api_count_so_far",
+    "POST:/api/saved-link/": "saved_link_post_api_count_so_far",
+    "DELETE:/api/saved-link": "saved_link_delete_api_count_so_far",
+    "DELETE:/api/saved-link/": "saved_link_delete_api_count_so_far",
+    "DELETE:/api/saved-link/{link_id}": "saved_link_delete_api_count_so_far",
+    "POST:/api/saved-link/folder": "saved_link_folder_post_api_count_so_far",
+    "DELETE:/api/saved-link/folder": "saved_link_folder_delete_api_count_so_far",
+    
+    # Folders APIs (method-specific)
+    "GET:/api/folders": "folders_get_api_count_so_far",
+    "POST:/api/folders": "folders_post_api_count_so_far",
+    "POST:/api/folders/": "folders_post_api_count_so_far",
+    "DELETE:/api/folders": "folders_delete_api_count_so_far",
+    
+    # Saved image APIs (method-specific)
+    "GET:/api/saved-image": "saved_image_get_api_count_so_far",
+    "GET:/api/saved-image/": "saved_image_get_api_count_so_far",
+    "POST:/api/saved-image": "saved_image_post_api_count_so_far",
+    "POST:/api/saved-image/": "saved_image_post_api_count_so_far",
+    "PATCH:/api/saved-image/{saved_image_id}/move-to-folder": "saved_image_move_api_count_so_far",
+    "PATCH:/api/saved-words/{word_id}/move-to-folder": "saved_words_move_api_count_so_far",
+    "PATCH:/api/saved-paragraph/{paragraph_id}/move-to-folder": "saved_paragraph_move_api_count_so_far",
+    "PATCH:/api/saved-link/{link_id}/move-to-folder": "saved_link_move_api_count_so_far",
+    "DELETE:/api/saved-image": "saved_image_delete_api_count_so_far",
+    "DELETE:/api/saved-image/": "saved_image_delete_api_count_so_far",
+    "DELETE:/api/saved-image/{saved_image_id}": "saved_image_delete_api_count_so_far",
+    
+    # Issue APIs (method-specific)
+    "GET:/api/issue/": "issue_get_api_count_so_far",
+    "GET:/api/issue/all": "issue_get_all_api_count_so_far",
+    "PATCH:/api/issue/{issue_id}": "issue_patch_api_count_so_far",
+    "POST:/api/issue/": "issue_post_api_count_so_far",
+    
+    # PDF APIs (method-specific)
+    "POST:/api/pdf/to-html": "pdf_to_html_api_count_so_far",
+    "GET:/api/pdf": "pdf_get_api_count_so_far",
+    "GET:/api/pdf/": "pdf_get_api_count_so_far",
+    "GET:/api/pdf/{pdf_id}/html": "pdf_get_html_api_count_so_far",
 }
 
-# API endpoint to max limit config mapping
+# API endpoint to max limit config mapping (METHOD:URL format)
 API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     # v1 APIs
-    "/api/v1/image-to-text": "image_to_text_api_max_limit",
-    "/api/v1/pdf-to-text": "pdf_to_text_api_max_limit",
-    "/api/v1/important-words-from-text": "important_words_from_text_v1_api_max_limit",
-    "/api/v1/words-explanation": "words_explanation_v1_api_max_limit",
-    "/api/v1/get-more-explanations": "get_more_explanations_api_max_limit",
-    "/api/v1/get-random-paragraph": "get_random_paragraph_api_max_limit",
+    "POST:/api/v1/image-to-text": "image_to_text_api_max_limit",
+    "POST:/api/v1/pdf-to-text": "pdf_to_text_api_max_limit",
+    "POST:/api/v1/important-words-from-text": "important_words_from_text_v1_api_max_limit",
+    "POST:/api/v1/words-explanation": "words_explanation_v1_api_max_limit",
+    "POST:/api/v1/get-more-explanations": "get_more_explanations_api_max_limit",
+    "GET:/api/v1/get-random-paragraph": "get_random_paragraph_api_max_limit",
     
     # v2 APIs
-    "/api/v2/words-explanation": "words_explanation_api_max_limit",
-    "/api/v2/simplify": "simplify_api_max_limit",
-    "/api/v2/important-words-from-text": "important_words_from_text_v2_api_max_limit",
-    "/api/v2/ask": "ask_api_max_limit",
-    "/api/v2/pronunciation": "pronunciation_api_max_limit",
-    "/api/v2/voice-to-text": "voice_to_text_api_max_limit",
-    "/api/v2/translate": "translate_api_max_limit",
-    "/api/v2/summarise": "summarise_api_max_limit",
-    "/api/v2/web-search": "web_search_api_max_limit",
-    "/api/v2/web-search-stream": "web_search_stream_api_max_limit",
+    "POST:/api/v2/words-explanation": "words_explanation_api_max_limit",
+    "POST:/api/v2/simplify": "simplify_api_max_limit",
+    "POST:/api/v2/important-words-from-text": "important_words_from_text_v2_api_max_limit",
+    "POST:/api/v2/ask": "ask_api_max_limit",
+    "POST:/api/v2/pronunciation": "pronunciation_api_max_limit",
+    "POST:/api/v2/voice-to-text": "voice_to_text_api_max_limit",
+    "POST:/api/v2/translate": "translate_api_max_limit",
+    "POST:/api/v2/summarise": "summarise_api_max_limit",
+    "POST:/api/v2/web-search": "web_search_api_max_limit",
+    "POST:/api/v2/web-search-stream": "web_search_stream_api_max_limit",
+    "POST:/api/v2/synonyms": "synonyms_api_max_limit",
+    "POST:/api/v2/antonyms": "antonyms_api_max_limit",
+    "POST:/api/v2/simplify-image": "simplify_image_api_max_limit",
+    "POST:/api/v2/ask-image": "ask_image_api_max_limit",
+    
+    # Saved words APIs (method-specific)
+    "GET:/api/saved-words": "saved_words_get_api_max_limit",
+    "GET:/api/saved-words/": "saved_words_get_api_max_limit",
+    "POST:/api/saved-words": "saved_words_post_api_max_limit",
+    "POST:/api/saved-words/": "saved_words_post_api_max_limit",
+    "DELETE:/api/saved-words": "saved_words_delete_api_max_limit",
+    "DELETE:/api/saved-words/": "saved_words_delete_api_max_limit",
+    
+    # Saved paragraph APIs (method-specific)
+    "GET:/api/saved-paragraph": "saved_paragraph_get_api_max_limit",
+    "GET:/api/saved-paragraph/": "saved_paragraph_get_api_max_limit",
+    "POST:/api/saved-paragraph": "saved_paragraph_post_api_max_limit",
+    "POST:/api/saved-paragraph/": "saved_paragraph_post_api_max_limit",
+    "DELETE:/api/saved-paragraph": "saved_paragraph_delete_api_max_limit",
+    "DELETE:/api/saved-paragraph/": "saved_paragraph_delete_api_max_limit",
+    "POST:/api/saved-paragraph/folder": "saved_paragraph_folder_post_api_max_limit",
+    "DELETE:/api/saved-paragraph/folder": "saved_paragraph_folder_delete_api_max_limit",
+    
+    # Saved link APIs (method-specific)
+    "GET:/api/saved-link": "saved_link_get_api_max_limit",
+    "GET:/api/saved-link/": "saved_link_get_api_max_limit",
+    "GET:/api/saved-link/{link_id}": "saved_link_get_api_max_limit",
+    "POST:/api/saved-link": "saved_link_post_api_max_limit",
+    "POST:/api/saved-link/": "saved_link_post_api_max_limit",
+    "DELETE:/api/saved-link": "saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/": "saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/{link_id}": "saved_link_delete_api_max_limit",
+    "POST:/api/saved-link/folder": "saved_link_folder_post_api_max_limit",
+    "DELETE:/api/saved-link/folder": "saved_link_folder_delete_api_max_limit",
+    
+    # Folders APIs (method-specific)
+    "GET:/api/folders": "folders_get_api_max_limit",
+    "POST:/api/folders": "folders_post_api_max_limit",
+    "POST:/api/folders/": "folders_post_api_max_limit",
+    "DELETE:/api/folders": "folders_delete_api_max_limit",
+    
+    # Saved image APIs (method-specific)
+    "GET:/api/saved-image": "saved_image_get_api_max_limit",
+    "GET:/api/saved-image/": "saved_image_get_api_max_limit",
+    "POST:/api/saved-image": "saved_image_post_api_max_limit",
+    "POST:/api/saved-image/": "saved_image_post_api_max_limit",
+    "PATCH:/api/saved-image/{saved_image_id}/move-to-folder": "saved_image_move_api_max_limit",
+    "PATCH:/api/saved-words/{word_id}/move-to-folder": "saved_words_move_api_max_limit",
+    "PATCH:/api/saved-paragraph/{paragraph_id}/move-to-folder": "saved_paragraph_move_api_max_limit",
+    "PATCH:/api/saved-link/{link_id}/move-to-folder": "saved_link_move_api_max_limit",
+    "DELETE:/api/saved-image": "saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/": "saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/{saved_image_id}": "saved_image_delete_api_max_limit",
+    
+    # Issue APIs (method-specific)
+    "GET:/api/issue/": "issue_get_api_max_limit",
+    "GET:/api/issue/all": "issue_get_all_api_max_limit",
+    "PATCH:/api/issue/{issue_id}": "issue_patch_api_max_limit",
+    "POST:/api/issue/": "issue_post_api_max_limit",
+    
+    # PDF APIs (method-specific)
+    "POST:/api/pdf/to-html": "pdf_to_html_api_max_limit",
+    "GET:/api/pdf": "pdf_get_api_max_limit",
+    "GET:/api/pdf/": "pdf_get_api_max_limit",
+    "GET:/api/pdf/{pdf_id}/html": "pdf_get_html_api_max_limit",
+}
+
+# API endpoint to authenticated max limit config mapping (METHOD:URL format)
+API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
+    # v1 APIs
+    "POST:/api/v1/image-to-text": "authenticated_image_to_text_api_max_limit",
+    "POST:/api/v1/pdf-to-text": "authenticated_pdf_to_text_api_max_limit",
+    "POST:/api/v1/important-words-from-text": "authenticated_important_words_from_text_v1_api_max_limit",
+    "POST:/api/v1/words-explanation": "authenticated_words_explanation_v1_api_max_limit",
+    "POST:/api/v1/get-more-explanations": "authenticated_get_more_explanations_api_max_limit",
+    "GET:/api/v1/get-random-paragraph": "authenticated_get_random_paragraph_api_max_limit",
+    
+    # v2 APIs
+    "POST:/api/v2/words-explanation": "authenticated_words_explanation_api_max_limit",
+    "POST:/api/v2/simplify": "authenticated_simplify_api_max_limit",
+    "POST:/api/v2/important-words-from-text": "authenticated_important_words_from_text_v2_api_max_limit",
+    "POST:/api/v2/ask": "authenticated_ask_api_max_limit",
+    "POST:/api/v2/pronunciation": "authenticated_pronunciation_api_max_limit",
+    "POST:/api/v2/voice-to-text": "authenticated_voice_to_text_api_max_limit",
+    "POST:/api/v2/translate": "authenticated_translate_api_max_limit",
+    "POST:/api/v2/summarise": "authenticated_summarise_api_max_limit",
+    "POST:/api/v2/web-search": "authenticated_web_search_api_max_limit",
+    "POST:/api/v2/web-search-stream": "authenticated_web_search_stream_api_max_limit",
+    "POST:/api/v2/synonyms": "authenticated_synonyms_api_max_limit",
+    "POST:/api/v2/antonyms": "authenticated_antonyms_api_max_limit",
+    "POST:/api/v2/simplify-image": "authenticated_simplify_image_api_max_limit",
+    "POST:/api/v2/ask-image": "authenticated_ask_image_api_max_limit",
+    
+    # Saved words APIs (method-specific)
+    "GET:/api/saved-words": "authenticated_saved_words_get_api_max_limit",
+    "GET:/api/saved-words/": "authenticated_saved_words_get_api_max_limit",
+    "POST:/api/saved-words": "authenticated_saved_words_post_api_max_limit",
+    "POST:/api/saved-words/": "authenticated_saved_words_post_api_max_limit",
+    "DELETE:/api/saved-words": "authenticated_saved_words_delete_api_max_limit",
+    "DELETE:/api/saved-words/": "authenticated_saved_words_delete_api_max_limit",
+    
+    # Saved paragraph APIs (method-specific)
+    "GET:/api/saved-paragraph": "authenticated_saved_paragraph_get_api_max_limit",
+    "GET:/api/saved-paragraph/": "authenticated_saved_paragraph_get_api_max_limit",
+    "POST:/api/saved-paragraph": "authenticated_saved_paragraph_post_api_max_limit",
+    "POST:/api/saved-paragraph/": "authenticated_saved_paragraph_post_api_max_limit",
+    "DELETE:/api/saved-paragraph": "authenticated_saved_paragraph_delete_api_max_limit",
+    "DELETE:/api/saved-paragraph/": "authenticated_saved_paragraph_delete_api_max_limit",
+    "POST:/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_post_api_max_limit",
+    "DELETE:/api/saved-paragraph/folder": "authenticated_saved_paragraph_folder_delete_api_max_limit",
+    
+    # Saved link APIs (method-specific)
+    "GET:/api/saved-link": "authenticated_saved_link_get_api_max_limit",
+    "GET:/api/saved-link/": "authenticated_saved_link_get_api_max_limit",
+    "GET:/api/saved-link/{link_id}": "authenticated_saved_link_get_api_max_limit",
+    "POST:/api/saved-link": "authenticated_saved_link_post_api_max_limit",
+    "POST:/api/saved-link/": "authenticated_saved_link_post_api_max_limit",
+    "DELETE:/api/saved-link": "authenticated_saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/": "authenticated_saved_link_delete_api_max_limit",
+    "DELETE:/api/saved-link/{link_id}": "authenticated_saved_link_delete_api_max_limit",
+    "POST:/api/saved-link/folder": "authenticated_saved_link_folder_post_api_max_limit",
+    "DELETE:/api/saved-link/folder": "authenticated_saved_link_folder_delete_api_max_limit",
+    
+    # Folders APIs (method-specific)
+    "GET:/api/folders": "authenticated_folders_get_api_max_limit",
+    "POST:/api/folders": "authenticated_folders_post_api_max_limit",
+    "POST:/api/folders/": "authenticated_folders_post_api_max_limit",
+    "DELETE:/api/folders": "authenticated_folders_delete_api_max_limit",
+    
+    # Saved image APIs (method-specific)
+    "GET:/api/saved-image": "authenticated_saved_image_get_api_max_limit",
+    "GET:/api/saved-image/": "authenticated_saved_image_get_api_max_limit",
+    "POST:/api/saved-image": "authenticated_saved_image_post_api_max_limit",
+    "POST:/api/saved-image/": "authenticated_saved_image_post_api_max_limit",
+    "PATCH:/api/saved-image/{saved_image_id}/move-to-folder": "authenticated_saved_image_move_api_max_limit",
+    "PATCH:/api/saved-words/{word_id}/move-to-folder": "authenticated_saved_words_move_api_max_limit",
+    "PATCH:/api/saved-paragraph/{paragraph_id}/move-to-folder": "authenticated_saved_paragraph_move_api_max_limit",
+    "PATCH:/api/saved-link/{link_id}/move-to-folder": "authenticated_saved_link_move_api_max_limit",
+    "DELETE:/api/saved-image": "authenticated_saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/": "authenticated_saved_image_delete_api_max_limit",
+    "DELETE:/api/saved-image/{saved_image_id}": "authenticated_saved_image_delete_api_max_limit",
+    
+    # Issue APIs (method-specific)
+    "GET:/api/issue/": "authenticated_issue_get_api_max_limit",
+    "GET:/api/issue/all": "authenticated_issue_get_all_api_max_limit",
+    "PATCH:/api/issue/{issue_id}": "authenticated_issue_patch_api_max_limit",
+    "POST:/api/issue/": "authenticated_issue_post_api_max_limit",
+    
+    # PDF APIs (method-specific)
+    "POST:/api/pdf/to-html": "authenticated_pdf_to_html_api_max_limit",
+    "GET:/api/pdf": "authenticated_pdf_get_api_max_limit",
+    "GET:/api/pdf/": "authenticated_pdf_get_api_max_limit",
+    "GET:/api/pdf/{pdf_id}/html": "authenticated_pdf_get_html_api_max_limit",
 }
 
 
@@ -76,18 +302,180 @@ def get_api_counter_field_and_limit(request: Request) -> tuple[Optional[str], Op
     Returns:
         Tuple of (counter_field_name, max_limit) or (None, None) if not found
     """
+    method = request.method
     path = request.url.path
+    lookup_key = f"{method}:{path}"
     
     # Try exact match first
-    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(path)
-    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(path)
+    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(lookup_key)
+    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(lookup_key)
     
-    if counter_field and limit_config:
-        max_limit = getattr(settings, limit_config, None)
-        return counter_field, max_limit
+    # If no exact match, try pattern matching for paths with parameters
+    if counter_field is None or limit_config is None:
+        # Handle GET endpoints with path parameters
+        # e.g., GET:/api/pdf/abc-123/html -> GET:/api/pdf/{pdf_id}/html
+        if method == "GET":
+            if path.startswith("/api/pdf/") and path.endswith("/html"):
+                pattern_key = f"{method}:/api/pdf/{{pdf_id}}/html"
+                counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
+        # Handle DELETE endpoints with path parameters
+        # e.g., DELETE:/api/saved-words/abc-123 -> DELETE:/api/saved-words
+        elif method == "DELETE":
+            # Try removing the last path segment (the ID parameter)
+            path_parts = path.rstrip('/').split('/')
+            if len(path_parts) > 0:
+                # Try base path without the ID
+                base_path = '/'.join(path_parts[:-1])
+                if base_path:
+                    base_lookup_key = f"{method}:{base_path}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(base_lookup_key)
+                    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(base_lookup_key)
+        # Handle PATCH endpoints with path parameters
+        # e.g., PATCH:/api/saved-image/abc-123/move-to-folder -> PATCH:/api/saved-image/{saved_image_id}/move-to-folder
+        # e.g., PATCH:/api/saved-words/abc-123/move-to-folder -> PATCH:/api/saved-words/{word_id}/move-to-folder
+        # e.g., PATCH:/api/saved-paragraph/abc-123/move-to-folder -> PATCH:/api/saved-paragraph/{paragraph_id}/move-to-folder
+        # e.g., PATCH:/api/saved-link/abc-123/move-to-folder -> PATCH:/api/saved-link/{link_id}/move-to-folder
+        # e.g., PATCH:/api/issue/abc-123 -> PATCH:/api/issue/{issue_id}
+        elif method == "PATCH":
+            # For move-to-folder endpoint, try pattern match
+            if path.endswith("/move-to-folder"):
+                # Try different move-to-folder patterns
+                if path.startswith("/api/saved-image/"):
+                    pattern_key = f"{method}:/api/saved-image/{{saved_image_id}}/move-to-folder"
+                elif path.startswith("/api/saved-words/"):
+                    pattern_key = f"{method}:/api/saved-words/{{word_id}}/move-to-folder"
+                elif path.startswith("/api/saved-paragraph/"):
+                    pattern_key = f"{method}:/api/saved-paragraph/{{paragraph_id}}/move-to-folder"
+                elif path.startswith("/api/saved-link/"):
+                    pattern_key = f"{method}:/api/saved-link/{{link_id}}/move-to-folder"
+                else:
+                    pattern_key = None
+                
+                if pattern_key:
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
+            # For issue update endpoint, try pattern match
+            elif path.startswith("/api/issue/"):
+                path_parts = path.rstrip('/').split('/')
+                if len(path_parts) == 3:  # /api/issue/{issue_id}
+                    pattern_key = f"{method}:/api/issue/{{issue_id}}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                    limit_config = API_ENDPOINT_TO_MAX_LIMIT_CONFIG.get(pattern_key)
     
-    # If not found, return None
-    return None, None
+    # If API counter doesn't exist, treat as unlimited (max int)
+    if counter_field is None or limit_config is None:
+        return None, sys.maxsize
+    
+    max_limit = getattr(settings, limit_config, None)
+    if max_limit is None:
+        # If limit config doesn't exist in settings, treat as unlimited
+        return None, sys.maxsize
+
+    return counter_field, max_limit
+
+
+def raise_login_required(status_code: int = 401, reason: str = "Please login") -> None:
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "errorCode": "LOGIN_REQUIRED",
+            "message": reason
+        }
+    )
+
+
+def raise_subscription_required(reason: str = "API usage limit exceeded. Please subscribe to continue.") -> None:
+    raise HTTPException(
+        status_code=429,
+        detail={
+            "errorCode": "SUBSCRIPTION_REQUIRED",
+            "message": reason
+        }
+    )
+
+
+def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Optional[str], Optional[int]]:
+    """
+    Get the API counter field name and authenticated max limit for the current request.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Tuple of (counter_field_name, max_limit) or (None, None) if not found
+    """
+    method = request.method
+    path = request.url.path
+    lookup_key = f"{method}:{path}"
+    
+    # Try exact match first
+    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(lookup_key)
+    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(lookup_key)
+    
+    # If no exact match, try pattern matching for paths with parameters
+    if counter_field is None or limit_config is None:
+        # Handle GET endpoints with path parameters
+        # e.g., GET:/api/pdf/abc-123/html -> GET:/api/pdf/{pdf_id}/html
+        if method == "GET":
+            if path.startswith("/api/pdf/") and path.endswith("/html"):
+                pattern_key = f"{method}:/api/pdf/{{pdf_id}}/html"
+                counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
+        # Handle DELETE endpoints with path parameters
+        # e.g., DELETE:/api/saved-words/abc-123 -> DELETE:/api/saved-words
+        elif method == "DELETE":
+            # Try removing the last path segment (the ID parameter)
+            path_parts = path.rstrip('/').split('/')
+            if len(path_parts) > 0:
+                # Try base path without the ID
+                base_path = '/'.join(path_parts[:-1])
+                if base_path:
+                    base_lookup_key = f"{method}:{base_path}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(base_lookup_key)
+                    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(base_lookup_key)
+        # Handle PATCH endpoints with path parameters
+        # e.g., PATCH:/api/saved-image/abc-123/move-to-folder -> PATCH:/api/saved-image/{saved_image_id}/move-to-folder
+        # e.g., PATCH:/api/saved-words/abc-123/move-to-folder -> PATCH:/api/saved-words/{word_id}/move-to-folder
+        # e.g., PATCH:/api/saved-paragraph/abc-123/move-to-folder -> PATCH:/api/saved-paragraph/{paragraph_id}/move-to-folder
+        # e.g., PATCH:/api/saved-link/abc-123/move-to-folder -> PATCH:/api/saved-link/{link_id}/move-to-folder
+        # e.g., PATCH:/api/issue/abc-123 -> PATCH:/api/issue/{issue_id}
+        elif method == "PATCH":
+            # For move-to-folder endpoint, try pattern match
+            if path.endswith("/move-to-folder"):
+                # Try different move-to-folder patterns
+                if path.startswith("/api/saved-image/"):
+                    pattern_key = f"{method}:/api/saved-image/{{saved_image_id}}/move-to-folder"
+                elif path.startswith("/api/saved-words/"):
+                    pattern_key = f"{method}:/api/saved-words/{{word_id}}/move-to-folder"
+                elif path.startswith("/api/saved-paragraph/"):
+                    pattern_key = f"{method}:/api/saved-paragraph/{{paragraph_id}}/move-to-folder"
+                elif path.startswith("/api/saved-link/"):
+                    pattern_key = f"{method}:/api/saved-link/{{link_id}}/move-to-folder"
+                else:
+                    pattern_key = None
+                
+                if pattern_key:
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
+            # For issue update endpoint, try pattern match
+            elif path.startswith("/api/issue/"):
+                path_parts = path.rstrip('/').split('/')
+                if len(path_parts) == 3:  # /api/issue/{issue_id}
+                    pattern_key = f"{method}:/api/issue/{{issue_id}}"
+                    counter_field = API_ENDPOINT_TO_COUNTER_FIELD.get(pattern_key)
+                    limit_config = API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG.get(pattern_key)
+    
+    # If API counter doesn't exist, treat as unlimited (max int)
+    if counter_field is None or limit_config is None:
+        return None, sys.maxsize
+    
+    max_limit = getattr(settings, limit_config, None)
+    if max_limit is None:
+        # If limit config doesn't exist in settings, treat as unlimited
+        return None, sys.maxsize
+
+    return counter_field, max_limit
 
 
 async def authenticate(
@@ -134,186 +522,33 @@ async def authenticate(
     authorization_header = request.headers.get("Authorization")
     unauthenticated_user_id = request.headers.get("X-Unauthenticated-User-Id")
     
-    logger.info(
-        "Authentication middleware called",
-        function="authenticate",
-        path=request.url.path,
-        method=request.method,
-        has_authorization_header=bool(authorization_header),
-        has_unauthenticated_user_id=bool(unauthenticated_user_id)
-    )
-    
     # Extract access token from Authorization header (Bearer <token> format)
     access_token = None
     if authorization_header:
-        # Check if it starts with "Bearer "
         if authorization_header.startswith("Bearer "):
             access_token = authorization_header[7:].strip()  # Remove "Bearer " prefix
-            logger.info(
-                "Access token extracted from Authorization header",
-                function="authenticate",
-                path=request.url.path,
-                access_token_length=len(access_token) if access_token else 0,
-                access_token_preview=access_token[:8] + "..." if access_token and len(access_token) > 8 else None
-            )
-        else:
-            # Invalid format - treat as no token
-            logger.warning(
-                "Invalid Authorization header format - expected 'Bearer <token>'",
-                function="authenticate",
-                path=request.url.path
-            )
-            access_token = None
-    else:
-        logger.debug(
-            "No Authorization header present",
-            function="authenticate",
-            path=request.url.path
-        )
-    
-    # Get API counter field and max limit for this endpoint
-    api_counter_field, max_limit = get_api_counter_field_and_limit(request)
-    logger.debug(
-        "API counter field and limit determined",
-        function="authenticate",
-        path=request.url.path,
-        api_counter_field=api_counter_field,
-        max_limit=max_limit
-    )
-    
-    # CRITICAL STEP: Determine authentication case
-    logger.info(
-        "Determining authentication case",
-        function="authenticate",
-        path=request.url.path,
-        has_access_token=bool(access_token),
-        has_unauthenticated_user_id=bool(unauthenticated_user_id),
-        authentication_case="Case 1: Authenticated" if access_token else ("Case 2: Unauthenticated with ID" if unauthenticated_user_id else "Case 3: New unauthenticated")
-    )
-    
+
     # Case 1: Access token header is available (authenticated user)
     if access_token:
-        access_token_preview = access_token[:8] + "..." if access_token and len(access_token) > 8 else None
-        logger.info(
-            "Case 1: Authenticated user - processing access token",
-            function="authenticate",
-            path=request.url.path,
-            access_token_preview=access_token_preview,
-            access_token_length=len(access_token) if access_token else 0
-        )
         try:
             # Decode JWT access token
-            logger.debug(
-                "Decoding JWT access token",
-                function="authenticate",
-                path=request.url.path,
-                verify_exp=False
-            )
             token_payload = decode_access_token(access_token, verify_exp=False)
-            
-            # CRITICAL STEP: Log successful token decode
-            logger.info(
-                "JWT access token decoded successfully",
-                function="authenticate",
-                path=request.url.path,
-                has_sub=bool(token_payload.get("sub")),
-                has_email=bool(token_payload.get("email")),
-                has_user_session_pk=bool(token_payload.get("user_session_pk")),
-                token_keys=list(token_payload.keys())
-            )
-            
             user_session_pk = token_payload.get("user_session_pk")
             
             if not user_session_pk:
-                logger.warning(
-                    "Missing user_session_pk in access token",
-                    function="authenticate",
-                    path=request.url.path,
-                    token_keys=list(token_payload.keys())
-                )
-                raise HTTPException(
-                    status_code=401,
-                    detail={
-                        "errorCode": "LOGIN_REQUIRED",
-                        "message": "Please login"
-                    }
-                )
-            
-            logger.debug(
-                "User session PK extracted from token",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk
-            )
-            
-            # Fetch session from database
-            logger.debug(
-                "Fetching user session from database",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk
-            )
+                raise_login_required()
+
             session_data = get_user_session_by_id(db, user_session_pk)
-            
             if not session_data:
-                logger.warning(
-                    "User session not found",
-                    function="authenticate",
-                    path=request.url.path,
-                    user_session_pk=user_session_pk
-                )
-                raise HTTPException(
-                    status_code=401,
-                    detail={
-                        "errorCode": "LOGIN_REQUIRED",
-                        "message": "Please login"
-                    }
-                )
-            
-            logger.debug(
-                "User session retrieved from database",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk,
-                access_token_state=session_data.get("access_token_state")
-            )
-            
+                raise_login_required()
+
             # CRITICAL STEP: Validate session state
             session_state = session_data.get("access_token_state")
-            logger.info(
-                "Validating session state",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk,
-                access_token_state=session_state,
-                is_valid=(session_state == "VALID")
-            )
             
             # Check if session is INVALID
             if session_state != "VALID":
-                logger.warning(
-                    "User session is INVALID - returning 401, endpoint will not execute",
-                    function="authenticate",
-                    path=request.url.path,
-                    user_session_pk=user_session_pk,
-                    access_token_state=session_state
-                )
-                raise HTTPException(
-                    status_code=401,
-                    detail={
-                        "errorCode": "LOGIN_REQUIRED",
-                        "reason": "Please login"
-                    }
-                )
-            
-            # CRITICAL STEP: Session state validation passed
-            logger.info(
-                "Session state validation passed - session is VALID",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk
-            )
-            
+                raise_login_required()
+
             # Check if access_token_expires_at has expired
             access_token_expires_at = session_data.get("access_token_expires_at")
             if access_token_expires_at:
@@ -328,14 +563,6 @@ async def authenticate(
                 
                 current_time = datetime.now(timezone.utc)
                 if expires_at < current_time:
-                    logger.warning(
-                        "Access token expired - returning 401, endpoint will not execute",
-                        function="authenticate",
-                        path=request.url.path,
-                        user_session_pk=user_session_pk,
-                        expires_at=str(expires_at),
-                        current_time=str(current_time)
-                    )
                     raise HTTPException(
                         status_code=401,
                         detail={
@@ -343,42 +570,47 @@ async def authenticate(
                             "reason": "Please refresh the access token with refresh token"
                         }
                     )
-                else:
-                    # CRITICAL STEP: Token expiry validation passed
-                    logger.info(
-                        "Access token expiry validation passed - token still valid",
-                        function="authenticate",
-                        path=request.url.path,
-                        user_session_pk=user_session_pk,
-                        expires_at=str(expires_at),
-                        current_time=str(current_time),
-                        seconds_until_expiry=int((expires_at - current_time).total_seconds())
-                    )
+
+            # CRITICAL STEP: Get user_id from session
+            auth_vendor_id = session_data.get("auth_vendor_id")
+            if not auth_vendor_id:
+                raise_login_required()
+            
+            user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+            if not user_id:
+                raise_login_required()
+
+            # CRITICAL STEP: Get API counter field and authenticated max limit
+            api_counter_field, max_limit = get_api_counter_field_and_authenticated_limit(request)
+            
+            # If API counter doesn't exist, treat as unlimited (skip rate limiting)
+            if api_counter_field is None and max_limit == sys.maxsize:
+                # Unlimited access - skip rate limiting checks
+                pass
+            elif not api_counter_field or max_limit is None:
+                raise_subscription_required()
             else:
-                logger.debug(
-                    "No access_token_expires_at in session - skipping expiry check",
-                    function="authenticate",
-                    path=request.url.path,
-                    user_session_pk=user_session_pk
-                )
-            
-            # CRITICAL STEP: All validations passed for authenticated user
-            logger.info(
-                "All authentication validations passed for authenticated user",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk,
-                auth_vendor_type=session_data.get("auth_vendor_type")
-            )
-            
-            # Authenticated user - proceed with request
-            logger.info(
-                "Authentication successful - authenticated user",
-                function="authenticate",
-                path=request.url.path,
-                user_session_pk=user_session_pk,
-                auth_vendor_type=session_data.get("auth_vendor_type")
-            )
+                # CRITICAL STEP: Extract IP address from request
+                ip_address = get_client_ip(request)
+                
+                # CRITICAL STEP: Get or create authenticated user API usage record
+                api_usage = get_authenticated_user_api_usage(db, user_id, ip_address)
+                if not api_usage:
+                    # Create new record with all counters initialized to 0
+                    create_authenticated_user_api_usage(db, user_id, api_counter_field, ip_address)
+                    # Re-fetch to get the newly created record
+                    api_usage = get_authenticated_user_api_usage(db, user_id, ip_address)
+                    if not api_usage:
+                        raise_subscription_required()
+
+                # CRITICAL STEP: Check if limit exceeded (before incrementing)
+                current_count = api_usage.get(api_counter_field, 0)
+                if current_count >= max_limit:
+                    raise_subscription_required()
+                
+                # CRITICAL STEP: Increment usage counter
+                increment_authenticated_api_usage(db, user_id, api_counter_field)
+
             return {
                 "authenticated": True,
                 "user_session_pk": user_session_pk,
@@ -388,150 +620,32 @@ async def authenticate(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(
-                "Error during authentication - Case 1",
-                function="authenticate",
-                path=request.url.path,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid access token"
-            )
+            raise_login_required(f"Invalid access token, please login: {e}")
     
     # Case 2: Unauthenticated user ID header is available
     elif unauthenticated_user_id:
-        logger.info(
-            "Case 2: Unauthenticated user with ID - processing request",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id
-        )
-        # CRITICAL: First check if the user_id exists in the database
-        # This must happen BEFORE checking api_counter_field to prevent invalid requests
-        logger.debug(
-            "Fetching unauthenticated user usage record",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id
-        )
         api_usage = get_unauthenticated_user_usage(db, unauthenticated_user_id)
-        
-        # CRITICAL STEP: Check if user usage record exists
-        logger.info(
-            "User usage record lookup completed",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id,
-            record_found=bool(api_usage)
-        )
-        
         if not api_usage:
-            # Record not found - return 429 immediately
-            logger.warning(
-                "Unauthenticated user usage record not found - returning 401, endpoint will not execute",
-                function="authenticate",
-                path=request.url.path,
-                unauthenticated_user_id=unauthenticated_user_id
-            )
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "errorCode": "LOGIN_REQUIRED",
-                    "message": "Please login"
-                }
-            )
-        
-        logger.debug(
-            "Unauthenticated user usage record found",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id,
-            api_usage_keys=list(api_usage.keys())
-        )
-        
-        # Now check if we can determine the API counter field and max limit
-        if not api_counter_field or max_limit is None:
-            # If we can't determine the API, return error response (do NOT allow request)
-            logger.warning(
-                "Could not determine API for unauthenticated user - returning 429, endpoint will not execute",
-                function="authenticate",
-                path=request.url.path,
-                unauthenticated_user_id=unauthenticated_user_id,
-                api_counter_field=api_counter_field,
-                max_limit=max_limit
-            )
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "errorCode": "LOGIN_REQUIRED",
-                    "message": "Please login"
-                }
-            )
-        
-        # CRITICAL STEP: Check if limit exceeded
-        current_count = api_usage.get(api_counter_field, 0)
-        logger.info(
-            "Checking API usage limit",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id,
-            api_counter_field=api_counter_field,
-            current_count=current_count,
-            max_limit=max_limit,
-            limit_exceeded=(current_count >= max_limit),
-            remaining_requests=max(0, max_limit - current_count) if max_limit else None
-        )
-        
-        if current_count >= max_limit:
-            logger.warning(
-                "API usage limit exceeded - returning 429, endpoint will not execute",
-                function="authenticate",
-                path=request.url.path,
-                unauthenticated_user_id=unauthenticated_user_id,
-                api_counter_field=api_counter_field,
-                current_count=current_count,
-                max_limit=max_limit
-            )
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "errorCode": "LOGIN_REQUIRED",
-                    "message": "Please login"
-                }
-            )
-        
-        # CRITICAL STEP: Increment usage counter
-        logger.info(
-            "Incrementing API usage counter",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id,
-            api_counter_field=api_counter_field,
-            count_before_increment=current_count
-        )
-        increment_api_usage(db, unauthenticated_user_id, api_counter_field)
-        
-        # CRITICAL STEP: Usage counter incremented successfully
-        logger.info(
-            "API usage counter incremented successfully",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id,
-            api_counter_field=api_counter_field,
-            count_after_increment=current_count + 1
-        )
-        
-        logger.info(
-            "Authentication successful - unauthenticated user with ID",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=unauthenticated_user_id,
-            api_counter_field=api_counter_field,
-            count_after_increment=current_count + 1
-        )
-        
+            raise_login_required()
+
+        # Get API counter field and max limit for this endpoint
+        api_counter_field, max_limit = get_api_counter_field_and_limit(request)
+
+        # If API counter doesn't exist, treat as unlimited (skip rate limiting)
+        if api_counter_field is None and max_limit == sys.maxsize:
+            # Unlimited access - skip rate limiting checks
+            pass
+        elif not api_counter_field or max_limit is None:
+            raise_login_required(status_code=429)
+        else:
+            # CRITICAL STEP: Check if limit exceeded
+            current_count = api_usage.get(api_counter_field, 0)
+            if current_count >= max_limit:
+                raise_login_required(status_code=429)
+            
+            # CRITICAL STEP: Increment usage counter
+            increment_api_usage(db, unauthenticated_user_id, api_counter_field)
+
         return {
             "authenticated": False,
             "unauthenticated_user_id": unauthenticated_user_id
@@ -539,65 +653,20 @@ async def authenticate(
     
     # Case 3: Neither header present (new unauthenticated user)
     else:
-        logger.info(
-            "Case 3: New unauthenticated user - processing request",
-            function="authenticate",
-            path=request.url.path
-        )
-        # CRITICAL STEP: Validate API configuration for new user
-        logger.info(
-            "Validating API configuration for new unauthenticated user",
-            function="authenticate",
-            path=request.url.path,
-            api_counter_field=api_counter_field,
-            max_limit=max_limit,
-            configuration_valid=(api_counter_field is not None and max_limit is not None)
-        )
-        
-        if not api_counter_field or max_limit is None:
-            # If we can't determine the API or max limit, return error response (do NOT allow request without tracking)
-            logger.warning(
-                "Could not determine API or max limit for new unauthenticated user - returning 429, endpoint will not execute",
-                function="authenticate",
-                path=request.url.path,
-                api_counter_field=api_counter_field,
-                max_limit=max_limit
-            )
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "errorCode": "LOGIN_REQUIRED",
-                    "message": "Please login"
-                }
-            )
-        
+        print('else:')
         # CRITICAL STEP: Create new unauthenticated user record
-        logger.info(
-            "Creating new unauthenticated user record",
-            function="authenticate",
-            path=request.url.path,
-            api_counter_field=api_counter_field,
-            max_limit=max_limit
-        )
-        new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
+        api_counter_field, max_limit = get_api_counter_field_and_limit(request)
         
-        # CRITICAL STEP: New user record created successfully
-        logger.info(
-            "New unauthenticated user record created successfully",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=new_user_id,
-            api_counter_field=api_counter_field
-        )
-        
-        logger.info(
-            "Authentication successful - new unauthenticated user created",
-            function="authenticate",
-            path=request.url.path,
-            unauthenticated_user_id=new_user_id,
-            api_counter_field=api_counter_field
-        )
-        
+        # If API counter doesn't exist, treat as unlimited (skip rate limiting)
+        if api_counter_field is None and max_limit == sys.maxsize:
+            # Unlimited access - create user but skip counter initialization
+            # Pass empty string as placeholder since api_name parameter is required
+            new_user_id = create_unauthenticated_user_usage(db, "")
+        elif max_limit == 0:
+            # If max_limit is 0, this API doesn't allow unauthenticated access
+            raise_login_required()
+        else:
+            new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
         return {
             "authenticated": False,
             "unauthenticated_user_id": new_user_id,

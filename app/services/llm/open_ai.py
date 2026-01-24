@@ -60,6 +60,40 @@ def get_language_name(language_code: Optional[str]) -> Optional[str]:
         "UK": "Ukrainian",
         "RO": "Romanian",
         "HU": "Hungarian",
+        "BG": "Bulgarian",
+        "HR": "Croatian",
+        "SK": "Slovak",
+        "SL": "Slovenian",
+        "ET": "Estonian",
+        "LV": "Latvian",
+        "LT": "Lithuanian",
+        "IS": "Icelandic",
+        "GA": "Irish",
+        "MT": "Maltese",
+        "EU": "Basque",
+        "CA": "Catalan",
+        "FA": "Persian",
+        "UR": "Urdu",
+        "BN": "Bengali",
+        "TA": "Tamil",
+        "TE": "Telugu",
+        "ML": "Malayalam",
+        "KN": "Kannada",
+        "GU": "Gujarati",
+        "MR": "Marathi",
+        "PA": "Punjabi",
+        "NE": "Nepali",
+        "SI": "Sinhala",
+        "OR": "Odia",
+        "MY": "Burmese",
+        "KM": "Khmer",
+        "LO": "Lao",
+        "MS": "Malay",
+        "TL": "Tagalog",
+        "SW": "Swahili",
+        "AF": "Afrikaans",
+        "ZU": "Zulu",
+        "XH": "Xhosa",
     }
 
     return language_map.get(language_code.upper())
@@ -113,7 +147,7 @@ class OpenAIService:
 
             # Simple test call to verify connection
             response = await self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": "Hello"}],
                 max_tokens=5,
                 temperature=0
@@ -168,7 +202,7 @@ class OpenAIService:
             ]
 
             response = await self._make_api_call(
-                model=settings.gpt4_turbo_model,
+                model=settings.gpt4o_model,
                 messages=messages,
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -187,6 +221,223 @@ class OpenAIService:
             if isinstance(e, LLMServiceError):
                 raise
             raise LLMServiceError(f"Failed to process image: {str(e)}")
+
+    async def convert_image_to_html(self, image_data: bytes, image_format: str = "png") -> str:
+        """Convert a PDF page image to HTML using GPT-4 Vision.
+        
+        This method takes an image of a PDF page and generates accurate HTML
+        that preserves the original layout, formatting, and structure.
+        
+        Args:
+            image_data: Image bytes of the PDF page
+            image_format: Image format (default: png)
+            
+        Returns:
+            Complete HTML document string with embedded CSS
+        """
+        try:
+            # Convert image to base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+
+            # Optimized prompt for PDF to HTML conversion - layout preservation is critical
+            prompt = """You are an expert HTML/CSS developer who converts PDF page images into pixel-perfect HTML replicas. Your PRIMARY goal is to EXACTLY replicate the visual layout, positioning, colors, and formatting of the original PDF.
+
+MOST CRITICAL REQUIREMENT - LAYOUT PRESERVATION:
+
+The HTML output MUST look IDENTICAL to the input image. If the PDF has:
+- TWO COLUMNS → Create TWO COLUMNS using CSS Grid or Flexbox
+- THREE COLUMNS → Create THREE COLUMNS
+- Sidebar on left → Put sidebar content on LEFT
+- Content on right → Put main content on RIGHT
+
+DETAILED INSTRUCTIONS:
+
+1. LAYOUT REPLICATION (HIGHEST PRIORITY)
+   - CAREFULLY analyze the page layout BEFORE generating HTML
+   - If content is in MULTIPLE COLUMNS, you MUST use CSS Grid or Flexbox:
+     * Two-column layout example:
+       .page-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+       .left-column { } .right-column { }
+     * Or with flexbox:
+       .page-container { display: flex; gap: 40px; }
+       .left-column { flex: 1; } .right-column { flex: 1; }
+   - Match the EXACT column widths as seen in the image (e.g., 40%-60% split)
+   - Preserve the vertical alignment of sections across columns
+   - DO NOT convert a two-column layout into a single-column layout
+
+2. COLOR PRESERVATION (VERY IMPORTANT)
+   - Extract and use the EXACT colors from the image:
+     * Headings often have specific colors (blue, dark gray, etc.)
+     * Some text may be colored (orange, blue, etc.) for emphasis
+     * Use hex color codes: #2B547E for blue, #CC5500 for orange, etc.
+   - Apply colors using CSS: color: #hexcode;
+   - Bold colored text should use: <strong style="color: #hexcode;">text</strong>
+   - Or define CSS classes: .text-blue { color: #2B547E; }
+
+3. TEXT FORMATTING (VERY IMPORTANT)
+   - BOLD text MUST be wrapped in <strong> tags
+   - Italic text MUST be wrapped in <em> tags
+   - Preserve ALL formatting visible in the image:
+     * If "CCTV" appears bold → <strong>CCTV</strong>
+     * If "fire alerts" appears bold and colored → <strong class="text-orange">fire alerts</strong>
+   - Use CSS font-weight: 600 or 700 for bold headings
+   - Preserve SMALL CAPS if present: font-variant: small-caps;
+
+4. OUTPUT FORMAT
+   - Generate complete HTML: <!DOCTYPE html><html><head>...</head><body>...</body></html>
+   - Include all CSS in a <style> block
+   - Output ONLY raw HTML - no explanations, no markdown code blocks
+
+5. STRUCTURE & COMPONENTS
+   - Use semantic HTML: <header>, <main>, <section>, <article>, <aside>
+   - Each section (Education, Experience, Skills) should be in its own container
+   - Nest elements properly:
+     <section class="education-section">
+       <h2>EDUCATION</h2>
+       <article class="education-item">
+         <h3>School Name</h3>
+         <div class="details">
+           <p><span class="label">Course:</span> <span class="value">Course Name</span></p>
+         </div>
+       </article>
+     </section>
+
+6. TYPOGRAPHY
+   - Match font sizes relatively (headings larger than body)
+   - Section headings: font-size: 1.3em; font-weight: bold; text-transform: uppercase;
+   - Subsection headings: font-size: 1.1em; font-weight: bold;
+   - Body text: font-size: 1em; line-height: 1.5;
+   - Use letter-spacing if headings appear spaced out
+
+7. SPACING & ALIGNMENT
+   - Match margins and padding to replicate whitespace
+   - Align text as seen: left, center, or right
+   - Use consistent spacing between sections
+   - Preserve indentation for nested content and lists
+
+8. LISTS
+   - Use <ul> for bullet lists with proper <li> items
+   - Style bullets to match: list-style-type: disc; or custom bullets
+   - Preserve indentation levels for nested lists
+
+9. KEY-VALUE PAIRS (like "Course: Engineering")
+   - Structure as: <div class="field"><span class="label">Course:</span> <span class="value">Engineering</span></div>
+   - Style labels differently: font-weight: bold; or font-variant: small-caps;
+
+10. CSS ORGANIZATION
+    - Define CSS variables for colors: --primary-color: #2B547E; --accent-color: #CC5500;
+    - Create layout classes: .two-column, .left-column, .right-column
+    - Create text utility classes: .text-bold, .text-blue, .text-orange, .small-caps
+
+EXAMPLE CSS FOR TWO-COLUMN RESUME:
+```css
+.page-container {
+  display: grid;
+  grid-template-columns: 35% 65%;
+  gap: 30px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.left-column { }
+.right-column { }
+.section-title {
+  color: #2B547E;
+  font-size: 1.2em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 15px;
+}
+```
+
+REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF image - same columns, same colors, same bold text, same alignment. Output ONLY the HTML document."""
+
+            # Prepare the message with image
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{image_format};base64,{base64_image}",
+                                "detail": "high"
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            # Use GPT-4o for best vision capabilities
+            response = await self._make_api_call(
+                model=settings.gpt4o_model,
+                messages=messages,
+                max_tokens=4096,  # Higher token limit for complete HTML output
+                temperature=0.2  # Lower temperature for more consistent output
+            )
+
+            html_content = response.choices[0].message.content.strip()
+
+            # Clean up the response - remove markdown code blocks if present
+            if html_content.startswith("```html"):
+                html_content = html_content[7:]
+            elif html_content.startswith("```"):
+                html_content = html_content[3:]
+            if html_content.endswith("```"):
+                html_content = html_content[:-3]
+            html_content = html_content.strip()
+
+            # Validate that we got HTML
+            if not html_content or not html_content.startswith("<!DOCTYPE") and not html_content.startswith("<html"):
+                # If response doesn't look like HTML, wrap it
+                if html_content and not html_content.startswith("<"):
+                    logger.warning("OpenAI returned non-HTML response, wrapping in basic HTML")
+                    html_content = self._wrap_text_in_html(html_content)
+
+            logger.info("Successfully converted image to HTML", html_length=len(html_content))
+            return html_content
+
+        except Exception as e:
+            logger.error("Failed to convert image to HTML", error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to convert PDF page to HTML: {str(e)}")
+
+    def _wrap_text_in_html(self, text: str) -> str:
+        """Wrap plain text in a basic HTML document structure."""
+        import html as html_escape
+        escaped_text = html_escape.escape(text)
+        paragraphs = escaped_text.split('\n\n')
+        body_content = '\n'.join(f'<p>{p}</p>' for p in paragraphs if p.strip())
+        
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }}
+        p {{
+            margin: 1em 0;
+        }}
+    </style>
+</head>
+<body>
+    {body_content}
+</body>
+</html>"""
 
     async def get_important_words(self, text: str, language_code: Optional[str] = None) -> List[str]:
         """Get top 10 most important/difficult words from text in the order they appear."""
@@ -224,7 +475,7 @@ class OpenAIService:
             """
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -271,14 +522,18 @@ class OpenAIService:
                 raise
             raise LLMServiceError(f"Failed to analyze text for important words: {str(e)}")
 
-    async def get_word_explanation(self, word: str, context: str, language_code: Optional[str] = None) -> Dict[str, Any]:
+    async def get_word_explanation(self, word: str, context: str, language_code: Optional[str] = None) -> str:
         """Get explanation and examples for a single word in context.
+        Returns the raw formatted response string that the frontend will parse.
         
         Args:
             word: The word to explain
             context: The context in which the word appears
             language_code: Optional target language code. If provided, response will be in this language.
                           If None, language will be detected from the context.
+        
+        Returns:
+            Raw formatted string in the format: [[[WORD_MEANING]]]:{...}[[[EXAMPLES]]]:{[[ITEM]]{...}[[ITEM]]{...}}
         """
         try:
             # Build language requirement section
@@ -319,12 +574,26 @@ class OpenAIService:
             - Provide a simple, clear meaning of the word as used in this context
             - Create exactly 2 simple example sentences showing how to use the word
             - Keep explanations accessible for language learners
-            - Return the result as JSON with keys: 'meaning' and 'examples' (array of 2 strings)
             
-            Return only the JSON object, no additional text."""
+            CRITICAL FORMAT REQUIREMENT - YOU MUST FOLLOW THIS EXACT FORMAT:
+            The response MUST be in this exact format (no deviations allowed):
+            [[[WORD_MEANING]]]:{{text explaining the meaning of the word}}[[[EXAMPLES]]]:{{[[ITEM]]{{example sentence 1}}[[ITEM]]{{example sentence 2}}}}
+            
+            Format rules:
+            1. WORD_MEANING must be surrounded by [[[ and ]]]
+            2. After [[[WORD_MEANING]]]: provide the meaning text
+            3. EXAMPLES must be surrounded by [[[ and ]]]
+            4. Each example sentence must start with [[ITEM]] followed by the example sentence
+            5. There must be exactly 2 examples, each wrapped in [[ITEM]]{{...}}
+            6. The format is: [[[WORD_MEANING]]]:{{meaning}}[[[EXAMPLES]]]:{{[[ITEM]]{{example1}}[[ITEM]]{{example2}}}}
+            
+            Example of correct format:
+            [[[WORD_MEANING]]]:{{A word that means something important}}[[[EXAMPLES]]]:{{[[ITEM]]{{This is the first example sentence.}}[[ITEM]]{{This is the second example sentence.}}}}
+            
+            Return ONLY the formatted response in the exact format specified above. No additional text, no JSON, no explanations."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -332,25 +601,9 @@ class OpenAIService:
 
             result = response.choices[0].message.content.strip()
 
-            # Parse the JSON response
-            try:
-                # Strip Markdown code block (e.g., ```json\n...\n```)
-                if result.startswith("```"):
-                    result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
-
-                explanation_data = json.loads(result)
-                if not all(key in explanation_data for key in ['meaning', 'examples']):
-                    raise ValueError("Missing required keys")
-
-                if not isinstance(explanation_data['examples'], list) or len(explanation_data['examples']) != 2:
-                    raise ValueError("Examples must be a list of exactly 2 items")
-
-                logger.info("Successfully got word explanation", word=word, language_code=language_code)
-                return explanation_data
-
-            except json.JSONDecodeError as e:
-                logger.error("Failed to parse word explanation response", error=str(e), response=result)
-                raise LLMServiceError("Failed to parse word explanation response")
+            # Return the raw response string - frontend will parse it
+            logger.info("Successfully got word explanation", word=word, language_code=language_code)
+            return result
 
         except Exception as e:
             logger.error("Failed to get word explanation", word=word, error=str(e))
@@ -389,7 +642,7 @@ class OpenAIService:
             Return only the JSON array, no additional text."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -418,6 +671,147 @@ class OpenAIService:
                 raise
             raise LLMServiceError(f"Failed to generate more examples for word '{word}': {str(e)}")
 
+    async def get_synonyms_of_word(self, word: str) -> List[str]:
+        """Get up to 3 accurate synonyms for a word. Returns at least 1 synonym."""
+        try:
+            prompt = f"""Find accurate synonyms for the word "{word}".
+
+            Word: "{word}"
+            
+            CRITICAL REQUIREMENTS - ACCURACY IS PARAMOUNT:
+            - Provide up to 3 synonyms (at least 1 is required)
+            - Prioritize accuracy over quantity - only include synonyms that are truly accurate
+            - Synonyms must be words that can be used in the same context as the given word
+            - Do not include words that are only loosely related - they must be true synonyms
+            - Return as a JSON array of strings
+            - If you can only find 1 accurate synonym, return an array with just that one word
+            - If you find 2 accurate synonyms, return an array with those 2 words
+            - If you find 3 accurate synonyms, return an array with those 3 words
+            - Maximum 3 synonyms, minimum 1 synonym
+            
+            Return only the JSON array, no additional text or explanation."""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_mini_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature
+            )
+
+            result = response.choices[0].message.content.strip()
+            logger.debug("Raw response from OpenAI for synonyms", word=word, result=result)
+
+            # Strip Markdown code block (e.g., ```json\n...\n```)
+            if result.startswith("```"):
+                result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+
+            # Parse the JSON response
+            synonyms = json.loads(result)
+
+            if not isinstance(synonyms, list):
+                logger.warning("Invalid response format from OpenAI", word=word, result=result)
+                raise ValueError("Expected JSON array")
+
+            # Validate that all items are strings
+            if not all(isinstance(syn, str) for syn in synonyms):
+                logger.warning("Invalid response format - not all items are strings", word=word, result=result)
+                raise ValueError("All items in the array must be strings")
+
+            # Validate count (1-3 synonyms)
+            if len(synonyms) == 0:
+                logger.warning("No synonyms returned", word=word, result=result)
+                raise ValueError("At least 1 synonym is required")
+            
+            if len(synonyms) > 3:
+                logger.warning("Too many synonyms returned, truncating to 3", word=word, count=len(synonyms))
+                synonyms = synonyms[:3]
+
+            # Filter out empty strings
+            synonyms = [syn.strip() for syn in synonyms if syn.strip()]
+
+            if len(synonyms) == 0:
+                logger.warning("No valid synonyms after filtering", word=word, result=result)
+                raise ValueError("At least 1 valid synonym is required")
+
+            logger.info("Successfully got synonyms", word=word, count=len(synonyms))
+            return synonyms
+
+        except Exception as e:
+            logger.error("Failed to get synonyms", word=word, error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to get synonyms for word '{word}': {str(e)}")
+
+    async def get_opposite_of_word(self, word: str) -> List[str]:
+        """Get up to 2 accurate antonyms (opposites) for a word. Returns at least 1 antonym."""
+        try:
+            prompt = f"""Find accurate antonyms (opposites) for the word "{word}".
+
+            Word: "{word}"
+            
+            CRITICAL REQUIREMENTS - ACCURACY IS PARAMOUNT:
+            - Provide up to 2 antonyms (at least 1 is required)
+            - Prioritize accuracy over quantity - only include antonyms that are truly accurate
+            - Antonyms must be words that are direct opposites of the given word
+            - Do not include words that are only loosely related - they must be true antonyms
+            - Return as a JSON array of strings
+            - If you can only find 1 accurate antonym, return an array with just that one word
+            - If you find 2 accurate antonyms, return an array with those 2 words
+            - Maximum 2 antonyms, minimum 1 antonym
+            
+            Return only the JSON array, no additional text or explanation."""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_mini_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=settings.temperature
+            )
+
+            result = response.choices[0].message.content.strip()
+            logger.debug("Raw response from OpenAI for antonyms", word=word, result=result)
+
+            # Strip Markdown code block (e.g., ```json\n...\n```)
+            if result.startswith("```"):
+                result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+
+            # Parse the JSON response
+            antonyms = json.loads(result)
+
+            if not isinstance(antonyms, list):
+                logger.warning("Invalid response format from OpenAI", word=word, result=result)
+                raise ValueError("Expected JSON array")
+
+            # Validate that all items are strings
+            if not all(isinstance(ant, str) for ant in antonyms):
+                logger.warning("Invalid response format - not all items are strings", word=word, result=result)
+                raise ValueError("All items in the array must be strings")
+
+            # Validate count (1-2 antonyms)
+            if len(antonyms) == 0:
+                logger.warning("No antonyms returned", word=word, result=result)
+                raise ValueError("At least 1 antonym is required")
+            
+            if len(antonyms) > 2:
+                logger.warning("Too many antonyms returned, truncating to 2", word=word, count=len(antonyms))
+                antonyms = antonyms[:2]
+
+            # Filter out empty strings
+            antonyms = [ant.strip() for ant in antonyms if ant.strip()]
+
+            if len(antonyms) == 0:
+                logger.warning("No valid antonyms after filtering", word=word, result=result)
+                raise ValueError("At least 1 valid antonym is required")
+
+            logger.info("Successfully got antonyms", word=word, count=len(antonyms))
+            return antonyms
+
+        except Exception as e:
+            logger.error("Failed to get antonyms", word=word, error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to get antonyms for word '{word}': {str(e)}")
+
     async def generate_random_paragraph(self, word_count: int, difficulty_percentage: int) -> str:
         """Generate a random paragraph with specified word count and difficulty level."""
         try:
@@ -436,7 +830,7 @@ class OpenAIService:
             The paragraph should help users improve their vocabulary skills by encountering challenging words in context."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.8  # Higher temperature for more creative/random content
@@ -489,7 +883,7 @@ class OpenAIService:
             The paragraph should help users improve their vocabulary skills by encountering challenging words in context."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.8  # Higher temperature for more creative/random content
@@ -528,8 +922,6 @@ class OpenAIService:
                 return response
 
             except Exception as api_error:
-                print(f'api_error -----------> {api_error}')
-
                 error_type = type(api_error).__name__
                 error_msg = str(api_error)
 
@@ -630,7 +1022,7 @@ class OpenAIService:
             Simplified text:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -777,7 +1169,7 @@ class OpenAIService:
 
             # Create streaming response
             stream = await self.client.chat.completions.create(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3,
@@ -802,6 +1194,134 @@ class OpenAIService:
             if isinstance(e, LLMServiceError):
                 raise
             raise LLMServiceError(f"Failed to stream simplified text: {str(e)}")
+
+    async def simplify_image_stream(self, image_data: bytes, image_format: str, previous_simplified_texts: List[str], language_code: Optional[str] = None):
+        """Simplify image content with streaming using OpenAI Vision API.
+
+        Yields chunks of simplified explanation as they are generated by OpenAI.
+
+        Args:
+            image_data: The image file data (bytes)
+            image_format: Image format (jpeg, png, gif, webp)
+            previous_simplified_texts: Previous simplified versions for context
+            language_code: Optional target language code. If provided, response will be in this language.
+                          If None, language will be auto-detected.
+        """
+        try:
+            # Convert image to base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+
+            # Build context from previous simplifications
+            context_section = ""
+            if previous_simplified_texts:
+                context_section = f"""
+            Previous simplified versions for reference:
+            {chr(10).join(f"- {simplified}" for simplified in previous_simplified_texts)}
+            
+            These previous versions are still too complex. Create a MUCH simpler version with:
+            - Even shorter sentences (5-8 words maximum)
+            - Even simpler words (basic vocabulary only)
+            - More broken-up sentence structure
+            - Avoid any complex phrases or grammar
+            """
+            else:
+                context_section = """
+            This is the first simplification attempt. Make it EXTREMELY simple with very short sentences and basic words.
+            """
+
+            # Build language requirement section
+            if language_code:
+                language_name = get_language_name(language_code)
+                if language_name:
+                    language_requirement = f"""
+            CRITICAL LANGUAGE REQUIREMENT:
+            - You MUST respond STRICTLY in {language_name} ({language_code})
+            - The simplified explanation MUST be in {language_name} ONLY
+            - Do NOT use any other language - ONLY {language_name}
+            - This is MANDATORY and NON-NEGOTIABLE"""
+                else:
+                    language_requirement = f"""
+            CRITICAL LANGUAGE REQUIREMENT:
+            - You MUST respond STRICTLY in the language specified by code: {language_code.upper()}
+            - The simplified explanation MUST be in this language ONLY
+            - Do NOT use any other language"""
+            else:
+                # Auto-detect language from image content (will be handled by model)
+                language_requirement = """
+            CRITICAL LANGUAGE REQUIREMENT:
+            - You MUST detect the language from the image content and respond in the SAME language
+            - If the image contains text in English, respond in English
+            - If the image contains text in another language, respond in that language
+            - If no text is detected, respond in English by default
+            - This is MANDATORY and NON-NEGOTIABLE"""
+
+            prompt = f"""Analyze this image and provide a simplified explanation of what you see. Make it EXTREMELY easy to understand.
+
+            {context_section}
+
+            {language_requirement}
+
+            CRITICAL REQUIREMENTS:
+            - Use ONLY basic, everyday words (like "big" instead of "enormous", "old" instead of "ancient")
+            - Write in VERY short, simple sentences (maximum 8-10 words per sentence)
+            - Use simple sentence patterns: Subject + Verb + Object
+            - Avoid complex grammar, clauses, and fancy words
+            - Break long ideas into multiple short sentences
+            - Use common words that a 10-year-old would understand
+            - If previous simplified versions exist, make this one MUCH simpler with even shorter sentences
+            - Replace complex phrases with simple ones (e.g., "as if" → "like", "in order to" → "to")
+            - Use active voice instead of passive voice
+            - Describe what you see in the image in the simplest way possible
+            - If the image contains text, explain what the text says in simple terms
+            - If the image shows a concept or diagram, explain it in very simple language
+            - Return only the simplified explanation, no additional commentary
+
+            Simplified explanation:"""
+
+            # Prepare the message with image
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{image_format};base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+
+            # Create streaming response
+            stream = await self.client.chat.completions.create(
+                model=settings.gpt4o_model,
+                messages=messages,
+                max_tokens=settings.max_tokens,
+                temperature=0.3,
+                stream=True
+            )
+
+            # Yield chunks as they arrive (streaming directly from OpenAI)
+            async for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        yield delta.content
+
+            logger.info("Successfully streamed simplified image explanation",
+                       has_previous_context=bool(previous_simplified_texts),
+                       language_code=language_code)
+
+        except Exception as e:
+            logger.error("Failed to stream simplified image explanation", error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to stream simplified image explanation: {str(e)}")
 
     async def generate_contextual_answer(self, question: str, chat_history: List, initial_context: Optional[str] = None, language_code: Optional[str] = None) -> str:
         """Generate contextual answer using chat history for ongoing conversations."""
@@ -880,7 +1400,7 @@ CRITICAL CONTEXT VALIDATION REQUIREMENTS:
             })
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=messages,
                 max_tokens=settings.max_tokens,
                 temperature=0.7
@@ -1064,7 +1584,7 @@ REMEMBER: When context_type = PAGE, you MUST include source references in the fo
 
             # Create streaming response
             stream = await self.client.chat.completions.create(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=messages,
                 max_tokens=settings.max_tokens,
                 temperature=0.7,
@@ -1090,6 +1610,184 @@ REMEMBER: When context_type = PAGE, you MUST include source references in the fo
             if isinstance(e, LLMServiceError):
                 raise
             raise LLMServiceError(f"Failed to stream contextual answer: {str(e)}")
+
+    async def generate_contextual_answer_with_image_stream(self, question: str, image_data: bytes, image_format: str, chat_history: List, language_code: Optional[str] = None, context_type: Optional[str] = "TEXT"):
+        """Generate contextual answer with streaming using image as context for ongoing conversations.
+
+        Yields chunks of text as they are generated by OpenAI.
+
+        Args:
+            question: The user's question
+            image_data: The image file data (bytes) to use as context
+            image_format: Image format (jpeg, png, gif, webp)
+            chat_history: Previous chat history for context
+            language_code: Optional target language code. If provided, response will be in this language.
+                          If None, language will be detected from the question/context.
+            context_type: Type of context - "PAGE" (for page/document context with source references) or "TEXT" (standard text context). Default is "TEXT".
+        """
+        try:
+            # Convert image to base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+
+            # Build messages from chat history
+            messages = []
+
+            # Build language requirement section
+            if language_code:
+                language_name = get_language_name(language_code)
+                if language_name:
+                    language_requirement = f"""
+CRITICAL LANGUAGE REQUIREMENT:
+- You MUST respond STRICTLY in {language_name} ({language_code})
+- Your answer MUST be in {language_name} ONLY
+- Do NOT use any other language - ONLY {language_name}
+- This is MANDATORY and NON-NEGOTIABLE"""
+                else:
+                    language_requirement = f"""
+CRITICAL LANGUAGE REQUIREMENT:
+- You MUST respond STRICTLY in the language specified by code: {language_code.upper()}
+- Your answer MUST be in this language ONLY
+- Do NOT use any other language"""
+            else:
+                # Detect language from question
+                detected_language_code = await self.detect_text_language_code(question)
+                detected_language_name = get_language_name(detected_language_code)
+                language_requirement = f"""
+CRITICAL LANGUAGE REQUIREMENT:
+- You MUST respond STRICTLY in {detected_language_name or detected_language_code} ({detected_language_code})
+- Your answer MUST be in {detected_language_name or detected_language_code} ONLY
+- Do NOT use any other language - ONLY {detected_language_name or detected_language_code}
+- This is MANDATORY and NON-NEGOTIABLE"""
+
+            # Add system message for context
+            system_content = f"""You are a helpful AI assistant that provides clear, accurate, and contextual answers. Use the conversation history and the provided image to maintain context and provide relevant responses.
+
+{language_requirement}
+
+CONTEXT USAGE GUIDELINES:
+- You should try your best to answer the user's question using the provided image context and conversation history when it is relevant
+- If the user's question is related to the provided image:
+  * Prioritize using information from the image to provide a comprehensive, accurate answer
+  * Reference specific details from the image when relevant
+  * If the question is somewhat relevant but unclear, you may ask 1-2 clarifying questions if needed, but still attempt to provide a helpful answer based on what you understand
+- If the user's question is NOT related to the provided image or goes beyond it:
+  * You should still answer the question using your general knowledge
+  * It is perfectly fine to answer questions that are out of context
+  * Do NOT refuse to answer or redirect the user - simply provide a helpful answer based on your knowledge
+  * You can mention if the question is outside the provided image context, but still proceed to answer it
+- Always prioritize being helpful and providing accurate information, whether from the image or your general knowledge
+
+FORMATTING AND STRUCTURE GUIDELINES:
+- Format your answers using Markdown syntax for better readability
+- Use **bold** formatting for key terms, important concepts, names, or critical information (use sparingly, only for emphasis)
+- Use *italic* formatting for emphasis on specific words or phrases when it adds clarity (use judiciously)
+- When your answer naturally contains multiple points, items, steps, or explanations, use bullet points (•) or numbered lists
+- Use point-by-point format when listing concepts, features, benefits, steps, causes, effects, or any structured information
+- Structure longer answers with clear paragraphs or sections when appropriate
+- Use appropriate icons/emojis SPARINGLY and PURPOSEFULLY to enhance understanding:
+  * Use icons only when they genuinely add value (e.g., 📊 for data/statistics, ⚠️ for warnings, ✅ for key points, 💡 for insights, 🔍 for analysis, 📝 for notes)
+  * Do NOT overuse icons - maximum 2-4 icons per answer, only when they enhance comprehension
+  * Avoid using icons in every sentence or paragraph
+  * Choose icons that are universally understood and relevant to the content
+  * Icons should help users quickly identify important sections or types of information
+- Balance is key: prioritize clarity, accuracy, and readability over decorative elements
+- Make the answer engaging and easy to understand, but maintain professionalism
+- Format complex information in a way that makes it easy to scan and digest"""
+
+            # Add source reference instructions for PAGE context type
+            source_reference_instructions = ""
+            if context_type == "PAGE":
+                source_reference_instructions = f"""
+
+⚠️⚠️⚠️ CRITICAL: SOURCE REFERENCE REQUIREMENTS (context_type = PAGE) - THIS IS MANDATORY ⚠️⚠️⚠️
+
+When you mention important points, facts, claims, or specific information in your answer that the user should verify or view in the original image, you MUST include source references.
+
+SOURCE REFERENCE FORMAT (USE EXACTLY 3 BRACKETS [[[):
+- After mentioning an important point that needs verification, immediately include a source reference
+- Format: [[[(N)description of relevant part of image]]]
+- Use EXACTLY THREE opening brackets [[[ and THREE closing brackets ]]]
+- Where N is the reference number (1, 2, 3, etc.) - increment for each new reference
+- The description should reference what part of the image contains the source information (e.g., "text in the top left corner", "diagram showing...", "chart displaying...")
+- Stream the reference as a SINGLE complete event: [[[(N)description]]] - do not break it up
+- The format is: [[[(N)description]]] - note the THREE brackets on each side
+
+EXAMPLES (CORRECT FORMAT WITH 3 BRACKETS):
+- "The discovery was made in 1923. [[[(1)text in the image showing 'discovery was made in 1923 during the expedition']]]"
+- "The population increased by 25%. [[[(2)chart in the image displaying population increased by 25 percent over the last decade]]]"
+- "The theory suggests multiple factors. [[[(3)diagram in the image showing theory suggests that multiple factors contribute to this phenomenon]]]"
+
+IMPORTANT RULES:
+- You MUST include source references for important, verifiable points - this is NOT optional when context_type = PAGE
+- Include references for key facts, statistics, claims, important dates, names, or specific data visible in the image
+- Do NOT include references for every sentence - focus on important, verifiable information
+- The description should be meaningful and help users locate the information in the image
+- Number references sequentially: (1), (2), (3), etc.
+- Stream each reference as a single complete event immediately after the relevant sentence/point
+- ALWAYS use THREE brackets: [[[ and ]]] - never use two brackets [[
+
+REMEMBER: When context_type = PAGE, you MUST include source references in the format [[[(N)description]]] for important points. This is MANDATORY."""
+
+            # Add source reference instructions if context_type is PAGE
+            if source_reference_instructions:
+                system_content += source_reference_instructions
+
+            messages.append({
+                "role": "system",
+                "content": system_content
+            })
+
+            # Add chat history
+            for message in chat_history:
+                messages.append({
+                    "role": message.role if hasattr(message, 'role') else message.get('role', 'user'),
+                    "content": message.content if hasattr(message, 'content') else message.get('content', '')
+                })
+
+            # Add current question with image
+            messages.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": question
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/{image_format};base64,{base64_image}"
+                        }
+                    }
+                ]
+            })
+
+            # Create streaming response
+            stream = await self.client.chat.completions.create(
+                model=settings.gpt4o_model,
+                messages=messages,
+                max_tokens=settings.max_tokens,
+                temperature=0.7,
+                stream=True
+            )
+
+            # Yield chunks as they arrive (streaming directly from OpenAI)
+            async for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        yield delta.content
+
+            logger.info("Successfully streamed contextual answer with image",
+                       question_length=len(question),
+                       chat_history_length=len(chat_history),
+                       context_type=context_type,
+                       language_code=language_code)
+
+        except Exception as e:
+            logger.error("Failed to stream contextual answer with image", error=str(e))
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to stream contextual answer with image: {str(e)}")
 
     async def generate_topic_name(self, text: str) -> str:
         """Generate a concise topic name (ideally 3 words) for the given text."""
@@ -1121,7 +1819,7 @@ REMEMBER: When context_type = PAGE, you MUST include source references in the fo
             Topic name:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=50,  # Short response needed
                 temperature=0.3
@@ -1170,7 +1868,7 @@ CRITICAL REQUIREMENTS:
 Language code:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=10,
                 temperature=0.1
@@ -1209,7 +1907,7 @@ CRITICAL REQUIREMENTS:
 Language:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=20,
                 temperature=0.1
@@ -1256,7 +1954,7 @@ CRITICAL REQUIREMENTS:
 Word for pronunciation:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=50,
                 temperature=0.1
@@ -1422,6 +2120,241 @@ Word for pronunciation:"""
                 raise
             raise LLMServiceError(f"Failed to transcribe audio: {str(e)}")
 
+    async def translate_single_text(self, text: str, target_language_code: str) -> str:
+        """Translate a single text to the target language using OpenAI.
+        
+        Args:
+            text: Text to translate
+            target_language_code: ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI', 'JA', 'ZH')
+        
+        Returns:
+            Translated text
+        """
+        try:
+            if not text or not text.strip():
+                return ""
+            
+            # Map language codes to full language names for better translation
+            language_map = {
+                "EN": "English",
+                "ES": "Spanish",
+                "FR": "French",
+                "DE": "German",
+                "HI": "Hindi",
+                "JA": "Japanese",
+                "ZH": "Chinese",
+                "AR": "Arabic",
+                "IT": "Italian",
+                "PT": "Portuguese",
+                "RU": "Russian",
+                "KO": "Korean",
+                "NL": "Dutch",
+                "PL": "Polish",
+                "TR": "Turkish",
+                "VI": "Vietnamese",
+                "TH": "Thai",
+                "ID": "Indonesian",
+                "CS": "Czech",
+                "SV": "Swedish",
+                "DA": "Danish",
+                "NO": "Norwegian",
+                "FI": "Finnish",
+                "EL": "Greek",
+                "HE": "Hebrew",
+                "UK": "Ukrainian",
+                "RO": "Romanian",
+                "HU": "Hungarian",
+            }
+            
+            target_language = language_map.get(target_language_code.upper(), target_language_code.upper())
+            
+            prompt = f"""Translate the following text to {target_language}. 
+
+Text to translate:
+{text}
+
+CRITICAL REQUIREMENTS:
+- Translate the text accurately to {target_language}
+- Preserve the meaning and context
+- Return ONLY the translated text
+- Do NOT include any additional text, explanations, or formatting
+- Do NOT wrap the response in quotes or JSON
+
+Translated text:"""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_mini_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=0.3
+            )
+
+            translated_text = response.choices[0].message.content.strip()
+            
+            logger.info(
+                "Successfully translated single text",
+                input_length=len(text),
+                output_length=len(translated_text),
+                target_language=target_language,
+                target_language_code=target_language_code
+            )
+            
+            return translated_text
+                
+        except Exception as e:
+            logger.error("Failed to translate text", error=str(e), target_language_code=target_language_code)
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to translate text: {str(e)}")
+
+    async def translate_batch_with_ids(
+        self, 
+        items: List[Dict[str, str]], 
+        target_language_code: str
+    ) -> List[Dict[str, str]]:
+        """Translate multiple text items with IDs in a single API call.
+        
+        Args:
+            items: List of dicts with 'id' and 'text' keys
+            target_language_code: ISO 639-1 language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI', 'JA', 'ZH')
+        
+        Returns:
+            List of dicts with 'id' and 'translatedText' keys (same order as input)
+        """
+        try:
+            if not items:
+                return []
+            
+            # Map language codes to full language names for better translation
+            language_map = {
+                "EN": "English",
+                "ES": "Spanish",
+                "FR": "French",
+                "DE": "German",
+                "HI": "Hindi",
+                "JA": "Japanese",
+                "ZH": "Chinese",
+                "AR": "Arabic",
+                "IT": "Italian",
+                "PT": "Portuguese",
+                "RU": "Russian",
+                "KO": "Korean",
+                "NL": "Dutch",
+                "PL": "Polish",
+                "TR": "Turkish",
+                "VI": "Vietnamese",
+                "TH": "Thai",
+                "ID": "Indonesian",
+                "CS": "Czech",
+                "SV": "Swedish",
+                "DA": "Danish",
+                "NO": "Norwegian",
+                "FI": "Finnish",
+                "EL": "Greek",
+                "HE": "Hebrew",
+                "UK": "Ukrainian",
+                "RO": "Romanian",
+                "HU": "Hungarian",
+            }
+            
+            target_language = language_map.get(target_language_code.upper(), target_language_code.upper())
+            
+            # Create JSON input for the batch
+            items_json = json.dumps(items, ensure_ascii=False)
+            
+            prompt = f"""Translate the following text items to {target_language}. 
+
+Input (JSON array of objects with 'id' and 'text' fields):
+{items_json}
+
+CRITICAL REQUIREMENTS:
+- Translate the 'text' field of each object accurately to {target_language}
+- Preserve the meaning and context of each text
+- Return ONLY a JSON array of objects with 'id' and 'translatedText' fields
+- Each object in the output array MUST have:
+  * "id": THE EXACT SAME ID from the input - DO NOT MODIFY OR CHANGE THE ID IN ANY WAY
+  * "translatedText": the translated version of the corresponding input text
+- Maintain the same order as the input items
+- Do NOT include any additional text, explanations, markdown formatting, or code blocks
+- Return the result as a pure JSON array: [{{"id": "...", "translatedText": "..."}}, ...]
+
+IMPORTANT: The IDs must be EXACTLY the same as in the input. Do not change, modify, or regenerate them.
+
+Translated items (JSON array only):"""
+
+            response = await self._make_api_call(
+                model=settings.gpt4o_mini_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=settings.max_tokens,
+                temperature=0.3
+            )
+
+            result = response.choices[0].message.content.strip()
+            
+            # Parse the JSON response
+            try:
+                # Strip Markdown code block if present
+                if result.startswith("```"):
+                    result = re.sub(r"^```(?:json)?\n|\n```$", "", result.strip())
+                
+                translated_items = json.loads(result)
+                
+                if not isinstance(translated_items, list):
+                    raise ValueError("Expected JSON array")
+                
+                # Validate all input IDs are present in output
+                input_ids = {item["id"] for item in items}
+                output_ids = {item.get("id") for item in translated_items}
+                
+                if input_ids != output_ids:
+                    logger.warning(
+                        "ID mismatch in batch translation",
+                        input_ids=input_ids,
+                        output_ids=output_ids,
+                        missing_ids=input_ids - output_ids,
+                        extra_ids=output_ids - input_ids
+                    )
+                
+                # Ensure we have the same number of translations as inputs
+                if len(translated_items) != len(items):
+                    logger.warning(
+                        "Translation count mismatch in batch", 
+                        input_count=len(items),
+                        output_count=len(translated_items)
+                    )
+                
+                # Create a mapping of id to translatedText for reliable ordering
+                translation_map = {item.get("id"): item.get("translatedText", "") for item in translated_items}
+                
+                # Rebuild results in the same order as input
+                ordered_results = []
+                for input_item in items:
+                    item_id = input_item["id"]
+                    translated_text = translation_map.get(item_id, "")
+                    ordered_results.append({
+                        "id": item_id,
+                        "translatedText": translated_text
+                    })
+                
+                logger.info(
+                    "Successfully translated batch with IDs",
+                    batch_size=len(items),
+                    target_language=target_language,
+                    target_language_code=target_language_code
+                )
+                
+                return ordered_results
+                
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse batch translation response as JSON", error=str(e), response=result[:500])
+                raise LLMServiceError("Failed to parse batch translation response")
+                
+        except Exception as e:
+            logger.error("Failed to translate batch with IDs", error=str(e), target_language_code=target_language_code)
+            if isinstance(e, LLMServiceError):
+                raise
+            raise LLMServiceError(f"Failed to translate batch: {str(e)}")
+
     async def translate_texts(self, texts: List[str], target_language_code: str) -> List[str]:
         """Translate multiple texts to the target language using OpenAI.
         
@@ -1490,7 +2423,7 @@ CRITICAL REQUIREMENTS:
 Translated texts (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -1593,7 +2526,7 @@ Text:
 Summary:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -1769,7 +2702,7 @@ Summary:"""
 
             # Create streaming response
             stream = await self.client.chat.completions.create(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3,
@@ -1861,7 +2794,7 @@ Example format:
 Questions (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=500,  # Enough for 5 questions
                 temperature=0.5
@@ -1987,7 +2920,7 @@ Example formats (depending on text complexity):
 Questions (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,  # Enough for 3 questions
                 temperature=0.5
@@ -2131,7 +3064,7 @@ Example format:
 Recommended Questions (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,  # Enough for 3 questions
                 temperature=0.5

@@ -41,7 +41,7 @@ async def test_openai_connection():
                 print(f"Attempt {attempt + 1}/{max_retries}...")
 
                 response = await client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Using a more widely available model for testing
+                    model="gpt-4o-mini",  # Using a more widely available model for testing
                     messages=[{"role": "user", "content": test_message}],
                     max_tokens=50,
                     temperature=0.7,

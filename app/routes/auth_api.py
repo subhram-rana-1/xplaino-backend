@@ -10,7 +10,7 @@ import structlog
 from app.config import settings
 from app.models import LoginRequest, LoginResponse, LogoutRequest, LogoutResponse, AuthVendor, UserInfo, RefreshTokenRequest, RefreshTokenResponse
 from app.database.connection import get_db
-from app.services.auth_service import validate_google_authentication
+from app.services.auth_service import validate_google_authentication, get_google_client_id
 from app.services.jwt_service import generate_access_token, get_token_expiry, decode_access_token
 from app.services.database_service import (
     get_or_create_user_by_google_sub, 
@@ -18,7 +18,8 @@ from app.services.database_service import (
     invalidate_user_session,
     get_user_info_by_sub,
     get_user_session_by_id,
-    update_user_session_refresh_token
+    update_user_session_refresh_token,
+    get_user_role_by_user_id
 )
 from app.exceptions import CatenException
 
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 )
 async def login(
     request: LoginRequest,
+    http_request: Request,
     response: Response,
     db: Session = Depends(get_db)
 ):
@@ -49,22 +51,32 @@ async def login(
     """
     # Entry log with request metadata
     id_token_preview = request.idToken[:8] + "..." if request.idToken and len(request.idToken) > 8 else (request.idToken if request.idToken else None)
+    x_source = http_request.headers.get("X-Source", "").strip()
     logger.info(
         "Login endpoint called",
         endpoint="/api/auth/login",
         auth_vendor=request.authVendor,
         has_id_token=bool(request.idToken),
         id_token_length=len(request.idToken) if request.idToken else 0,
-        id_token_preview=id_token_preview
+        id_token_preview=id_token_preview,
+        x_source=x_source if x_source else "not provided"
     )
     
     try:
         
         # Check auth vendor
         if request.authVendor == AuthVendor.GOOGLE:
+            # Determine which Google client ID to use based on X-Source header
+            client_id = get_google_client_id(http_request)
+            logger.info(
+                "Using Google client ID for authentication",
+                client_id=client_id,
+                x_source=x_source if x_source else "not provided"
+            )
+            
             # Validate Google authentication
             logger.debug("Validating Google authentication token")
-            google_data = validate_google_authentication(request.idToken)
+            google_data = validate_google_authentication(request.idToken, client_id)
             
             logger.info(
                 "Google token validated successfully",
@@ -74,10 +86,10 @@ async def login(
             )
             
             # Validate aud field
-            if google_data.get('aud') != settings.google_oauth_client_id:
+            if google_data.get('aud') != client_id:
                 logger.warning(
                     "Token audience mismatch",
-                    expected=settings.google_oauth_client_id,
+                    expected=client_id,
                     received=google_data.get('aud')
                 )
                 raise HTTPException(
@@ -164,6 +176,9 @@ async def login(
                 refresh_token_expires_at=int(refresh_token_expires_at.timestamp()) if refresh_token_expires_at else None
             )
             
+            # Get user role
+            user_role = get_user_role_by_user_id(db, user_id)
+            
             # Construct user info
             user_info = UserInfo(
                 id=user_id,
@@ -171,7 +186,8 @@ async def login(
                 firstName=given_name if given_name else None,
                 lastName=family_name if family_name else None,
                 email=google_data.get('email', ''),
-                picture=google_data.get('picture')
+                picture=google_data.get('picture'),
+                role=user_role
             )
             
             # Prepare response with refresh token in payload
@@ -644,7 +660,9 @@ async def refresh_access_token(
         refresh_token_from_db = session_data.get("refresh_token")
         if refresh_token_from_request != refresh_token_from_db:
             logger.warning(
-                "Refresh token mismatch",
+                f"Refresh token mismatch, \n "
+                f"refresh_token_from_request: {refresh_token_from_request}, "
+                f"\n refresh_token_from_db: {refresh_token_from_db}",
                 user_session_pk=user_session_pk
             )
             raise HTTPException(
@@ -735,6 +753,10 @@ async def refresh_access_token(
             email=user_data.get('email')
         )
         
+        # Get user role
+        user_id = user_data.get('user_id')
+        user_role = get_user_role_by_user_id(db, user_id) if user_id else None
+        
         # Construct user info to match login response structure
         user_info = UserInfo(
             id=user_data.get('user_id'),
@@ -742,7 +764,8 @@ async def refresh_access_token(
             firstName=user_data.get('first_name'),
             lastName=user_data.get('last_name'),
             email=user_data.get('email', ''),
-            picture=user_data.get('picture')
+            picture=user_data.get('picture'),
+            role=user_role
         )
         
         # Prepare response with same structure as login response
