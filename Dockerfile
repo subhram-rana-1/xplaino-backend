@@ -1,5 +1,5 @@
-# Use Python 3.9 slim image
-FROM python:3.9-slim
+# Use Python 3.11 slim image
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     poppler-utils \
+    ffmpeg \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set work directory
