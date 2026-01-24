@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     metrics_port: int = Field(default=9090, description="Metrics server port")
     
     # Authentication Configuration
-    google_oauth_client_id: str = Field(..., description="Google OAuth Client ID")
+    google_oauth_client_id_xplaino_extension: str = Field(..., description="Google OAuth Client ID for chrome extension as the source")
     google_oauth_client_id_xplaino_web: str = Field(..., description="Google OAuth Client ID for XPLAINO_WEB source")
     jwt_secret_key: str = Field(..., description="JWT secret key for signing tokens")
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")

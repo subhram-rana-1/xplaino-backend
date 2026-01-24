@@ -53,7 +53,7 @@ def get_google_client_id(request: Request) -> str:
         function="get_google_client_id",
         x_source=x_source if x_source else "not provided"
     )
-    return settings.google_oauth_client_id
+    return settings.google_oauth_client_id_xplaino_extension
 
 
 def validate_google_authentication(id_token_str: str, client_id: str) -> Dict[str, Any]:
