@@ -581,18 +581,49 @@ class Currency(str, Enum):
     USD = "USD"
 
 
+class MaxAllowedType(str, Enum):
+    """Max allowed type enum for pricing features."""
+    FIXED = "FIXED"
+    UNLIMITED = "UNLIMITED"
+
+
+class PricingFeature(BaseModel):
+    """Model for a pricing feature."""
+    
+    name: str = Field(..., min_length=1, description="Feature name")
+    is_allowed: bool = Field(..., description="Whether the feature is allowed")
+    max_allowed_type: Optional[MaxAllowedType] = Field(default=None, description="Max allowed type (FIXED or UNLIMITED), null if is_allowed is false")
+    max_allowed_count: Optional[int] = Field(default=None, gt=0, description="Max allowed count (must be > 0), null if max_allowed_type is UNLIMITED or is_allowed is false")
+
+
+class Discount(BaseModel):
+    """Model for discount information."""
+    
+    discount_percentage: float = Field(..., ge=0, le=100, description="Discount percentage (0-100)")
+    discount_valid_till: str = Field(..., description="Discount valid until timestamp (ISO format)")
+
+
+class PricingDetails(BaseModel):
+    """Model for pricing details JSON structure."""
+    
+    monthly_price: float = Field(..., gt=0, description="Monthly price (must be > 0)")
+    monthly_discount: Discount = Field(..., description="Monthly discount details")
+    is_yearly_enabled: bool = Field(..., description="Whether yearly pricing is enabled")
+    yearly_discount: Optional[Discount] = Field(default=None, description="Yearly discount details (null if is_yearly_enabled is false)")
+
+
 class CreatePricingRequest(BaseModel):
     """Request model for creating a pricing."""
     
     name: str = Field(..., min_length=1, max_length=30, description="Pricing name (max 30 characters)")
-    recurring_period: RecurringPeriod = Field(..., description="Recurring period (MONTH or YEAR)")
-    recurring_period_count: int = Field(..., gt=0, description="Recurring period count (must be > 0)")
     activation: str = Field(..., description="Activation timestamp (ISO format)")
     expiry: str = Field(..., description="Expiry timestamp (ISO format)")
     status: PricingStatus = Field(..., description="Pricing status (ENABLED or DISABLED)")
-    features: str = Field(..., min_length=1, description="Pricing features (TEXT, not null)")
+    features: List[PricingFeature] = Field(..., min_items=1, description="Pricing features (array of feature objects)")
     currency: Currency = Field(..., description="Currency (USD)")
-    amount: float = Field(..., gt=0, description="Pricing amount (must be > 0)")
+    pricing_details: PricingDetails = Field(..., description="Pricing details including monthly/yearly prices and discounts")
+    description: str = Field(..., min_length=1, max_length=500, description="Pricing description (max 500 characters)")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether this pricing plan is highlighted")
 
 
 class UpdatePricingRequest(BaseModel):
@@ -602,9 +633,11 @@ class UpdatePricingRequest(BaseModel):
     activation: Optional[str] = Field(default=None, description="Activation timestamp (ISO format)")
     expiry: Optional[str] = Field(default=None, description="Expiry timestamp (ISO format)")
     status: Optional[PricingStatus] = Field(default=None, description="Pricing status (ENABLED or DISABLED)")
-    features: Optional[str] = Field(default=None, min_length=1, description="Pricing features (TEXT, not null)")
+    features: Optional[List[PricingFeature]] = Field(default=None, min_items=1, description="Pricing features (array of feature objects)")
     currency: Optional[Currency] = Field(default=None, description="Currency (USD)")
-    amount: Optional[float] = Field(default=None, gt=0, description="Pricing amount (must be > 0)")
+    pricing_details: Optional[PricingDetails] = Field(default=None, description="Pricing details including monthly/yearly prices and discounts")
+    description: Optional[str] = Field(default=None, min_length=1, max_length=500, description="Pricing description (max 500 characters)")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether this pricing plan is highlighted")
 
 
 class PricingResponse(BaseModel):
@@ -612,14 +645,14 @@ class PricingResponse(BaseModel):
     
     id: str = Field(..., description="Pricing ID (UUID)")
     name: str = Field(..., description="Pricing name")
-    recurring_period: str = Field(..., description="Recurring period (MONTH or YEAR)")
-    recurring_period_count: int = Field(..., description="Recurring period count")
     activation: str = Field(..., description="Activation timestamp (ISO format)")
     expiry: str = Field(..., description="Expiry timestamp (ISO format)")
     status: str = Field(..., description="Pricing status (ENABLED or DISABLED)")
-    features: str = Field(..., description="Pricing features")
+    features: List[Dict] = Field(..., description="Pricing features (array of feature objects)")
     currency: str = Field(..., description="Currency (USD)")
-    amount: float = Field(..., description="Pricing amount")
+    pricing_details: Dict = Field(..., description="Pricing details including monthly/yearly prices and discounts")
+    description: str = Field(..., description="Pricing description")
+    is_highlighted: Optional[bool] = Field(default=None, description="Whether this pricing plan is highlighted")
     created_by: CreatedByUser = Field(..., description="User who created the pricing")
     created_at: str = Field(..., description="ISO format timestamp when the pricing was created")
     updated_at: str = Field(..., description="ISO format timestamp when the pricing was last updated")
@@ -1079,3 +1112,16 @@ class AskSavedParagraphsResponse(BaseModel):
     """Response model for ask-ai endpoint."""
     
     answer: str = Field(..., description="AI-generated answer")
+
+
+class Feature(BaseModel):
+    """Model for a single feature."""
+    
+    name: str = Field(..., description="Feature name")
+    description: str = Field(..., description="Feature description")
+
+
+class FeaturesResponse(BaseModel):
+    """Response model for features list."""
+    
+    features: List[Feature] = Field(..., description="List of available features")

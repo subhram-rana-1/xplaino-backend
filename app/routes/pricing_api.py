@@ -24,15 +24,17 @@ from app.services.database_service import (
     delete_pricing,
     get_all_pricings,
     get_live_pricings,
-    check_pricing_intersection,
-    check_pricing_intersection_excluding_self,
     check_pricing_has_subscriptions,
     get_pricing_by_id
 )
+from app.routes.feature_api import FEATURES
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/pricing", tags=["Pricing"])
+
+# Get valid feature names from FEATURES constant
+VALID_FEATURE_NAMES = {feature.name for feature in FEATURES}
 
 
 def _check_admin_role(user_id: str, db: Session) -> None:
@@ -55,6 +57,33 @@ def _check_admin_role(user_id: str, db: Session) -> None:
                 "error_message": "Only ADMIN and SUPER_ADMIN users can access this endpoint"
             }
         )
+
+
+def _enrich_features_with_descriptions(features: list) -> list:
+    """
+    Enrich feature dicts with descriptions from FEATURES constant.
+    
+    Args:
+        features: List of feature dicts (from database or request)
+        
+    Returns:
+        List of feature dicts with descriptions added
+    """
+    # Create a mapping of feature name to description for quick lookup
+    feature_name_to_description = {feature.name: feature.description for feature in FEATURES}
+    
+    enriched_features = []
+    for feature in features:
+        feature_dict = feature.dict() if hasattr(feature, 'dict') else feature
+        feature_name = feature_dict.get("name")
+        
+        # Add description if found in FEATURES constant
+        if feature_name and feature_name in feature_name_to_description:
+            feature_dict["description"] = feature_name_to_description[feature_name]
+        
+        enriched_features.append(feature_dict)
+    
+    return enriched_features
 
 
 @router.post(
@@ -117,6 +146,22 @@ async def create_pricing_endpoint(
     # Check admin role
     _check_admin_role(user_id, db)
     
+    # Validate feature names
+    invalid_features = []
+    for feature in body.features:
+        if feature.name not in VALID_FEATURE_NAMES:
+            invalid_features.append(feature.name)
+    
+    if invalid_features:
+        valid_features_str = ", ".join(sorted(VALID_FEATURE_NAMES))
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "INVALID_FEATURE_NAME",
+                "error_message": f"Invalid feature name(s): {', '.join(invalid_features)}. Valid features are: {valid_features_str}"
+            }
+        )
+    
     # Parse timestamps
     try:
         activation_dt = datetime.fromisoformat(body.activation.replace('Z', '+00:00'))
@@ -144,37 +189,68 @@ async def create_pricing_endpoint(
             }
         )
     
-    # Check intersection with existing ENABLED pricings
-    has_intersection = check_pricing_intersection(
-        db,
-        body.recurring_period.value,
-        body.recurring_period_count,
-        activation_dt,
-        expiry_dt
-    )
-    
-    if has_intersection:
+    # Validate: expiry must be greater than activation
+    if expiry_dt <= activation_dt:
         raise HTTPException(
             status_code=422,
             detail={
-                "error_code": "PRICING_INTERSECTION",
-                "error_message": f"Pricing period intersects with existing ENABLED pricing for {body.recurring_period.value} recurring period with count {body.recurring_period_count}"
+                "error_code": "VAL_005",
+                "error_message": "Expiry timestamp must be greater than activation timestamp"
             }
         )
+    
+    # Convert pricing_details to dict and validate discount dates
+    pricing_details_dict = body.pricing_details.dict()
+    
+    # Validate monthly discount valid_till < pricing expiry
+    monthly_discount_valid_till = datetime.fromisoformat(
+        pricing_details_dict["monthly_discount"]["discount_valid_till"].replace('Z', '+00:00')
+    )
+    if monthly_discount_valid_till.tzinfo is None:
+        monthly_discount_valid_till = monthly_discount_valid_till.replace(tzinfo=timezone.utc)
+    
+    if monthly_discount_valid_till >= expiry_dt:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VAL_006",
+                "error_message": "Monthly discount valid_till must be less than pricing expiry timestamp"
+            }
+        )
+    
+    # Validate yearly discount valid_till < pricing expiry (if yearly is enabled)
+    if pricing_details_dict.get("is_yearly_enabled") and pricing_details_dict.get("yearly_discount"):
+        yearly_discount_valid_till = datetime.fromisoformat(
+            pricing_details_dict["yearly_discount"]["discount_valid_till"].replace('Z', '+00:00')
+        )
+        if yearly_discount_valid_till.tzinfo is None:
+            yearly_discount_valid_till = yearly_discount_valid_till.replace(tzinfo=timezone.utc)
+        
+        if yearly_discount_valid_till >= expiry_dt:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "VAL_007",
+                    "error_message": "Yearly discount valid_till must be less than pricing expiry timestamp"
+                }
+            )
+    
+    # Enrich features with descriptions before storing
+    features_list = _enrich_features_with_descriptions(body.features)
     
     # Create pricing
     pricing_data = create_pricing(
         db,
         user_id,
         body.name,
-        body.recurring_period.value,
-        body.recurring_period_count,
         activation_dt,
         expiry_dt,
         body.status.value,
-        body.features,
+        features_list,
         body.currency.value,
-        body.amount
+        pricing_details_dict,
+        body.description,
+        body.is_highlighted
     )
     
     logger.info(
@@ -184,18 +260,21 @@ async def create_pricing_endpoint(
         name=body.name
     )
     
+    # Enrich features in response (ensure descriptions are present)
+    enriched_features = _enrich_features_with_descriptions(pricing_data["features"])
+    
     # Convert to response model
     return PricingResponse(
         id=pricing_data["id"],
         name=pricing_data["name"],
-        recurring_period=pricing_data["recurring_period"],
-        recurring_period_count=pricing_data["recurring_period_count"],
         activation=pricing_data["activation"],
         expiry=pricing_data["expiry"],
         status=pricing_data["status"],
-        features=pricing_data["features"],
+        features=enriched_features,
         currency=pricing_data["currency"],
-        amount=pricing_data["amount"],
+        pricing_details=pricing_data["pricing_details"],
+        description=pricing_data["description"],
+        is_highlighted=pricing_data["is_highlighted"],
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
@@ -281,25 +360,12 @@ async def update_pricing_endpoint(
     # Parse and validate timestamps if provided
     activation_dt = None
     expiry_dt = None
-    current_time = datetime.now(timezone.utc)
     
     if body.activation is not None:
         try:
             activation_dt = datetime.fromisoformat(body.activation.replace('Z', '+00:00'))
             if activation_dt.tzinfo is None:
                 activation_dt = activation_dt.replace(tzinfo=timezone.utc)
-            
-            # Validate: activation should not be before current timestamp
-            if activation_dt < current_time:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error_code": "VAL_003",
-                        "error_message": "Activation timestamp cannot be before current timestamp"
-                    }
-                )
-        except HTTPException:
-            raise
         except Exception as e:
             raise HTTPException(
                 status_code=422,
@@ -314,18 +380,6 @@ async def update_pricing_endpoint(
             expiry_dt = datetime.fromisoformat(body.expiry.replace('Z', '+00:00'))
             if expiry_dt.tzinfo is None:
                 expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
-            
-            # Validate: expiry should not be before current timestamp
-            if expiry_dt < current_time:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error_code": "VAL_004",
-                        "error_message": "Expiry timestamp cannot be before current timestamp"
-                    }
-                )
-        except HTTPException:
-            raise
         except Exception as e:
             raise HTTPException(
                 status_code=422,
@@ -335,16 +389,12 @@ async def update_pricing_endpoint(
                 }
             )
     
-    # Get existing pricing's recurring_period and recurring_period_count
-    # (these fields are not in UpdatePricingRequest, so always use existing values)
-    existing_recurring_period = existing_pricing["recurring_period"]
-    existing_recurring_period_count = existing_pricing["recurring_period_count"]
-    
-    # Determine final activation/expiry values
+    # Determine final activation/expiry values for validation
     # If provided in request, use them; otherwise use existing values
-    if activation_dt is not None:
-        final_activation = activation_dt
-    else:
+    final_activation = activation_dt
+    final_expiry = expiry_dt
+    
+    if final_activation is None:
         # Parse existing activation
         try:
             final_activation = datetime.fromisoformat(existing_pricing["activation"].replace('Z', '+00:00'))
@@ -359,9 +409,7 @@ async def update_pricing_endpoint(
                 }
             )
     
-    if expiry_dt is not None:
-        final_expiry = expiry_dt
-    else:
+    if final_expiry is None:
         # Parse existing expiry
         try:
             final_expiry = datetime.fromisoformat(existing_pricing["expiry"].replace('Z', '+00:00'))
@@ -376,25 +424,75 @@ async def update_pricing_endpoint(
                 }
             )
     
-    # Check intersection only if activation OR expiry is being updated
-    if body.activation is not None or body.expiry is not None:
-        has_intersection = check_pricing_intersection_excluding_self(
-            db,
-            pricing_id,  # Exclude current pricing
-            existing_recurring_period,
-            existing_recurring_period_count,
-            final_activation,
-            final_expiry
+    # Validate: expiry must be greater than activation
+    if final_expiry <= final_activation:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "VAL_005",
+                "error_message": "Expiry timestamp must be greater than activation timestamp"
+            }
         )
+    
+    # Validate feature names if features are being updated
+    if body.features is not None:
+        invalid_features = []
+        for feature in body.features:
+            if feature.name not in VALID_FEATURE_NAMES:
+                invalid_features.append(feature.name)
         
-        if has_intersection:
+        if invalid_features:
+            valid_features_str = ", ".join(sorted(VALID_FEATURE_NAMES))
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "error_code": "PRICING_INTERSECTION",
-                    "error_message": f"Pricing period intersects with existing ENABLED pricing for {existing_recurring_period} recurring period with count {existing_recurring_period_count}"
+                    "error_code": "INVALID_FEATURE_NAME",
+                    "error_message": f"Invalid feature name(s): {', '.join(invalid_features)}. Valid features are: {valid_features_str}"
                 }
             )
+    
+    # Enrich features with descriptions if features are being updated
+    features_list = None
+    if body.features is not None:
+        features_list = _enrich_features_with_descriptions(body.features)
+    
+    # Convert pricing_details to dict if provided and validate discount dates
+    pricing_details_dict = None
+    if body.pricing_details is not None:
+        pricing_details_dict = body.pricing_details.dict()
+        
+        # Validate monthly discount valid_till < pricing expiry
+        monthly_discount_valid_till = datetime.fromisoformat(
+            pricing_details_dict["monthly_discount"]["discount_valid_till"].replace('Z', '+00:00')
+        )
+        if monthly_discount_valid_till.tzinfo is None:
+            monthly_discount_valid_till = monthly_discount_valid_till.replace(tzinfo=timezone.utc)
+        
+        if monthly_discount_valid_till >= final_expiry:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "VAL_006",
+                    "error_message": "Monthly discount valid_till must be less than pricing expiry timestamp"
+                }
+            )
+        
+        # Validate yearly discount valid_till < pricing expiry (if yearly is enabled)
+        if pricing_details_dict.get("is_yearly_enabled") and pricing_details_dict.get("yearly_discount"):
+            yearly_discount_valid_till = datetime.fromisoformat(
+                pricing_details_dict["yearly_discount"]["discount_valid_till"].replace('Z', '+00:00')
+            )
+            if yearly_discount_valid_till.tzinfo is None:
+                yearly_discount_valid_till = yearly_discount_valid_till.replace(tzinfo=timezone.utc)
+            
+            if yearly_discount_valid_till >= final_expiry:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error_code": "VAL_007",
+                        "error_message": "Yearly discount valid_till must be less than pricing expiry timestamp"
+                    }
+                )
     
     # Update pricing
     pricing_data = update_pricing(
@@ -404,9 +502,11 @@ async def update_pricing_endpoint(
         activation=activation_dt,
         expiry=expiry_dt,
         status=body.status.value if body.status is not None else None,
-        features=body.features,
+        features=features_list,
         currency=body.currency.value if body.currency is not None else None,
-        amount=body.amount
+        pricing_details=pricing_details_dict,
+        description=body.description,
+        is_highlighted=body.is_highlighted
     )
     
     logger.info(
@@ -415,18 +515,21 @@ async def update_pricing_endpoint(
         user_id=user_id
     )
     
+    # Enrich features in response (ensure descriptions are present)
+    enriched_features = _enrich_features_with_descriptions(pricing_data["features"])
+    
     # Convert to response model
     return PricingResponse(
         id=pricing_data["id"],
         name=pricing_data["name"],
-        recurring_period=pricing_data["recurring_period"],
-        recurring_period_count=pricing_data["recurring_period_count"],
         activation=pricing_data["activation"],
         expiry=pricing_data["expiry"],
         status=pricing_data["status"],
-        features=pricing_data["features"],
+        features=enriched_features,
         currency=pricing_data["currency"],
-        amount=pricing_data["amount"],
+        pricing_details=pricing_data["pricing_details"],
+        description=pricing_data["description"],
+        is_highlighted=pricing_data["is_highlighted"],
         created_by=CreatedByUser(
             id=pricing_data["created_by"]["id"],
             name=pricing_data["created_by"]["name"],
@@ -548,18 +651,21 @@ async def get_live_pricings_endpoint(
     # Convert to response models
     pricings = []
     for pricing_data in pricings_data:
+        # Enrich features with descriptions
+        enriched_features = _enrich_features_with_descriptions(pricing_data["features"])
+        
         pricings.append(
             PricingResponse(
                 id=pricing_data["id"],
                 name=pricing_data["name"],
-                recurring_period=pricing_data["recurring_period"],
-                recurring_period_count=pricing_data["recurring_period_count"],
                 activation=pricing_data["activation"],
                 expiry=pricing_data["expiry"],
                 status=pricing_data["status"],
-                features=pricing_data["features"],
+                features=enriched_features,
                 currency=pricing_data["currency"],
-                amount=pricing_data["amount"],
+                pricing_details=pricing_data["pricing_details"],
+                description=pricing_data["description"],
+                is_highlighted=pricing_data["is_highlighted"],
                 created_by=CreatedByUser(
                     id=pricing_data["created_by"]["id"],
                     name=pricing_data["created_by"]["name"],
@@ -641,18 +747,21 @@ async def get_all_pricings_endpoint(
     # Convert to response models
     pricings = []
     for pricing_data in pricings_data:
+        # Enrich features with descriptions
+        enriched_features = _enrich_features_with_descriptions(pricing_data["features"])
+        
         pricings.append(
             PricingResponse(
                 id=pricing_data["id"],
                 name=pricing_data["name"],
-                recurring_period=pricing_data["recurring_period"],
-                recurring_period_count=pricing_data["recurring_period_count"],
                 activation=pricing_data["activation"],
                 expiry=pricing_data["expiry"],
                 status=pricing_data["status"],
-                features=pricing_data["features"],
+                features=enriched_features,
                 currency=pricing_data["currency"],
-                amount=pricing_data["amount"],
+                pricing_details=pricing_data["pricing_details"],
+                description=pricing_data["description"],
+                is_highlighted=pricing_data["is_highlighted"],
                 created_by=CreatedByUser(
                     id=pricing_data["created_by"]["id"],
                     name=pricing_data["created_by"]["name"],

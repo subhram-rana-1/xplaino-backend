@@ -202,7 +202,7 @@ class OpenAIService:
             ]
 
             response = await self._make_api_call(
-                model=settings.gpt4_turbo_model,
+                model=settings.gpt4o_model,
                 messages=messages,
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -475,7 +475,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             """
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -593,7 +593,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             Return ONLY the formatted response in the exact format specified above. No additional text, no JSON, no explanations."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -642,7 +642,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             Return only the JSON array, no additional text."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -692,7 +692,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             Return only the JSON array, no additional text or explanation."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -762,7 +762,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             Return only the JSON array, no additional text or explanation."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=settings.temperature
@@ -830,7 +830,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             The paragraph should help users improve their vocabulary skills by encountering challenging words in context."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.8  # Higher temperature for more creative/random content
@@ -883,7 +883,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             The paragraph should help users improve their vocabulary skills by encountering challenging words in context."""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.8  # Higher temperature for more creative/random content
@@ -1022,7 +1022,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
             Simplified text:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -1169,7 +1169,7 @@ REMEMBER: The final HTML when rendered should look EXACTLY like the input PDF im
 
             # Create streaming response
             stream = await self.client.chat.completions.create(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3,
@@ -1400,7 +1400,7 @@ CRITICAL CONTEXT VALIDATION REQUIREMENTS:
             })
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=messages,
                 max_tokens=settings.max_tokens,
                 temperature=0.7
@@ -1584,7 +1584,7 @@ REMEMBER: When context_type = PAGE, you MUST include source references in the fo
 
             # Create streaming response
             stream = await self.client.chat.completions.create(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=messages,
                 max_tokens=settings.max_tokens,
                 temperature=0.7,
@@ -1819,7 +1819,7 @@ REMEMBER: When context_type = PAGE, you MUST include source references in the fo
             Topic name:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=50,  # Short response needed
                 temperature=0.3
@@ -1868,7 +1868,7 @@ CRITICAL REQUIREMENTS:
 Language code:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=10,
                 temperature=0.1
@@ -1907,7 +1907,7 @@ CRITICAL REQUIREMENTS:
 Language:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=20,
                 temperature=0.1
@@ -1954,7 +1954,7 @@ CRITICAL REQUIREMENTS:
 Word for pronunciation:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=50,
                 temperature=0.1
@@ -2183,7 +2183,7 @@ CRITICAL REQUIREMENTS:
 Translated text:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -2283,7 +2283,7 @@ IMPORTANT: The IDs must be EXACTLY the same as in the input. Do not change, modi
 Translated items (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -2423,7 +2423,7 @@ CRITICAL REQUIREMENTS:
 Translated texts (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -2526,7 +2526,7 @@ Text:
 Summary:"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3
@@ -2702,7 +2702,7 @@ Summary:"""
 
             # Create streaming response
             stream = await self.client.chat.completions.create(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=settings.max_tokens,
                 temperature=0.3,
@@ -2794,7 +2794,7 @@ Example format:
 Questions (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=500,  # Enough for 5 questions
                 temperature=0.5
@@ -2920,7 +2920,7 @@ Example formats (depending on text complexity):
 Questions (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,  # Enough for 3 questions
                 temperature=0.5
@@ -3064,7 +3064,7 @@ Example format:
 Recommended Questions (JSON array only):"""
 
             response = await self._make_api_call(
-                model=settings.gpt4o_model,
+                model=settings.gpt4o_mini_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,  # Enough for 3 questions
                 temperature=0.5
