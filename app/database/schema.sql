@@ -310,3 +310,13 @@ CREATE TABLE IF NOT EXISTS coupon (
     FOREIGN KEY (created_by) REFERENCES user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Pre-launch user table
+CREATE TABLE IF NOT EXISTS pre_launch_user (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    email VARCHAR(100) NOT NULL,
+    meta_info JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_pre_launch_user_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

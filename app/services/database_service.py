@@ -1492,6 +1492,191 @@ def create_saved_word(
     return saved_word
 
 
+def create_pre_launch_user(
+    db: Session,
+    email: str,
+    meta_info: Optional[dict] = None
+) -> Dict[str, Any]:
+    """
+    Create a new pre-launch user record.
+    
+    Args:
+        db: Database session
+        email: Email address of the pre-launch user
+        meta_info: Optional metadata dictionary (will be converted to JSON)
+        
+    Returns:
+        Dictionary with created pre-launch user data
+    """
+    logger.info(
+        "Creating pre-launch user",
+        function="create_pre_launch_user",
+        email=email,
+        has_meta_info=meta_info is not None
+    )
+    
+    # Generate UUID for the new pre-launch user
+    pre_launch_user_id = str(uuid.uuid4())
+    
+    # Convert meta_info dict to JSON string if provided
+    meta_info_json = None
+    if meta_info is not None:
+        meta_info_json = json.dumps(meta_info)
+    
+    # Insert the new pre-launch user
+    db.execute(
+        text("""
+            INSERT INTO pre_launch_user (id, email, meta_info)
+            VALUES (:id, :email, :meta_info)
+        """),
+        {
+            "id": pre_launch_user_id,
+            "email": email,
+            "meta_info": meta_info_json
+        }
+    )
+    db.commit()
+    
+    # Fetch the created record
+    result = db.execute(
+        text("""
+            SELECT id, email, meta_info, created_at, updated_at
+            FROM pre_launch_user
+            WHERE id = :id
+        """),
+        {"id": pre_launch_user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.error(
+            "Failed to retrieve created pre-launch user",
+            function="create_pre_launch_user",
+            pre_launch_user_id=pre_launch_user_id
+        )
+        raise Exception("Failed to retrieve created pre-launch user")
+    
+    record_id, record_email, record_meta_info, created_at, updated_at = result
+    
+    # Parse meta_info JSON if it's a string
+    meta_info_dict = None
+    if record_meta_info:
+        if isinstance(record_meta_info, str):
+            try:
+                meta_info_dict = json.loads(record_meta_info)
+            except json.JSONDecodeError:
+                meta_info_dict = None
+        else:
+            meta_info_dict = record_meta_info
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    pre_launch_user = {
+        "id": record_id,
+        "email": record_email,
+        "meta_info": meta_info_dict,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Created pre-launch user successfully",
+        function="create_pre_launch_user",
+        pre_launch_user_id=record_id,
+        email=record_email
+    )
+    
+    return pre_launch_user
+
+
+def get_pre_launch_user_by_email(
+    db: Session,
+    email: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a pre-launch user record by email.
+    
+    Args:
+        db: Database session
+        email: Email address of the pre-launch user
+        
+    Returns:
+        Dictionary with pre-launch user data or None if not found
+    """
+    logger.info(
+        "Getting pre-launch user by email",
+        function="get_pre_launch_user_by_email",
+        email=email,
+    )
+    
+    result = db.execute(
+        text("""
+            SELECT id, email, meta_info, created_at, updated_at
+            FROM pre_launch_user
+            WHERE email = :email
+            LIMIT 1
+        """),
+        {"email": email}
+    ).fetchone()
+    
+    if not result:
+        logger.info(
+            "Pre-launch user not found by email",
+            function="get_pre_launch_user_by_email",
+            email=email,
+        )
+        return None
+    
+    record_id, record_email, record_meta_info, created_at, updated_at = result
+    
+    # Parse meta_info JSON if it's a string
+    meta_info_dict = None
+    if record_meta_info:
+        if isinstance(record_meta_info, str):
+            try:
+                meta_info_dict = json.loads(record_meta_info)
+            except json.JSONDecodeError:
+                meta_info_dict = None
+        else:
+            meta_info_dict = record_meta_info
+    
+    # Convert timestamps to ISO format strings
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    pre_launch_user = {
+        "id": record_id,
+        "email": record_email,
+        "meta_info": meta_info_dict,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+    
+    logger.info(
+        "Retrieved pre-launch user by email successfully",
+        function="get_pre_launch_user_by_email",
+        pre_launch_user_id=record_id,
+        email=record_email
+    )
+    
+    return pre_launch_user
+
+
 def get_saved_word_by_id_and_user_id(
     db: Session,
     word_id: str,

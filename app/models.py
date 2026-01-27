@@ -1125,3 +1125,33 @@ class FeaturesResponse(BaseModel):
     """Response model for features list."""
     
     features: List[Feature] = Field(..., description="List of available features")
+
+
+class CreatePreLaunchUserRequest(BaseModel):
+    """Request model for creating a pre-launch user."""
+    
+    email: str = Field(..., description="Email address of the pre-launch user")
+    metaInfo: Optional[dict] = Field(default=None, description="Optional metadata information for the pre-launch user")
+
+
+class PreLaunchUserResponse(BaseModel):
+    """Response model for a pre-launch user."""
+    
+    id: str = Field(..., description="Pre-launch user ID (UUID)")
+    email: str = Field(..., description="Email address of the pre-launch user")
+    metaInfo: Optional[dict] = Field(default=None, description="Optional metadata information for the pre-launch user")
+    createdAt: str = Field(..., description="ISO format timestamp when the pre-launch user was created")
+    updatedAt: str = Field(..., description="ISO format timestamp when the pre-launch user was last updated")
+
+
+class CreatePreLaunchUserApiResponse(BaseModel):
+    """API response model for creating a pre-launch user, including duplicate-email handling."""
+    
+    code: Optional[str] = Field(
+        default=None,
+        description="Optional status/error code. 'EMAIL_ALREADY_EXISTS' when email is already registered."
+    )
+    user: Optional[PreLaunchUserResponse] = Field(
+        default=None,
+        description="Created or existing pre-launch user record"
+    )
