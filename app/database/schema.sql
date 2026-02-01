@@ -320,3 +320,127 @@ CREATE TABLE IF NOT EXISTS pre_launch_user (
     UNIQUE KEY uk_pre_launch_user_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- =====================================================
+-- PADDLE BILLING INTEGRATION TABLES
+-- =====================================================
+
+-- Paddle Customer table (synced from Paddle webhooks)
+CREATE TABLE IF NOT EXISTS paddle_customer (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    paddle_customer_id VARCHAR(50) NOT NULL UNIQUE,
+    user_id CHAR(36) NULL,
+    email VARCHAR(256) NOT NULL,
+    name VARCHAR(256) NULL,
+    locale VARCHAR(10) NULL,
+    marketing_consent BOOLEAN DEFAULT FALSE,
+    status ENUM('ACTIVE', 'ARCHIVED') NOT NULL DEFAULT 'ACTIVE',
+    custom_data JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_paddle_customer_id (paddle_customer_id),
+    INDEX idx_user_id (user_id),
+    INDEX idx_email (email),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Paddle Subscription table (synced from Paddle webhooks)
+CREATE TABLE IF NOT EXISTS paddle_subscription (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    paddle_subscription_id VARCHAR(50) NOT NULL UNIQUE,
+    paddle_customer_id VARCHAR(50) NOT NULL,
+    user_id CHAR(36) NULL,
+    status ENUM('ACTIVE', 'CANCELED', 'PAST_DUE', 'PAUSED', 'TRIALING') NOT NULL,
+    currency_code VARCHAR(3) NOT NULL,
+    billing_cycle_interval ENUM('DAY', 'WEEK', 'MONTH', 'YEAR') NOT NULL,
+    billing_cycle_frequency INT NOT NULL DEFAULT 1,
+    current_billing_period_starts_at TIMESTAMP NULL,
+    current_billing_period_ends_at TIMESTAMP NULL,
+    next_billed_at TIMESTAMP NULL,
+    paused_at TIMESTAMP NULL,
+    canceled_at TIMESTAMP NULL,
+    scheduled_change JSON NULL,
+    items JSON NOT NULL,
+    custom_data JSON NULL,
+    first_billed_at TIMESTAMP NULL,
+    started_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_paddle_subscription_id (paddle_subscription_id),
+    INDEX idx_paddle_customer_id (paddle_customer_id),
+    INDEX idx_user_id (user_id),
+    INDEX idx_status (status),
+    INDEX idx_next_billed_at (next_billed_at),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Paddle Transaction table (synced from Paddle webhooks)
+CREATE TABLE IF NOT EXISTS paddle_transaction (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    paddle_transaction_id VARCHAR(50) NOT NULL UNIQUE,
+    paddle_subscription_id VARCHAR(50) NULL,
+    paddle_customer_id VARCHAR(50) NOT NULL,
+    user_id CHAR(36) NULL,
+    status ENUM('DRAFT', 'READY', 'BILLED', 'PAID', 'COMPLETED', 'CANCELED', 'PAST_DUE') NOT NULL,
+    origin ENUM('API', 'SUBSCRIPTION_RECURRING', 'SUBSCRIPTION_PAYMENT_METHOD_CHANGE', 'SUBSCRIPTION_UPDATE', 'WEB') NULL,
+    currency_code VARCHAR(3) NOT NULL,
+    subtotal VARCHAR(20) NOT NULL,
+    tax VARCHAR(20) NOT NULL,
+    total VARCHAR(20) NOT NULL,
+    grand_total VARCHAR(20) NOT NULL,
+    discount_total VARCHAR(20) NULL DEFAULT '0',
+    items JSON NOT NULL,
+    payments JSON NULL,
+    billed_at TIMESTAMP NULL,
+    invoice_id VARCHAR(50) NULL,
+    invoice_number VARCHAR(50) NULL,
+    custom_data JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_paddle_transaction_id (paddle_transaction_id),
+    INDEX idx_paddle_subscription_id (paddle_subscription_id),
+    INDEX idx_paddle_customer_id (paddle_customer_id),
+    INDEX idx_user_id (user_id),
+    INDEX idx_status (status),
+    INDEX idx_billed_at (billed_at),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Paddle Webhook Event Log table (for idempotency and debugging)
+CREATE TABLE IF NOT EXISTS paddle_webhook_event (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    paddle_event_id VARCHAR(50) NOT NULL UNIQUE,
+    event_type VARCHAR(50) NOT NULL,
+    occurred_at TIMESTAMP NOT NULL,
+    payload JSON NOT NULL,
+    processing_status ENUM('RECEIVED', 'PROCESSING', 'PROCESSED', 'FAILED') NOT NULL DEFAULT 'RECEIVED',
+    processing_error TEXT NULL,
+    processed_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_paddle_event_id (paddle_event_id),
+    INDEX idx_event_type (event_type),
+    INDEX idx_occurred_at (occurred_at),
+    INDEX idx_processing_status (processing_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Paddle Adjustment table (refunds, credits, chargebacks)
+CREATE TABLE IF NOT EXISTS paddle_adjustment (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    paddle_adjustment_id VARCHAR(50) NOT NULL UNIQUE,
+    paddle_transaction_id VARCHAR(50) NOT NULL,
+    paddle_customer_id VARCHAR(50) NOT NULL,
+    paddle_subscription_id VARCHAR(50) NULL,
+    action ENUM('REFUND', 'CREDIT', 'CHARGEBACK', 'CHARGEBACK_REVERSE', 'CHARGEBACK_WARNING') NOT NULL,
+    status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL,
+    reason VARCHAR(500) NULL,
+    currency_code VARCHAR(3) NOT NULL,
+    total VARCHAR(20) NOT NULL,
+    payout_totals JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_paddle_adjustment_id (paddle_adjustment_id),
+    INDEX idx_paddle_transaction_id (paddle_transaction_id),
+    INDEX idx_paddle_customer_id (paddle_customer_id),
+    INDEX idx_status (status),
+    INDEX idx_action (action)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
