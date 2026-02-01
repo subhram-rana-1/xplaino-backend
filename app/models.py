@@ -1317,12 +1317,36 @@ class ProrationBillingMode(str, Enum):
     DO_NOT_BILL = "do_not_bill"
 
 
+class CancellationReason(str, Enum):
+    """Reasons for subscription cancellation."""
+    TOO_EXPENSIVE = "TOO_EXPENSIVE"
+    NOT_USING = "NOT_USING"
+    FOUND_ALTERNATIVE = "FOUND_ALTERNATIVE"
+    MISSING_FEATURES = "MISSING_FEATURES"
+    EXTENSION_NOT_WORKING = "EXTENSION_NOT_WORKING"
+    OTHER = "OTHER"
+
+
+class CancellationInfo(BaseModel):
+    """Cancellation information with reasons and optional feedback."""
+    
+    reasons: List[CancellationReason] = Field(
+        ...,
+        min_length=1,
+        description="List of cancellation reasons (at least one required)"
+    )
+    user_feedback: Optional[str] = Field(
+        default=None,
+        description="Optional user feedback about cancellation"
+    )
+
+
 class CancelSubscriptionRequest(BaseModel):
     """Request model for cancelling a subscription."""
     
-    effective_from: EffectiveFrom = Field(
-        default=EffectiveFrom.NEXT_BILLING_PERIOD,
-        description="When cancellation takes effect: 'immediately' or 'next_billing_period'"
+    cancellation_info: CancellationInfo = Field(
+        ...,
+        description="Required cancellation information with reasons"
     )
 
 

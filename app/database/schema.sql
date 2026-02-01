@@ -358,6 +358,7 @@ CREATE TABLE IF NOT EXISTS paddle_subscription (
     next_billed_at TIMESTAMP NULL,
     paused_at TIMESTAMP NULL,
     canceled_at TIMESTAMP NULL,
+    cancellation_info JSON NULL,
     scheduled_change JSON NULL,
     items JSON NOT NULL,
     custom_data JSON NULL,

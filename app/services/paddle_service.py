@@ -424,6 +424,38 @@ def upsert_subscription(db: Session, data: Dict[str, Any], status: str) -> Dict[
     return {"id": record_id, "paddle_subscription_id": paddle_subscription_id}
 
 
+def update_subscription_cancellation_info(
+    db: Session,
+    paddle_subscription_id: str,
+    cancellation_info: Dict[str, Any]
+) -> None:
+    """
+    Update cancellation_info for a subscription.
+    
+    Args:
+        db: Database session
+        paddle_subscription_id: Paddle subscription ID (sub_xxx)
+        cancellation_info: Cancellation info dict with reasons and optional feedback
+    """
+    db.execute(
+        text("""
+            UPDATE paddle_subscription 
+            SET cancellation_info = :cancellation_info,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE paddle_subscription_id = :paddle_id
+        """),
+        {
+            "paddle_id": paddle_subscription_id,
+            "cancellation_info": json.dumps(cancellation_info)
+        }
+    )
+    db.commit()
+    logger.info(
+        "Updated subscription cancellation info",
+        paddle_subscription_id=paddle_subscription_id
+    )
+
+
 # =====================================================
 # TRANSACTION FUNCTIONS
 # =====================================================
@@ -755,7 +787,21 @@ def get_user_active_subscription(
     """Get user's active subscription if any."""
     result = db.execute(
         text("""
-            SELECT s.*, c.email, c.name as customer_name
+            SELECT 
+                s.id,
+                s.paddle_subscription_id,
+                s.paddle_customer_id,
+                s.user_id,
+                s.status,
+                s.currency_code,
+                s.billing_cycle_interval,
+                s.billing_cycle_frequency,
+                s.current_billing_period_starts_at,
+                s.current_billing_period_ends_at,
+                s.next_billed_at,
+                s.items,
+                c.email as customer_email,
+                c.name as customer_name
             FROM paddle_subscription s
             JOIN paddle_customer c ON c.paddle_customer_id = s.paddle_customer_id
             WHERE s.user_id = :user_id
@@ -781,9 +827,9 @@ def get_user_active_subscription(
         "current_billing_period_starts_at": result[8].isoformat() if result[8] else None,
         "current_billing_period_ends_at": result[9].isoformat() if result[9] else None,
         "next_billed_at": result[10].isoformat() if result[10] else None,
-        "items": json.loads(result[14]) if result[14] else [],
-        "customer_email": result[-2],
-        "customer_name": result[-1]
+        "items": json.loads(result[11]) if result[11] else [],
+        "customer_email": result[12],
+        "customer_name": result[13]
     }
 
 
@@ -823,7 +869,8 @@ def get_subscription_by_paddle_id(db: Session, paddle_subscription_id: str) -> O
             SELECT id, paddle_subscription_id, paddle_customer_id, user_id, status,
                    currency_code, billing_cycle_interval, billing_cycle_frequency,
                    current_billing_period_starts_at, current_billing_period_ends_at,
-                   next_billed_at, paused_at, canceled_at, items, created_at, updated_at
+                   next_billed_at, paused_at, canceled_at, cancellation_info, items,
+                   created_at, updated_at
             FROM paddle_subscription
             WHERE paddle_subscription_id = :paddle_id
             LIMIT 1
@@ -848,9 +895,10 @@ def get_subscription_by_paddle_id(db: Session, paddle_subscription_id: str) -> O
         "next_billed_at": result[10].isoformat() if result[10] else None,
         "paused_at": result[11].isoformat() if result[11] else None,
         "canceled_at": result[12].isoformat() if result[12] else None,
-        "items": json.loads(result[13]) if result[13] else [],
-        "created_at": result[14].isoformat() if result[14] else None,
-        "updated_at": result[15].isoformat() if result[15] else None
+        "cancellation_info": json.loads(result[13]) if result[13] else None,
+        "items": json.loads(result[14]) if result[14] else [],
+        "created_at": result[15].isoformat() if result[15] else None,
+        "updated_at": result[16].isoformat() if result[16] else None
     }
 
 

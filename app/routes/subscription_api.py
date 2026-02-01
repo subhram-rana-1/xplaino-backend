@@ -1,5 +1,6 @@
 """API routes for subscription management (frontend-facing)."""
 
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -18,17 +19,47 @@ from app.models import (
     ScheduledChangeInfo,
     PreviewSubscriptionUpdateRequest,
     PreviewSubscriptionUpdateResponse,
+    EffectiveFrom,
 )
 from app.services.paddle_service import (
     get_user_active_subscription,
     get_customer_by_email,
     get_subscription_by_paddle_id,
+    update_subscription_cancellation_info,
 )
 from app.services.paddle_api_client import paddle_api_client, PaddleAPIError
+from app.services.auth_middleware import authenticate
+from app.services.database_service import get_user_id_by_auth_vendor_id
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/subscription", tags=["Subscription"])
+
+
+def _get_user_id_from_auth_context(db: Session, auth_context: dict) -> str:
+    """
+    Extract user_id from authentication context.
+    
+    For authenticated users, retrieves user_id from session data.
+    For unauthenticated users, returns the unauthenticated_user_id.
+    """
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+        logger.debug(
+            "_get_user_id_from_auth_context - Authenticated user",
+            auth_vendor_id=auth_vendor_id,
+            resolved_user_id=user_id
+        )
+        return user_id
+    else:
+        unauthenticated_user_id = auth_context.get("unauthenticated_user_id")
+        logger.debug(
+            "_get_user_id_from_auth_context - Unauthenticated user",
+            unauthenticated_user_id=unauthenticated_user_id
+        )
+        return unauthenticated_user_id
 
 
 def _validate_subscription_ownership(db: Session, subscription_id: str, user_id: Optional[str] = None):
@@ -83,6 +114,7 @@ def _extract_scheduled_change(paddle_data: dict) -> Optional[ScheduledChangeInfo
 )
 async def get_user_subscription_status(
     user_id: str,
+    auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """
@@ -91,6 +123,56 @@ async def get_user_subscription_status(
     This endpoint is used by your frontend application to check if a user
     has an active subscription and should have premium access.
     """
+    # DEBUG: Log incoming request details
+    logger.info(
+        "get_user_subscription_status - Request received",
+        path_user_id=user_id,
+        path_user_id_type=type(user_id).__name__,
+        is_authenticated=auth_context.get("authenticated"),
+        auth_context_keys=list(auth_context.keys())
+    )
+    
+    # DEBUG: Log auth_context details
+    if auth_context.get("authenticated"):
+        session_data = auth_context.get("session_data", {})
+        logger.info(
+            "get_user_subscription_status - Authenticated user details",
+            auth_vendor_id=session_data.get("auth_vendor_id"),
+            session_data_keys=list(session_data.keys()) if session_data else None
+        )
+    else:
+        logger.info(
+            "get_user_subscription_status - Unauthenticated user details",
+            unauthenticated_user_id=auth_context.get("unauthenticated_user_id")
+        )
+    
+    # Validate that authenticated user can only access their own subscription
+    auth_user_id = _get_user_id_from_auth_context(db, auth_context)
+    
+    # DEBUG: Log the comparison
+    logger.info(
+        "get_user_subscription_status - User ID comparison",
+        path_user_id=user_id,
+        auth_user_id=auth_user_id,
+        path_user_id_type=type(user_id).__name__,
+        auth_user_id_type=type(auth_user_id).__name__ if auth_user_id else None,
+        ids_match=(user_id == auth_user_id)
+    )
+    
+    if user_id != auth_user_id:
+        logger.warning(
+            "get_user_subscription_status - Access denied: user_id mismatch",
+            path_user_id=user_id,
+            auth_user_id=auth_user_id
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "SUB_002",
+                "error_message": "Cannot access another user's subscription"
+            }
+        )
+    
     subscription_data = get_user_active_subscription(db, user_id)
     
     if not subscription_data:
@@ -99,6 +181,23 @@ async def get_user_subscription_status(
             subscription=None,
             customer=None
         )
+    
+    # Check if subscription billing period has expired
+    is_expired = False
+    billing_period_ends_at = subscription_data.get("current_billing_period_ends_at")
+    if billing_period_ends_at:
+        # Parse the ISO format datetime string
+        if isinstance(billing_period_ends_at, str):
+            ends_at = datetime.fromisoformat(billing_period_ends_at.replace('Z', '+00:00'))
+        else:
+            ends_at = billing_period_ends_at
+        
+        # Ensure timezone awareness
+        if ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=timezone.utc)
+        
+        current_time = datetime.now(timezone.utc)
+        is_expired = ends_at < current_time
     
     # Build subscription response
     subscription = PaddleSubscriptionResponse(
@@ -135,7 +234,7 @@ async def get_user_subscription_status(
         )
     
     return GetUserSubscriptionResponse(
-        has_active_subscription=True,
+        has_active_subscription=not is_expired,
         subscription=subscription,
         customer=customer
     )
@@ -150,35 +249,49 @@ async def get_user_subscription_status(
     response_model=SubscriptionActionResponse,
     status_code=200,
     summary="Cancel subscription",
-    description="Cancel a subscription. By default, cancellation takes effect at end of billing period."
+    description="Cancel a subscription. Cancellation takes effect at the end of the current billing period. Requires cancellation reasons."
 )
 async def cancel_subscription(
     subscription_id: str,
     body: CancelSubscriptionRequest,
+    auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """
     Cancel a subscription.
     
-    - effective_from="next_billing_period": Cancel at end of current billing period (default)
-    - effective_from="immediately": Cancel immediately and stop billing
-    
+    Cancellation always takes effect at the end of the current billing period.
     The actual cancellation is processed by Paddle, and a webhook will update your database.
     """
+    # Always use NEXT_BILLING_PERIOD - user cannot choose immediate cancellation
+    effective_from = EffectiveFrom.NEXT_BILLING_PERIOD
+    
+    # Extract authenticated user's ID
+    user_id = _get_user_id_from_auth_context(db, auth_context)
+    
     logger.info(
         "Cancel subscription request",
         subscription_id=subscription_id,
-        effective_from=body.effective_from.value
+        effective_from=effective_from.value,
+        cancellation_reasons=body.cancellation_info.reasons,
+        user_id=user_id
     )
     
-    # Validate subscription exists in our DB
-    _validate_subscription_ownership(db, subscription_id)
+    # Validate subscription exists and belongs to the authenticated user
+    _validate_subscription_ownership(db, subscription_id, user_id)
     
     try:
         # Call Paddle API to cancel
         paddle_response = await paddle_api_client.cancel_subscription(
             subscription_id=subscription_id,
-            effective_from=body.effective_from.value
+            effective_from=effective_from.value
+        )
+        
+        # Save cancellation info to database
+        update_subscription_cancellation_info(
+            db=db,
+            paddle_subscription_id=subscription_id,
+            cancellation_info=body.cancellation_info.model_dump()
         )
         
         return SubscriptionActionResponse(
@@ -186,7 +299,7 @@ async def cancel_subscription(
             paddle_subscription_id=subscription_id,
             status=paddle_response.get("status", "unknown"),
             scheduled_change=_extract_scheduled_change(paddle_response),
-            message=f"Subscription will be cancelled {body.effective_from.value.replace('_', ' ')}"
+            message="Subscription will be cancelled at end of billing period"
         )
         
     except PaddleAPIError as e:
@@ -215,6 +328,7 @@ async def cancel_subscription(
 async def update_subscription(
     subscription_id: str,
     body: UpdateSubscriptionRequest,
+    auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """
@@ -225,15 +339,19 @@ async def update_subscription(
     
     The update is processed by Paddle, and a webhook will update your database.
     """
+    # Extract authenticated user's ID
+    user_id = _get_user_id_from_auth_context(db, auth_context)
+    
     logger.info(
         "Update subscription request",
         subscription_id=subscription_id,
         items=[item.model_dump() for item in body.items],
-        proration_billing_mode=body.proration_billing_mode.value
+        proration_billing_mode=body.proration_billing_mode.value,
+        user_id=user_id
     )
     
-    # Validate subscription exists in our DB
-    _validate_subscription_ownership(db, subscription_id)
+    # Validate subscription exists and belongs to the authenticated user
+    _validate_subscription_ownership(db, subscription_id, user_id)
     
     try:
         # Convert items to Paddle format
@@ -283,6 +401,7 @@ async def update_subscription(
 async def pause_subscription(
     subscription_id: str,
     body: PauseSubscriptionRequest,
+    auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """
@@ -294,15 +413,19 @@ async def pause_subscription(
     
     The pause is processed by Paddle, and a webhook will update your database.
     """
+    # Extract authenticated user's ID
+    user_id = _get_user_id_from_auth_context(db, auth_context)
+    
     logger.info(
         "Pause subscription request",
         subscription_id=subscription_id,
         effective_from=body.effective_from.value,
-        resume_at=body.resume_at
+        resume_at=body.resume_at,
+        user_id=user_id
     )
     
-    # Validate subscription exists in our DB
-    _validate_subscription_ownership(db, subscription_id)
+    # Validate subscription exists and belongs to the authenticated user
+    _validate_subscription_ownership(db, subscription_id, user_id)
     
     try:
         # Call Paddle API to pause
@@ -350,6 +473,7 @@ async def pause_subscription(
 async def resume_subscription(
     subscription_id: str,
     body: ResumeSubscriptionRequest,
+    auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """
@@ -360,14 +484,18 @@ async def resume_subscription(
     
     The resume is processed by Paddle, and a webhook will update your database.
     """
+    # Extract authenticated user's ID
+    user_id = _get_user_id_from_auth_context(db, auth_context)
+    
     logger.info(
         "Resume subscription request",
         subscription_id=subscription_id,
-        effective_from=body.effective_from.value
+        effective_from=body.effective_from.value,
+        user_id=user_id
     )
     
-    # Validate subscription exists in our DB
-    _validate_subscription_ownership(db, subscription_id)
+    # Validate subscription exists and belongs to the authenticated user
+    _validate_subscription_ownership(db, subscription_id, user_id)
     
     try:
         # Call Paddle API to resume
@@ -410,6 +538,7 @@ async def resume_subscription(
 async def preview_subscription_update(
     subscription_id: str,
     body: PreviewSubscriptionUpdateRequest,
+    auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """
@@ -422,14 +551,18 @@ async def preview_subscription_update(
     
     Use this to show users what they'll be charged before confirming an upgrade/downgrade.
     """
+    # Extract authenticated user's ID
+    user_id = _get_user_id_from_auth_context(db, auth_context)
+    
     logger.info(
         "Preview subscription update request",
         subscription_id=subscription_id,
-        items=[item.model_dump() for item in body.items]
+        items=[item.model_dump() for item in body.items],
+        user_id=user_id
     )
     
-    # Validate subscription exists in our DB
-    _validate_subscription_ownership(db, subscription_id)
+    # Validate subscription exists and belongs to the authenticated user
+    _validate_subscription_ownership(db, subscription_id, user_id)
     
     try:
         # Convert items to Paddle format
