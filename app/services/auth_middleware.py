@@ -1,13 +1,11 @@
 """Authentication middleware for API endpoints."""
 
 import sys
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from fastapi import Request, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
 import structlog
-from datetime import datetime, timezone
-
-from structlog.processors import ExceptionPrettyPrinter
+from datetime import datetime, timezone, timedelta
 
 from app.config import settings
 from app.database.connection import get_db
@@ -18,11 +16,18 @@ from app.services.database_service import (
     get_unauthenticated_user_usage,
     create_unauthenticated_user_usage,
     increment_api_usage,
-    check_api_usage_limit,
     get_authenticated_user_api_usage,
     create_authenticated_user_api_usage,
     increment_authenticated_api_usage,
     get_user_id_by_auth_vendor_id
+)
+from app.services.paddle_service import get_user_active_subscription
+from app.services.in_memory_cache import get_in_memory_cache
+from app.services.subscription_cache import (
+    SubscriptionCacheEntry,
+    SUBSCRIPTION_CACHE_KEY_PREFIX,
+    SUBSCRIPTION_CACHE_TTL_HOURS,
+    PLUS_USER_RESTRICTED_APIS,
 )
 
 logger = structlog.get_logger()
@@ -395,7 +400,7 @@ def raise_subscription_required(reason: str = "API usage limit exceeded. Please 
     )
 
 
-def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Optional[str], Optional[int]]:
+def get_api_counter_field_and_authenticated_max_limit(request: Request) -> tuple[Optional[str], Optional[int]]:
     """
     Get the API counter field name and authenticated max limit for the current request.
     
@@ -476,6 +481,86 @@ def get_api_counter_field_and_authenticated_limit(request: Request) -> tuple[Opt
         return None, sys.maxsize
 
     return counter_field, max_limit
+
+
+def should_allow_api_in_case_of_subscriber(
+    user_id: str,
+    request: Request,
+    db: Session
+) -> Tuple[bool, bool]:
+    """
+    Check if user is subscribed and if they should be allowed to access the API.
+    
+    This function checks the user's subscription status and determines API access
+    based on their subscription tier (Ultra vs Plus).
+    
+    Args:
+        user_id: The user's ID
+        request: FastAPI request object
+        db: Database session
+        
+    Returns:
+        tuple[bool, bool]: (is_subscribed_user, is_api_allowed)
+        - (False, True): User is NOT subscribed - let existing rate-limiting handle it
+        - (True, True): User IS subscribed and API is allowed
+        - (True, False): User IS subscribed but API is NOT allowed (restricted/expired)
+    """
+    current_time = datetime.now(timezone.utc)
+    
+    # Step 1: Get existing cache instance (singleton)
+    cache = get_in_memory_cache()
+    cache_key = f"{SUBSCRIPTION_CACHE_KEY_PREFIX}{user_id}"
+    
+    # Step 2: Check cache
+    cache_entry: Optional[SubscriptionCacheEntry] = cache.get_key(cache_key)
+    
+    if cache_entry is None or cache_entry.expired_at < current_time:
+        # Cache miss or expired - fetch from DB
+        subscription = get_user_active_subscription(db, user_id)
+        
+        # Store in cache with 1 hour TTL
+        cache_expired_at = current_time + timedelta(hours=SUBSCRIPTION_CACHE_TTL_HOURS)
+        cache_entry = SubscriptionCacheEntry(
+            expired_at=cache_expired_at,
+            subscription=subscription
+        )
+        cache.set_key(cache_key, cache_entry)
+    
+    subscription = cache_entry.subscription
+    
+    # Step 3: No active subscription - user is not subscribed, let existing flow handle
+    if subscription is None:
+        return (False, True)  # Not subscribed, allow existing rate-limiting to proceed
+    
+    # Step 4: Check if subscription period has ended
+    period_ends_at = subscription.get("current_billing_period_ends_at")
+    if period_ends_at:
+        ends_at = datetime.fromisoformat(period_ends_at.replace('Z', '+00:00'))
+        if ends_at < current_time:
+            return (True, False)  # Subscribed but expired
+    
+    # Step 5: Determine plan tier from items
+    items = subscription.get("items", [])
+    if not items:
+        return (True, False)  # Subscribed but no items (invalid state)
+    
+    # First item's price name determines the tier
+    first_item = items[0]
+    price_name = first_item.get("price", {}).get("name", "")
+    
+    # Step 6: Ultra users - allow all APIs
+    if "Ultra" in price_name:
+        return (True, True)
+    
+    # Step 7: Plus users - restrict certain APIs
+    if "Plus" in price_name:
+        lookup_key = f"{request.method}:{request.url.path}"
+        if lookup_key in PLUS_USER_RESTRICTED_APIS:
+            return (True, False)  # Subscribed but API restricted for Plus tier
+        return (True, True)
+    
+    # Unknown tier - subscribed but deny access
+    return (True, False)
 
 
 async def authenticate(
@@ -580,8 +665,24 @@ async def authenticate(
             if not user_id:
                 raise_login_required()
 
+            # CRITICAL STEP: Check subscription-based API access
+            is_subscribed_user, is_api_allowed = should_allow_api_in_case_of_subscriber(user_id, request, db)
+            
+            if is_subscribed_user:
+                # User has a subscription - check if API is allowed for their tier
+                if not is_api_allowed:
+                    raise_subscription_required()
+                
+                # Subscribed user with allowed API - return success (skip rate limiting)
+                return {
+                    "authenticated": True,
+                    "user_session_pk": user_session_pk,
+                    "session_data": session_data
+                }
+
+            # User is NOT subscribed - continue with existing rate-limiting logic below
             # CRITICAL STEP: Get API counter field and authenticated max limit
-            api_counter_field, max_limit = get_api_counter_field_and_authenticated_limit(request)
+            api_counter_field, max_limit = get_api_counter_field_and_authenticated_max_limit(request)
             
             # If API counter doesn't exist, treat as unlimited (skip rate limiting)
             if api_counter_field is None and max_limit == sys.maxsize:
