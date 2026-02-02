@@ -20,6 +20,7 @@ from app.models import (
     PreviewSubscriptionUpdateRequest,
     PreviewSubscriptionUpdateResponse,
     EffectiveFrom,
+    ProrationBillingMode,
 )
 from app.services.paddle_service import (
     get_user_active_subscription,
@@ -322,8 +323,8 @@ async def cancel_subscription(
     "/{subscription_id}/update",
     response_model=SubscriptionActionResponse,
     status_code=200,
-    summary="Update subscription (upgrade/downgrade)",
-    description="Update subscription items to upgrade or downgrade the plan."
+    summary="Update subscription (upgrade only)",
+    description="Update subscription items to upgrade the plan. Downgrades are not allowed. Prorated amount is charged immediately."
 )
 async def update_subscription(
     subscription_id: str,
@@ -332,13 +333,18 @@ async def update_subscription(
     db: Session = Depends(get_db)
 ):
     """
-    Update a subscription (upgrade or downgrade).
+    Update a subscription (upgrade only).
     
     Send the complete list of items that should be on the subscription.
-    Proration is calculated based on the proration_billing_mode.
+    Proration is calculated immediately (prorated amount charged right away).
+    
+    Note: Downgrades are not allowed. Only upgrades to higher-priced plans are permitted.
     
     The update is processed by Paddle, and a webhook will update your database.
     """
+    # Always use PRORATED_IMMEDIATELY - charge prorated difference now
+    proration_billing_mode = ProrationBillingMode.PRORATED_IMMEDIATELY
+    
     # Extract authenticated user's ID
     user_id = _get_user_id_from_auth_context(db, auth_context)
     
@@ -346,25 +352,57 @@ async def update_subscription(
         "Update subscription request",
         subscription_id=subscription_id,
         items=[item.model_dump() for item in body.items],
-        proration_billing_mode=body.proration_billing_mode.value,
+        proration_billing_mode=proration_billing_mode.value,
         user_id=user_id
     )
     
     # Validate subscription exists and belongs to the authenticated user
     _validate_subscription_ownership(db, subscription_id, user_id)
     
+    # Convert items to Paddle format
+    paddle_items = [
+        {"price_id": item.price_id, "quantity": item.quantity}
+        for item in body.items
+    ]
+    
     try:
-        # Convert items to Paddle format
-        paddle_items = [
-            {"price_id": item.price_id, "quantity": item.quantity}
-            for item in body.items
-        ]
+        # Preview the update to check if it's a downgrade
+        preview = await paddle_api_client.preview_subscription_update(
+            subscription_id=subscription_id,
+            items=paddle_items,
+            proration_billing_mode=proration_billing_mode.value
+        )
         
-        # Call Paddle API to update
+        # Check if this is a downgrade by examining the immediate transaction
+        # If immediate_transaction total is <= 0, it's a downgrade (credit/refund)
+        immediate_transaction = preview.get("immediate_transaction", {})
+        details = immediate_transaction.get("details", {})
+        totals = details.get("totals", {})
+        grand_total = totals.get("grand_total", "0")
+        
+        # Convert to integer for comparison (Paddle returns amounts as strings in minor units)
+        grand_total_amount = int(grand_total) if grand_total else 0
+        
+        if grand_total_amount <= 0:
+            logger.warning(
+                "Downgrade attempt blocked",
+                subscription_id=subscription_id,
+                grand_total=grand_total,
+                user_id=user_id
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "DOWNGRADE_NOT_ALLOWED",
+                    "error_message": "Subscription downgrades are not allowed. Please contact support if you need to change your plan."
+                }
+            )
+        
+        # Proceed with the upgrade
         paddle_response = await paddle_api_client.update_subscription(
             subscription_id=subscription_id,
             items=paddle_items,
-            proration_billing_mode=body.proration_billing_mode.value
+            proration_billing_mode=proration_billing_mode.value
         )
         
         return SubscriptionActionResponse(
@@ -372,7 +410,7 @@ async def update_subscription(
             paddle_subscription_id=subscription_id,
             status=paddle_response.get("status", "unknown"),
             scheduled_change=_extract_scheduled_change(paddle_response),
-            message="Subscription updated successfully"
+            message="Subscription upgraded successfully"
         )
         
     except PaddleAPIError as e:

@@ -1365,10 +1365,6 @@ class UpdateSubscriptionRequest(BaseModel):
         min_length=1,
         description="List of subscription items with price_id and quantity"
     )
-    proration_billing_mode: ProrationBillingMode = Field(
-        default=ProrationBillingMode.PRORATED_IMMEDIATELY,
-        description="How to handle proration for the change"
-    )
 
 
 class PauseSubscriptionRequest(BaseModel):

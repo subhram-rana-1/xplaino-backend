@@ -290,7 +290,7 @@ class PaddleAPIClient:
         )
         
         async with httpx.AsyncClient() as client:
-            response = await client.post(
+            response = await client.patch(
                 f"{self.base_url}/subscriptions/{subscription_id}/preview",
                 headers=self._get_headers(),
                 json={
