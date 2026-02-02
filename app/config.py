@@ -222,6 +222,12 @@ class Settings(BaseSettings):
     authenticated_unsubscribed_pdf_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed GET PDF API")
     authenticated_unsubscribed_pdf_get_html_api_max_limit: int = Field(default=0, description="Max limit for authenticated unsubscribed GET PDF HTML API")
     
+    # Paddle Billing Configuration
+    paddle_webhook_secret: str = Field(default="", description="Paddle webhook secret key for signature verification")
+    paddle_environment: str = Field(default="sandbox", description="Paddle environment: 'sandbox' or 'production'")
+    paddle_api_key: str = Field(default="", description="Paddle API key for direct API calls")
+    paddle_api_url: str = Field(default="https://sandbox-api.paddle.com", description="Paddle API base URL (use https://api.paddle.com for production)")
+    
     @property
     def database_url(self) -> str:
         """Construct database connection URL from individual fields."""

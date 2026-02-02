@@ -1121,6 +1121,327 @@ class Feature(BaseModel):
     description: str = Field(..., description="Feature description")
 
 
+# =====================================================
+# PADDLE BILLING MODELS
+# =====================================================
+
+class PaddleCustomerStatus(str, Enum):
+    """Paddle customer status enum."""
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
+class PaddleSubscriptionStatus(str, Enum):
+    """Paddle subscription status enum."""
+    ACTIVE = "ACTIVE"
+    CANCELED = "CANCELED"
+    PAST_DUE = "PAST_DUE"
+    PAUSED = "PAUSED"
+    TRIALING = "TRIALING"
+
+
+class PaddleTransactionStatus(str, Enum):
+    """Paddle transaction status enum."""
+    DRAFT = "DRAFT"
+    READY = "READY"
+    BILLED = "BILLED"
+    PAID = "PAID"
+    COMPLETED = "COMPLETED"
+    CANCELED = "CANCELED"
+    PAST_DUE = "PAST_DUE"
+
+
+class PaddleBillingCycleInterval(str, Enum):
+    """Paddle billing cycle interval enum."""
+    DAY = "DAY"
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+    YEAR = "YEAR"
+
+
+class PaddleAdjustmentAction(str, Enum):
+    """Paddle adjustment action enum."""
+    REFUND = "REFUND"
+    CREDIT = "CREDIT"
+    CHARGEBACK = "CHARGEBACK"
+    CHARGEBACK_REVERSE = "CHARGEBACK_REVERSE"
+    CHARGEBACK_WARNING = "CHARGEBACK_WARNING"
+
+
+class PaddleAdjustmentStatus(str, Enum):
+    """Paddle adjustment status enum."""
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class PaddleWebhookEventType(str, Enum):
+    """Paddle webhook event types that we handle."""
+    # Subscription events
+    SUBSCRIPTION_CREATED = "subscription.created"
+    SUBSCRIPTION_ACTIVATED = "subscription.activated"
+    SUBSCRIPTION_CANCELED = "subscription.canceled"
+    SUBSCRIPTION_PAST_DUE = "subscription.past_due"
+    SUBSCRIPTION_PAUSED = "subscription.paused"
+    SUBSCRIPTION_RESUMED = "subscription.resumed"
+    SUBSCRIPTION_TRIALING = "subscription.trialing"
+    SUBSCRIPTION_UPDATED = "subscription.updated"
+    SUBSCRIPTION_IMPORTED = "subscription.imported"
+    
+    # Transaction events
+    TRANSACTION_BILLED = "transaction.billed"
+    TRANSACTION_CANCELED = "transaction.canceled"
+    TRANSACTION_COMPLETED = "transaction.completed"
+    TRANSACTION_CREATED = "transaction.created"
+    TRANSACTION_PAID = "transaction.paid"
+    TRANSACTION_PAST_DUE = "transaction.past_due"
+    TRANSACTION_PAYMENT_FAILED = "transaction.payment_failed"
+    TRANSACTION_READY = "transaction.ready"
+    TRANSACTION_UPDATED = "transaction.updated"
+    TRANSACTION_REVISED = "transaction.revised"
+    
+    # Customer events
+    CUSTOMER_CREATED = "customer.created"
+    CUSTOMER_UPDATED = "customer.updated"
+    CUSTOMER_IMPORTED = "customer.imported"
+    
+    # Adjustment events
+    ADJUSTMENT_CREATED = "adjustment.created"
+    ADJUSTMENT_UPDATED = "adjustment.updated"
+
+
+class PaddleWebhookProcessingStatus(str, Enum):
+    """Paddle webhook processing status enum."""
+    RECEIVED = "RECEIVED"
+    PROCESSING = "PROCESSING"
+    PROCESSED = "PROCESSED"
+    FAILED = "FAILED"
+
+
+class PaddleCustomerResponse(BaseModel):
+    """Response model for Paddle customer."""
+    
+    id: str = Field(..., description="Internal ID (UUID)")
+    paddle_customer_id: str = Field(..., description="Paddle customer ID")
+    user_id: Optional[str] = Field(default=None, description="Linked user ID (UUID)")
+    email: str = Field(..., description="Customer email")
+    name: Optional[str] = Field(default=None, description="Customer name")
+    locale: Optional[str] = Field(default=None, description="Customer locale")
+    status: str = Field(..., description="Customer status (ACTIVE or ARCHIVED)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class PaddleSubscriptionResponse(BaseModel):
+    """Response model for Paddle subscription."""
+    
+    id: str = Field(..., description="Internal ID (UUID)")
+    paddle_subscription_id: str = Field(..., description="Paddle subscription ID")
+    paddle_customer_id: str = Field(..., description="Paddle customer ID")
+    user_id: Optional[str] = Field(default=None, description="Linked user ID (UUID)")
+    status: str = Field(..., description="Subscription status")
+    currency_code: str = Field(..., description="Currency code (e.g., USD)")
+    billing_cycle_interval: str = Field(..., description="Billing interval (DAY, WEEK, MONTH, YEAR)")
+    billing_cycle_frequency: int = Field(..., description="Billing frequency")
+    current_billing_period_starts_at: Optional[str] = Field(default=None, description="Current period start (ISO format)")
+    current_billing_period_ends_at: Optional[str] = Field(default=None, description="Current period end (ISO format)")
+    next_billed_at: Optional[str] = Field(default=None, description="Next billing date (ISO format)")
+    paused_at: Optional[str] = Field(default=None, description="Pause date (ISO format)")
+    canceled_at: Optional[str] = Field(default=None, description="Cancel date (ISO format)")
+    items: List[Dict] = Field(..., description="Subscription items/products")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class PaddleTransactionResponse(BaseModel):
+    """Response model for Paddle transaction."""
+    
+    id: str = Field(..., description="Internal ID (UUID)")
+    paddle_transaction_id: str = Field(..., description="Paddle transaction ID")
+    paddle_subscription_id: Optional[str] = Field(default=None, description="Paddle subscription ID")
+    paddle_customer_id: str = Field(..., description="Paddle customer ID")
+    user_id: Optional[str] = Field(default=None, description="Linked user ID (UUID)")
+    status: str = Field(..., description="Transaction status")
+    currency_code: str = Field(..., description="Currency code")
+    subtotal: str = Field(..., description="Subtotal amount")
+    tax: str = Field(..., description="Tax amount")
+    total: str = Field(..., description="Total amount")
+    grand_total: str = Field(..., description="Grand total")
+    billed_at: Optional[str] = Field(default=None, description="Billing date (ISO format)")
+    items: List[Dict] = Field(..., description="Transaction items")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class PaddleWebhookEventResponse(BaseModel):
+    """Response model for Paddle webhook event."""
+    
+    id: str = Field(..., description="Internal ID (UUID)")
+    paddle_event_id: str = Field(..., description="Paddle event ID")
+    event_type: str = Field(..., description="Event type")
+    occurred_at: str = Field(..., description="Event occurrence time (ISO format)")
+    processing_status: str = Field(..., description="Processing status")
+    processing_error: Optional[str] = Field(default=None, description="Processing error message")
+    processed_at: Optional[str] = Field(default=None, description="Processing completion time (ISO format)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+
+
+class PaddleWebhookResponse(BaseModel):
+    """Response model for webhook acknowledgment."""
+    
+    status: str = Field(..., description="Processing status")
+    event_id: Optional[str] = Field(default=None, description="Paddle event ID")
+    message: Optional[str] = Field(default=None, description="Optional message")
+
+
+class GetUserSubscriptionResponse(BaseModel):
+    """Response model for getting user's active subscription."""
+    
+    has_active_subscription: bool = Field(..., description="Whether user has an active subscription")
+    subscription: Optional[PaddleSubscriptionResponse] = Field(default=None, description="Active subscription details")
+    customer: Optional[PaddleCustomerResponse] = Field(default=None, description="Customer details")
+
+
+class EffectiveFrom(str, Enum):
+    """When a subscription action takes effect."""
+    IMMEDIATELY = "immediately"
+    NEXT_BILLING_PERIOD = "next_billing_period"
+
+
+class ProrationBillingMode(str, Enum):
+    """How Paddle handles proration for subscription changes."""
+    PRORATED_IMMEDIATELY = "prorated_immediately"
+    PRORATED_NEXT_BILLING_PERIOD = "prorated_next_billing_period"
+    FULL_IMMEDIATELY = "full_immediately"
+    FULL_NEXT_BILLING_PERIOD = "full_next_billing_period"
+    DO_NOT_BILL = "do_not_bill"
+
+
+class CancellationReason(str, Enum):
+    """Reasons for subscription cancellation."""
+    TOO_EXPENSIVE = "TOO_EXPENSIVE"
+    NOT_USING = "NOT_USING"
+    FOUND_ALTERNATIVE = "FOUND_ALTERNATIVE"
+    MISSING_FEATURES = "MISSING_FEATURES"
+    EXTENSION_NOT_WORKING = "EXTENSION_NOT_WORKING"
+    OTHER = "OTHER"
+
+
+class CancellationInfo(BaseModel):
+    """Cancellation information with reasons and optional feedback."""
+    
+    reasons: List[CancellationReason] = Field(
+        ...,
+        min_length=1,
+        description="List of cancellation reasons (at least one required)"
+    )
+    user_feedback: Optional[str] = Field(
+        default=None,
+        description="Optional user feedback about cancellation"
+    )
+
+
+class CancelSubscriptionRequest(BaseModel):
+    """Request model for cancelling a subscription."""
+    
+    cancellation_info: CancellationInfo = Field(
+        ...,
+        description="Required cancellation information with reasons"
+    )
+
+
+class SubscriptionItem(BaseModel):
+    """Model for a subscription item (price + quantity)."""
+    
+    price_id: str = Field(..., description="Paddle price ID (pri_xxx)")
+    quantity: int = Field(default=1, ge=1, description="Quantity of this item")
+
+
+class UpdateSubscriptionRequest(BaseModel):
+    """Request model for updating/upgrading/downgrading a subscription."""
+    
+    items: List[SubscriptionItem] = Field(
+        ...,
+        min_length=1,
+        description="List of subscription items with price_id and quantity"
+    )
+
+
+class PauseSubscriptionRequest(BaseModel):
+    """Request model for pausing a subscription."""
+    
+    effective_from: EffectiveFrom = Field(
+        default=EffectiveFrom.NEXT_BILLING_PERIOD,
+        description="When pause takes effect: 'immediately' or 'next_billing_period'"
+    )
+    resume_at: Optional[str] = Field(
+        default=None,
+        description="Optional RFC 3339 datetime to automatically resume the subscription"
+    )
+
+
+class ResumeSubscriptionRequest(BaseModel):
+    """Request model for resuming a paused subscription."""
+    
+    effective_from: EffectiveFrom = Field(
+        default=EffectiveFrom.IMMEDIATELY,
+        description="When resume takes effect: 'immediately' or 'next_billing_period'"
+    )
+
+
+class ScheduledChangeInfo(BaseModel):
+    """Model for scheduled change information."""
+    
+    action: str = Field(..., description="Scheduled action (cancel, pause, resume)")
+    effective_at: str = Field(..., description="When the change takes effect (ISO format)")
+    resume_at: Optional[str] = Field(default=None, description="When subscription resumes (for pause)")
+
+
+class SubscriptionActionResponse(BaseModel):
+    """Response model for subscription action operations."""
+    
+    success: bool = Field(..., description="Whether the action was successful")
+    paddle_subscription_id: str = Field(..., description="Paddle subscription ID")
+    status: str = Field(..., description="Current subscription status")
+    scheduled_change: Optional[ScheduledChangeInfo] = Field(
+        default=None,
+        description="Details of any scheduled change"
+    )
+    message: Optional[str] = Field(default=None, description="Additional information")
+
+
+class PreviewSubscriptionUpdateRequest(BaseModel):
+    """Request model for previewing a subscription update."""
+    
+    items: List[SubscriptionItem] = Field(
+        ...,
+        min_length=1,
+        description="List of subscription items with price_id and quantity"
+    )
+    proration_billing_mode: ProrationBillingMode = Field(
+        default=ProrationBillingMode.PRORATED_IMMEDIATELY,
+        description="How to handle proration for the change"
+    )
+
+
+class PreviewSubscriptionUpdateResponse(BaseModel):
+    """Response model for subscription update preview."""
+    
+    paddle_subscription_id: str = Field(..., description="Paddle subscription ID")
+    immediate_transaction: Optional[Dict] = Field(
+        default=None,
+        description="Transaction that would be created immediately"
+    )
+    next_transaction: Optional[Dict] = Field(
+        default=None,
+        description="Preview of next scheduled transaction"
+    )
+    update_summary: Optional[Dict] = Field(
+        default=None,
+        description="Summary of prorated credits and charges"
+    )
+
+
 class FeaturesResponse(BaseModel):
     """Response model for features list."""
     

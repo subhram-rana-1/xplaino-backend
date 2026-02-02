@@ -34,6 +34,8 @@ from app.routes import (
     coupon_api,
     feature_api,
     pre_launch_user_api,
+    paddle_webhook_api,
+    subscription_api,
 )
 from app.services.rate_limiter import rate_limiter
 
@@ -223,6 +225,8 @@ app.include_router(pdf_api.router)
 app.include_router(coupon_api.router)
 app.include_router(feature_api.router)
 app.include_router(pre_launch_user_api.router)
+app.include_router(paddle_webhook_api.router)
+app.include_router(subscription_api.router)
 
 
 @app.get("/metrics", include_in_schema=False)
