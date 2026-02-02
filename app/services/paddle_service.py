@@ -15,6 +15,7 @@ from app.models import (
     PaddleTransactionStatus,
     PaddleCustomerStatus,
 )
+from app.services.subscription_cache import invalidate_subscription_cache
 
 logger = structlog.get_logger()
 
@@ -421,6 +422,11 @@ def upsert_subscription(db: Session, data: Dict[str, Any], status: str) -> Dict[
         )
     
     db.commit()
+    
+    # Invalidate subscription cache for this user so next API call fetches fresh data
+    if user_id:
+        invalidate_subscription_cache(user_id)
+    
     return {"id": record_id, "paddle_subscription_id": paddle_subscription_id}
 
 
