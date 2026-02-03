@@ -721,7 +721,7 @@ async def authenticate(
         except HTTPException:
             raise
         except Exception as e:
-            raise_login_required(f"Invalid access token, please login: {e}")
+            raise_login_required(reason=f"Invalid access token, please login: {e}")
     
     # Case 2: Unauthenticated user ID header is available
     elif unauthenticated_user_id:
