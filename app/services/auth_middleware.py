@@ -536,6 +536,9 @@ def should_allow_api_in_case_of_subscriber(
     period_ends_at = subscription.get("current_billing_period_ends_at")
     if period_ends_at:
         ends_at = datetime.fromisoformat(period_ends_at.replace('Z', '+00:00'))
+        # Normalize to UTC if Paddle returns datetime without timezone
+        if ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=timezone.utc)
         if ends_at < current_time:
             return (True, False)  # Subscribed but expired
     
