@@ -7822,3 +7822,39 @@ def get_active_highlighted_coupon(
     
     return coupon
 
+
+def save_extension_uninstallation_feedback(
+    db: Session,
+    reason: str,
+    user_feedback: Optional[str] = None
+) -> None:
+    """
+    Save extension uninstallation feedback to the database.
+    
+    Args:
+        db: Database session
+        reason: Uninstallation reason (enum value)
+        user_feedback: Optional user feedback text
+    """
+    logger.info(
+        "Saving extension uninstallation feedback",
+        function="save_extension_uninstallation_feedback",
+        reason=reason,
+        has_feedback=user_feedback is not None
+    )
+    
+    db.execute(
+        text("""
+            INSERT INTO extension_uninstallation_user_feedback (reason, user_feedback)
+            VALUES (:reason, :user_feedback)
+        """),
+        {"reason": reason, "user_feedback": user_feedback}
+    )
+    db.commit()
+    
+    logger.info(
+        "Extension uninstallation feedback saved successfully",
+        function="save_extension_uninstallation_feedback",
+        reason=reason
+    )
+

@@ -445,3 +445,11 @@ CREATE TABLE IF NOT EXISTS paddle_adjustment (
     INDEX idx_action (action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Extension uninstallation user feedback table
+CREATE TABLE IF NOT EXISTS extension_uninstallation_user_feedback (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    reason ENUM('TOO_EXPENSIVE', 'NOT_USING', 'FOUND_ALTERNATIVE', 'MISSING_FEATURES', 'EXTENSION_NOT_WORKING', 'OTHER') NOT NULL,
+    user_feedback TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

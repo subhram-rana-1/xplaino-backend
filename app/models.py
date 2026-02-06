@@ -1476,3 +1476,37 @@ class CreatePreLaunchUserApiResponse(BaseModel):
         default=None,
         description="Created or existing pre-launch user record"
     )
+
+
+# ============================================================================
+# Extension Uninstallation Feedback Models
+# ============================================================================
+
+class ExtensionUninstallationReason(str, Enum):
+    """Reasons for extension uninstallation."""
+    TOO_EXPENSIVE = "TOO_EXPENSIVE"
+    NOT_USING = "NOT_USING"
+    FOUND_ALTERNATIVE = "FOUND_ALTERNATIVE"
+    MISSING_FEATURES = "MISSING_FEATURES"
+    EXTENSION_NOT_WORKING = "EXTENSION_NOT_WORKING"
+    OTHER = "OTHER"
+
+
+class ExtensionUninstallationFeedbackRequest(BaseModel):
+    """Request model for extension uninstallation feedback."""
+    
+    reason: ExtensionUninstallationReason = Field(
+        ...,
+        description="Reason for uninstalling the extension (required)"
+    )
+    user_feedback: Optional[str] = Field(
+        default=None,
+        description="Optional user feedback about uninstallation"
+    )
+
+
+class ExtensionUninstallationFeedbackResponse(BaseModel):
+    """Response model for extension uninstallation feedback."""
+    
+    success: bool = Field(..., description="Whether the feedback was saved successfully")
+    message: str = Field(..., description="Response message")
