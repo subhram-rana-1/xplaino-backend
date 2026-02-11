@@ -21,8 +21,14 @@ class SubscriptionCacheEntry:
 SUBSCRIPTION_CACHE_KEY_PREFIX = "SUBSCRIPTION_INFO:"
 SUBSCRIPTION_CACHE_TTL_HOURS = 1
 
-# APIs that Plus users cannot access (create operations for saved items and folders)
+# APIs that Plus users cannot access (create operations for folders)
 PLUS_USER_RESTRICTED_APIS = {
+    "POST:/api/folders",
+    "POST:/api/folders/",
+}
+
+# APIs that Plus users can access but with rate limits (create operations for saved items)
+PLUS_USER_RATE_LIMITED_APIS = {
     "POST:/api/saved-words",
     "POST:/api/saved-words/",
     "POST:/api/saved-paragraph",
@@ -31,8 +37,6 @@ PLUS_USER_RESTRICTED_APIS = {
     "POST:/api/saved-link/",
     "POST:/api/saved-image",
     "POST:/api/saved-image/",
-    "POST:/api/folders",
-    "POST:/api/folders/",
 }
 
 

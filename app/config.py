@@ -211,6 +211,12 @@ class Settings(BaseSettings):
     authenticated_unsubscribed_saved_image_move_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed PATCH saved-image move-to-folder API")
     authenticated_unsubscribed_saved_image_delete_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed DELETE saved-image API")
 
+    # Plus subscriber saved items API limits (method-specific)
+    plus_subscriber_saved_words_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-words API")
+    plus_subscriber_saved_paragraph_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-paragraph API")
+    plus_subscriber_saved_link_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-link API")
+    plus_subscriber_saved_image_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-image API")
+
     # Authenticated unsubscribed issue API limits (method-specific)
     authenticated_unsubscribed_issue_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed GET issue API")
     authenticated_unsubscribed_issue_get_all_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed GET issue/all API")
