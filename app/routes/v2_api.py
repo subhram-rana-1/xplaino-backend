@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Depends, Response, Form
 from fastapi.responses import StreamingResponse, Response
 import structlog
@@ -22,7 +22,7 @@ from app.services.auth_middleware import authenticate
 from app.services.image_service import image_service
 from app.exceptions import FileValidationError, ValidationError
 from app.utils.utils import get_client_ip
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = structlog.get_logger()
 
@@ -118,12 +118,35 @@ class ChatMessage(BaseModel):
 
 class AskRequest(BaseModel):
     """Request model for ask API."""
-    
+
     question: str = Field(..., min_length=1, max_length=2000, description="User's question")
     chat_history: List[ChatMessage] = Field(default=[], description="Previous chat history for context")
-    initial_context: Optional[str] = Field(default=None, max_length=100000, description="Initial context or background information that the AI should be aware of")
+    initial_context: Optional[Union[str, Dict[str, str]]] = Field(
+        default=None,
+        description="Initial context: plain text string, or a JSON object mapping IDs to text (e.g. {\"1\": \"text...\", \"2\": \"text...\"}). When object, references in answers use these IDs in format [[[ref:(\"id1\",\"id2\")]]].",
+    )
     context_type: Optional[ContextType] = Field(default=ContextType.TEXT, description="Type of context: PAGE (for page/document context with source references) or TEXT (standard text context). Default is TEXT.")
     languageCode: Optional[str] = Field(default=None, max_length=10, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected.")
+
+    @field_validator("initial_context")
+    @classmethod
+    def initial_context_valid(cls, v: Optional[Union[str, Dict[str, str]]]) -> Optional[Union[str, Dict[str, str]]]:
+        if v is None:
+            return v
+        if isinstance(v, str):
+            if len(v) > 100000:
+                raise ValueError("Initial context string cannot exceed 100000 characters")
+            return v
+        if not v:
+            raise ValueError("Initial context object cannot be empty")
+        combined_length = 0
+        for key, val in v.items():
+            if not val or not str(val).strip():
+                raise ValueError(f"Initial context value for key '{key}' cannot be empty")
+            combined_length += len(val)
+        if combined_length > 100000:
+            raise ValueError("Total length of initial context values cannot exceed 100000 characters")
+        return v
 
 
 class AskResponse(BaseModel):
@@ -161,11 +184,31 @@ class TranslateRequest(BaseModel):
 
 
 class SummariseRequest(BaseModel):
-    """Request model for summarise API."""
-    
-    text: str = Field(..., min_length=1, max_length=50000, description="Text to summarize (can contain newline characters)")
+    """Request model for summarise API.
+    Content is a JSON object mapping IDs to text, e.g. {"1": "text...", "2": "text..."}.
+    """
+
+    content: Dict[str, str] = Field(
+        ...,
+        min_length=1,
+        description="Content to summarize: object mapping IDs to text (e.g. {\"1\": \"text...\", \"2\": \"text...\"}). Keys are used as reference IDs in the summary.",
+    )
     context_type: Optional[ContextType] = Field(default=ContextType.TEXT, description="Type of context: PAGE (for page/document context with source references) or TEXT (standard text context). Default is TEXT.")
     languageCode: Optional[str] = Field(default=None, max_length=10, description="Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). If provided, response will be strictly in this language. If None, language will be auto-detected.")
+
+    @field_validator("content")
+    @classmethod
+    def content_non_empty_values(cls, v: Dict[str, str]) -> Dict[str, str]:
+        if not v:
+            raise ValueError("Content cannot be empty")
+        combined_length = 0
+        for key, val in v.items():
+            if not val or not str(val).strip():
+                raise ValueError(f"Content value for key '{key}' cannot be empty")
+            combined_length += len(val)
+        if combined_length > 50000:
+            raise ValueError("Total content length cannot exceed 50000 characters")
+        return v
 
 
 class SummariseResponse(BaseModel):
@@ -958,8 +1001,8 @@ async def translate_v2(
 
 @router.post(
     "/summarise",
-    summary="Summarise text with streaming (v2)",
-    description="Generate a short, insightful summary of the input text using OpenAI with word-by-word streaming via Server-Sent Events. The input text can contain newline characters."
+    summary="Summarise content with streaming (v2)",
+    description="Generate a short, insightful summary of the input content using OpenAI with word-by-word streaming via Server-Sent Events. Input is a JSON object mapping IDs to text (e.g. {\"1\": \"text...\", \"2\": \"text...\"}). References in the summary use these IDs in the format [[[ref:(\"id1\",\"id2\")]]]."
 )
 async def summarise_v2(
     request: Request,
@@ -967,16 +1010,11 @@ async def summarise_v2(
     body: SummariseRequest,
     auth_context: dict = Depends(authenticate)
 ):
-    """Generate a short, insightful summary of the input text using streaming."""
+    """Generate a short, insightful summary of the input content using streaming."""
     client_id = await get_client_id(request)
     await rate_limiter.check_rate_limit(client_id, "summerise")
-    
-    # Validate text is not empty
-    if not body.text or not body.text.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Text cannot be empty"
-        )
+
+    combined_text = "\n\n".join(body.content.values())
 
     async def generate_streaming_summary():
         """Generate SSE stream of summary chunks."""
@@ -984,7 +1022,7 @@ async def summarise_v2(
         try:
             # Stream summary chunks from OpenAI
             context_type_value = body.context_type.value if body.context_type else "TEXT"
-            async for chunk in openai_service.summarise_text_stream(body.text, body.languageCode, context_type_value):
+            async for chunk in openai_service.summarise_text_stream(body.content, body.languageCode, context_type_value):
                 accumulated_summary += chunk
 
                 # Send each chunk as it arrives
@@ -995,11 +1033,11 @@ async def summarise_v2(
                 event_data = f"data: {json.dumps(chunk_data)}\n\n"
                 yield event_data
 
-            # After streaming is complete, generate possible questions
+            # After streaming is complete, generate possible questions (unchanged behavior)
             possible_questions = []
             try:
                 possible_questions = await openai_service.generate_possible_questions(
-                    body.text,
+                    combined_text,
                     body.languageCode
                 )
             except Exception as e:
@@ -1021,7 +1059,8 @@ async def summarise_v2(
 
             logger.info(
                 "Successfully streamed summary",
-                text_length=len(body.text),
+                content_keys=list(body.content.keys()),
+                combined_text_length=len(combined_text),
                 summary_length=len(accumulated_summary),
                 questions_count=len(possible_questions)
             )
@@ -1036,7 +1075,8 @@ async def summarise_v2(
             yield f"data: {json.dumps(error_event)}\n\n"
 
     logger.info("Starting summarise v2 stream",
-               text_length=len(body.text),
+               content_keys=list(body.content.keys()),
+               combined_text_length=len(combined_text),
                language_code=body.languageCode,
                has_language_code=body.languageCode is not None)
 
