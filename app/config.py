@@ -1,7 +1,7 @@
 """Configuration management for the FastAPI application."""
 
 import sys
-from typing import List
+from typing import List, FrozenSet
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -86,7 +86,19 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     access_token_expiry_hours: int = Field(default=24, description="Access token expiry in hours")
     refresh_token_expiry_days: int = Field(default=30, description="Refresh token expiry in days")
-    
+    unlimited_allowed_user_emails: str = Field(default="", description="Comma-separated list of user emails that bypass subscription and API limits")
+
+    @property
+    def unlimited_allowed_user_emails_set(self) -> FrozenSet[str]:
+        """Get unlimited allowed user emails as a frozenset (normalized, in memory at startup)."""
+        if not self.unlimited_allowed_user_emails or not self.unlimited_allowed_user_emails.strip():
+            return frozenset()
+        return frozenset(
+            e.strip().lower()
+            for e in self.unlimited_allowed_user_emails.split(",")
+            if e and e.strip()
+        )
+
     # Database Configuration
     db_host: str = Field(..., description="Database host")
     db_user: str = Field(default="root", description="Database user")

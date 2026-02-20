@@ -19,7 +19,8 @@ from app.services.database_service import (
     get_authenticated_user_api_usage,
     create_authenticated_user_api_usage,
     increment_authenticated_api_usage,
-    get_user_id_by_auth_vendor_id
+    get_user_id_by_auth_vendor_id,
+    get_user_info_with_email_by_user_id,
 )
 from app.services.paddle_service import get_user_active_subscription
 from app.services.in_memory_cache import get_in_memory_cache
@@ -712,6 +713,17 @@ async def authenticate(
             user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
             if not user_id:
                 raise_login_required()
+
+            # CRITICAL STEP: If user email is in unlimited allow-list, allow API regardless of subscription
+            if settings.unlimited_allowed_user_emails_set:
+                user_info = get_user_info_with_email_by_user_id(db, user_id)
+                email = user_info.get("email")
+                if email is not None and email.strip().lower() in settings.unlimited_allowed_user_emails_set:
+                    return {
+                        "authenticated": True,
+                        "user_session_pk": user_session_pk,
+                        "session_data": session_data
+                    }
 
             # CRITICAL STEP: Check subscription-based API access
             is_subscribed_user, is_api_allowed, needs_rate_limiting = should_allow_api_in_case_of_subscriber(user_id, request, db)

@@ -2641,6 +2641,7 @@ CRITICAL REQUIREMENTS:
 - Handle newline characters and multi-paragraph text appropriately
 - The summary should be significantly shorter than the original text while retaining key information
 - ⚠️ MANDATORY: You MUST include source references [[[(N)substring]]] for important, verifiable points - this is REQUIRED for ALL summaries
+- You MAY include multiple references for a single point when several parts of the text support it or when multiple references better prove the authenticity of that summarized point (e.g. [[[(1)substring1]]] [[[(2)substring2]]] after one sentence).
 
 FORMATTING AND STRUCTURE REQUIREMENTS:
 - Use **bold** formatting for key terms, important concepts, names, or critical points (use sparingly, only for emphasis)
@@ -2670,6 +2671,7 @@ SOURCE REFERENCE FORMAT (USE EXACTLY 3 BRACKETS [[[):
 - Format: [[[(N)exact substring from the text field]]]
 - Use EXACTLY THREE opening brackets [[[ and THREE closing brackets ]]]
 - Where N is the reference number (1, 2, 3, etc.) - increment for each new reference
+- You MAY attach multiple references to a single point or sentence when multiple parts of the text support it or when that better proves the authenticity of the summarized point
 - The substring should be approximately 10 words from the text field that contains the source information
 - The substring MUST be an exact quote or very close paraphrase from the text field above
 - Stream the reference as a SINGLE complete event: [[[(N)substring]]] - do not break it up
@@ -2680,11 +2682,13 @@ EXAMPLES (CORRECT FORMAT WITH 3 BRACKETS):
 - "The discovery was made in 1923. [[[(1)discovery was made in 1923 during the expedition]]]"
 - "The population increased by 25%. [[[(2)population increased by 25 percent over the last decade]]]"
 - "The theory suggests multiple factors. [[[(3)theory suggests that multiple factors contribute to this phenomenon]]]"
+- One point with multiple references: "The report states both findings. [[[(4)exact phrase for first finding from text]]] [[[(5)exact phrase for second finding from text]]]"
 
 IMPORTANT RULES:
 - You MUST include source references for important, verifiable points - this is NOT optional
 - Include references for key facts, statistics, claims, important dates, names, or specific data
 - Do NOT include references for every sentence - focus on important, verifiable information
+- A single point or sentence MAY have multiple references when that strengthens verification or authenticity
 - The substring should be meaningful and help users locate the information in the text field
 - Number references sequentially: (1), (2), (3), etc.
 - Each reference should be a complete, standalone substring from the text field
