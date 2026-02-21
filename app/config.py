@@ -2,7 +2,7 @@
 
 import sys
 from typing import List, FrozenSet
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -112,7 +112,25 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="us-east-1", description="AWS region")
     s3_bucket_name: str = Field(..., description="S3 bucket name")
     s3_issue_files_prefix: str = Field(default="issues/", description="S3 prefix for issue files")
-    
+    s3_pdf_files_prefix: str = Field(default="users/pdfs/", description="S3 prefix for PDF entity file uploads")
+
+    @model_validator(mode="after")
+    def validate_required_config_non_empty(self):
+        """Fail startup if any MUST-required config is missing or empty (e.g. AWS/S3)."""
+        required_attrs = [
+            "aws_access_key_id",
+            "aws_secret_access_key",
+            "s3_bucket_name",
+        ]
+        for attr in required_attrs:
+            val = getattr(self, attr, None)
+            if val is None or (isinstance(val, str) and not val.strip()):
+                raise ValueError(
+                    f"Required config '{attr}' must be set and non-empty. "
+                    "Set the corresponding environment variable and restart the server."
+                )
+        return self
+
     # API Usage Limits for Unauthenticated Users
     # v1 API Limits
     unauth_user_image_to_text_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated image-to-text API")

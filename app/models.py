@@ -408,8 +408,9 @@ class UpdateIssueRequest(BaseModel):
 
 
 class EntityType(str, Enum):
-    """Entity type enum for file uploads."""
+    """Entity type enum for file uploads (entity_id references issue.id or pdf.id)."""
     ISSUE = "ISSUE"
+    PDF = "PDF"
 
 
 class FileType(str, Enum):
@@ -419,14 +420,14 @@ class FileType(str, Enum):
 
 
 class FileUploadResponse(BaseModel):
-    """Response model for a file upload."""
+    """Response model for a file upload. s3_url is a presigned download URL generated from s3_key when building the response."""
     
     id: str = Field(..., description="File upload ID (UUID)")
     file_name: str = Field(..., description="File name")
     file_type: str = Field(..., description="File type (IMAGE or PDF)")
-    entity_type: str = Field(..., description="Entity type (ISSUE)")
+    entity_type: str = Field(..., description="Entity type (ISSUE or PDF)")
     entity_id: str = Field(..., description="Entity ID (UUID)")
-    s3_url: Optional[str] = Field(default=None, description="S3 URL for the file")
+    s3_url: Optional[str] = Field(default=None, description="Presigned download URL (generated from s3_key)")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON")
     created_at: str = Field(..., description="ISO format timestamp when the file was uploaded")
     updated_at: str = Field(..., description="ISO format timestamp when the file was last updated")
@@ -982,17 +983,7 @@ class PdfResponse(BaseModel):
     created_by: str = Field(..., description="User ID who created the PDF (UUID)")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
-
-
-class PdfHtmlPageResponse(BaseModel):
-    """Response model for PDF HTML page."""
-    
-    id: str = Field(..., description="PDF HTML page ID (UUID)")
-    page_no: int = Field(..., description="Page number (1-indexed)")
-    pdf_id: str = Field(..., description="PDF ID (UUID)")
-    html_content: str = Field(..., description="HTML content for the page")
-    created_at: str = Field(..., description="Creation timestamp (ISO format)")
-    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+    file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="File uploads for this PDF (entity_type=PDF, entity_id=pdf.id)")
 
 
 class GetAllPdfsResponse(BaseModel):
@@ -1001,14 +992,10 @@ class GetAllPdfsResponse(BaseModel):
     pdfs: List[PdfResponse] = Field(..., description="List of PDF records")
 
 
-class GetPdfHtmlPagesResponse(BaseModel):
-    """Response model for getting paginated PDF HTML pages."""
+class CreatePdfRequest(BaseModel):
+    """Request model for creating a PDF record (metadata only)."""
     
-    pages: List[PdfHtmlPageResponse] = Field(..., description="List of PDF HTML pages")
-    total: int = Field(..., description="Total number of pages")
-    offset: int = Field(..., description="Pagination offset")
-    limit: int = Field(..., description="Pagination limit")
-    has_next: bool = Field(..., description="Whether there are more pages")
+    file_name: str = Field(..., max_length=255, description="File name for the PDF")
 
 
 class CouponStatus(str, Enum):

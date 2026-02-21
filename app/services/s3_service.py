@@ -4,6 +4,7 @@ import boto3
 from datetime import datetime
 import re
 from typing import Optional
+from botocore.config import Config
 from botocore.exceptions import ClientError
 import structlog
 
@@ -35,16 +36,19 @@ class S3Service:
                 's3',
                 aws_access_key_id=settings.aws_access_key_id,
                 aws_secret_access_key=settings.aws_secret_access_key,
-                region_name=settings.aws_region
+                region_name=settings.aws_region,
+                config=Config(signature_version='s3v4', s3={'addressing_style': 'virtual'}),
             )
             self.bucket_name = settings.s3_bucket_name
-            self.prefix = settings.s3_issue_files_prefix.rstrip('/')
+            self.issue_prefix = settings.s3_issue_files_prefix.rstrip('/')
+            self.pdf_prefix = settings.s3_pdf_files_prefix.rstrip('/')
             
             logger.info(
                 "S3 service initialized",
                 bucket_name=self.bucket_name,
                 region=settings.aws_region,
-                prefix=self.prefix
+                issue_prefix=self.issue_prefix,
+                pdf_prefix=self.pdf_prefix
             )
         except Exception as e:
             logger.error("Failed to initialize S3 service", error=str(e))
@@ -62,10 +66,10 @@ class S3Service:
         return sanitized
     
     def _generate_s3_key(self, file_name: str, file_type: str, issue_id: str) -> str:
-        """Generate S3 key for the file."""
+        """Generate S3 key for issue file upload (server-side). Uses issue prefix."""
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         sanitized_filename = self._sanitize_filename(file_name)
-        s3_key = f"{self.prefix}/{issue_id}/{file_type}/{timestamp}_{sanitized_filename}"
+        s3_key = f"{self.issue_prefix}/{issue_id}/{file_type}/{timestamp}_{sanitized_filename}"
         return s3_key
     
     def upload_file(
@@ -76,7 +80,7 @@ class S3Service:
         issue_id: str
     ) -> str:
         """
-        Upload file to S3 and return downloadable URL.
+        Upload file to S3 and return the S3 object key.
         
         Args:
             file_data: File content as bytes
@@ -85,7 +89,7 @@ class S3Service:
             issue_id: Issue ID (UUID)
             
         Returns:
-            Downloadable URL for the uploaded file
+            S3 object key for the uploaded file (store this; use generate_presigned_get_url for download URLs)
             
         Raises:
             S3UploadError: If upload fails
@@ -113,21 +117,13 @@ class S3Service:
                 ContentType=content_type
             )
             
-            # Generate presigned URL (valid for 7 days)
-            url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': s3_key},
-                ExpiresIn=604800  # 7 days
-            )
-            
             logger.info(
                 "File uploaded successfully to S3",
                 bucket_name=self.bucket_name,
-                s3_key=s3_key,
-                url_length=len(url)
+                s3_key=s3_key
             )
             
-            return url
+            return s3_key
             
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
@@ -156,6 +152,95 @@ class S3Service:
         }
         
         return content_type_map.get(extension, 'application/octet-stream')
+
+    def generate_presigned_get_url(self, s3_key: str, expires_in: int = 3600) -> str:
+        """
+        Generate a presigned GET URL for downloading the object.
+        
+        Args:
+            s3_key: S3 object key
+            expires_in: URL expiry in seconds (default 1 hour)
+            
+        Returns:
+            Presigned URL for get_object
+        """
+        return self.s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': self.bucket_name, 'Key': s3_key},
+            ExpiresIn=expires_in
+        )
+
+    def generate_presigned_put_url(
+        self,
+        s3_key: str,
+        content_type: str,
+        expires_in: int = 3600
+    ) -> str:
+        """
+        Generate a presigned PUT URL for client-side upload.
+        
+        Args:
+            s3_key: S3 object key
+            content_type: Content-Type for the upload
+            expires_in: URL expiry in seconds (default 1 hour)
+            
+        Returns:
+            Presigned URL for put_object
+        """
+        return self.s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': self.bucket_name,
+                'Key': s3_key,
+                'ContentType': content_type
+            },
+            ExpiresIn=expires_in
+        )
+
+    def generate_s3_key_for_upload(
+        self,
+        file_upload_id: str,
+        file_name: str,
+        entity_type: str,
+        entity_id: str,
+        file_type: str
+    ) -> str:
+        """
+        Generate S3 key for the presigned-upload flow (client uploads directly).
+        Used when creating a file_upload record before the client uploads.
+        Uses s3_pdf_files_prefix when entity_type is PDF, else s3_issue_files_prefix.
+        
+        Args:
+            file_upload_id: File upload record ID (UUID)
+            file_name: Original file name
+            entity_type: ISSUE or PDF
+            entity_id: Issue id or pdf id
+            file_type: IMAGE or PDF
+            
+        Returns:
+            S3 object key
+        """
+        sanitized_filename = self._sanitize_filename(file_name)
+        prefix = self.pdf_prefix if entity_type == "PDF" else self.issue_prefix
+        return f"{prefix}/{entity_type}/{entity_id}/{file_type}/{file_upload_id}_{sanitized_filename}"
+
+    def delete_object(self, s3_key: str) -> None:
+        """
+        Delete an object from S3.
+        
+        Args:
+            s3_key: S3 object key
+            
+        Raises:
+            S3UploadError: If delete fails (optional; can log and swallow to allow cleanup to continue)
+        """
+        try:
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
+            logger.info("Deleted S3 object", bucket_name=self.bucket_name, s3_key=s3_key)
+        except ClientError as e:
+            error_message = e.response.get("Error", {}).get("Message", str(e))
+            logger.error("S3 delete failed", s3_key=s3_key, error=error_message)
+            raise S3UploadError(f"Failed to delete S3 object: {error_message}")
 
 
 # Global service instance

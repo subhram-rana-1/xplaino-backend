@@ -145,13 +145,14 @@ CREATE TABLE IF NOT EXISTS saved_link (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- File upload table
+-- When entity_type = 'PDF', entity_id references pdf(id). When entity_type = 'ISSUE', entity_id references issue(id).
 CREATE TABLE IF NOT EXISTS file_upload (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     file_name VARCHAR(50) NOT NULL,
     file_type ENUM('IMAGE', 'PDF') NOT NULL,
-    entity_type ENUM('ISSUE') NOT NULL,
+    entity_type ENUM('ISSUE', 'PDF') NOT NULL,
     entity_id CHAR(36) NOT NULL,
-    s3_url VARCHAR(2044),
+    s3_key VARCHAR(1024) NOT NULL,
     metadata JSON,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -274,19 +275,6 @@ CREATE TABLE IF NOT EXISTS pdf (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_created_by (created_by),
     FOREIGN KEY (created_by) REFERENCES user(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- PDF HTML page table
-CREATE TABLE IF NOT EXISTS pdf_html_page (
-    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    page_no INT NOT NULL,
-    pdf_id CHAR(36) NOT NULL,
-    html_content LONGTEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_page_no (page_no),
-    INDEX idx_pdf_id (pdf_id),
-    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Coupon table

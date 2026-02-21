@@ -5518,8 +5518,9 @@ def create_file_upload(
     file_type: str,
     entity_type: str,
     entity_id: str,
-    s3_url: str,
-    metadata: Optional[dict] = None
+    s3_key: str,
+    metadata: Optional[dict] = None,
+    file_upload_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new file_upload record.
@@ -5528,13 +5529,14 @@ def create_file_upload(
         db: Database session
         file_name: File name (max 50 characters)
         file_type: File type (IMAGE or PDF)
-        entity_type: Entity type (ISSUE)
-        entity_id: Entity ID (CHAR(36) UUID)
-        s3_url: S3 URL for the file (max 2044 characters)
+        entity_type: Entity type (ISSUE or PDF)
+        entity_id: Entity ID (CHAR(36) UUID; issue id or pdf id)
+        s3_key: S3 object key for the file (max 1024 characters)
         metadata: Optional metadata JSON
+        file_upload_id: Optional UUID for the record; when provided (e.g. presigned-upload flow) this id is used instead of generating a new one
         
     Returns:
-        Dictionary with created file_upload data
+        Dictionary with created file_upload data (includes s3_key)
     """
     logger.info(
         "Creating file upload",
@@ -5545,8 +5547,9 @@ def create_file_upload(
         entity_id=entity_id
     )
     
-    # Generate UUID for the new file_upload
-    file_upload_id = str(uuid.uuid4())
+    # Use provided id or generate UUID for the new file_upload
+    if file_upload_id is None:
+        file_upload_id = str(uuid.uuid4())
     
     # Prepare metadata JSON
     metadata_json = json.dumps(metadata) if metadata else None
@@ -5554,8 +5557,8 @@ def create_file_upload(
     # Insert the new file_upload
     db.execute(
         text("""
-            INSERT INTO file_upload (id, file_name, file_type, entity_type, entity_id, s3_url, metadata)
-            VALUES (:id, :file_name, :file_type, :entity_type, :entity_id, :s3_url, :metadata)
+            INSERT INTO file_upload (id, file_name, file_type, entity_type, entity_id, s3_key, metadata)
+            VALUES (:id, :file_name, :file_type, :entity_type, :entity_id, :s3_key, :metadata)
         """),
         {
             "id": file_upload_id,
@@ -5563,7 +5566,7 @@ def create_file_upload(
             "file_type": file_type,
             "entity_type": entity_type,
             "entity_id": entity_id,
-            "s3_url": s3_url,
+            "s3_key": s3_key,
             "metadata": metadata_json
         }
     )
@@ -5572,7 +5575,7 @@ def create_file_upload(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, file_name, file_type, entity_type, entity_id, s3_url, metadata, created_at, updated_at
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_key, metadata, created_at, updated_at
             FROM file_upload
             WHERE id = :id
         """),
@@ -5588,7 +5591,7 @@ def create_file_upload(
         raise Exception("Failed to retrieve created file_upload")
     
     (file_upload_id_val, file_name_val, file_type_val, entity_type_val, entity_id_val,
-     s3_url_val, metadata_val, created_at, updated_at) = result
+     s3_key_val, metadata_val, created_at, updated_at) = result
     
     # Parse metadata JSON if present
     metadata_dict = None
@@ -5615,7 +5618,7 @@ def create_file_upload(
         "file_type": file_type_val,
         "entity_type": entity_type_val,
         "entity_id": entity_id_val,
-        "s3_url": s3_url_val,
+        "s3_key": s3_key_val,
         "metadata": metadata_dict,
         "created_at": created_at_str,
         "updated_at": updated_at_str
@@ -5631,6 +5634,62 @@ def create_file_upload(
     return file_upload
 
 
+def get_file_upload_by_id(db: Session, file_upload_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a single file_upload by id.
+    
+    Args:
+        db: Database session
+        file_upload_id: File upload ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with file_upload data (includes s3_key) or None if not found
+    """
+    result = db.execute(
+        text("""
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_key, metadata, created_at, updated_at
+            FROM file_upload
+            WHERE id = :id
+        """),
+        {"id": file_upload_id}
+    ).fetchone()
+    
+    if not result:
+        return None
+    
+    (file_upload_id_val, file_name_val, file_type_val, entity_type_val, entity_id_val,
+     s3_key_val, metadata_val, created_at, updated_at) = result
+    
+    metadata_dict = None
+    if metadata_val:
+        try:
+            metadata_dict = json.loads(metadata_val) if isinstance(metadata_val, str) else metadata_val
+        except (json.JSONDecodeError, TypeError):
+            metadata_dict = None
+    
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    return {
+        "id": file_upload_id_val,
+        "file_name": file_name_val,
+        "file_type": file_type_val,
+        "entity_type": entity_type_val,
+        "entity_id": entity_id_val,
+        "s3_key": s3_key_val,
+        "metadata": metadata_dict,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+
+
 def get_file_uploads_by_entity(
     db: Session,
     entity_type: str,
@@ -5641,11 +5700,11 @@ def get_file_uploads_by_entity(
     
     Args:
         db: Database session
-        entity_type: Entity type (ISSUE)
-        entity_id: Entity ID (CHAR(36) UUID)
+        entity_type: Entity type (ISSUE or PDF)
+        entity_id: Entity ID (CHAR(36) UUID; issue id or pdf id)
         
     Returns:
-        List of dictionaries with file_upload data
+        List of dictionaries with file_upload data (each includes s3_key)
     """
     logger.info(
         "Getting file uploads by entity",
@@ -5656,7 +5715,7 @@ def get_file_uploads_by_entity(
     
     result = db.execute(
         text("""
-            SELECT id, file_name, file_type, entity_type, entity_id, s3_url, metadata, created_at, updated_at
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_key, metadata, created_at, updated_at
             FROM file_upload
             WHERE entity_type = :entity_type AND entity_id = :entity_id
             ORDER BY created_at ASC
@@ -5670,7 +5729,7 @@ def get_file_uploads_by_entity(
     file_uploads = []
     for row in result:
         (file_upload_id, file_name, file_type, entity_type_val, entity_id_val,
-         s3_url, metadata, created_at, updated_at) = row
+         s3_key, metadata, created_at, updated_at) = row
         
         # Parse metadata JSON if present
         metadata_dict = None
@@ -5697,7 +5756,7 @@ def get_file_uploads_by_entity(
             "file_type": file_type,
             "entity_type": entity_type_val,
             "entity_id": entity_id_val,
-            "s3_url": s3_url,
+            "s3_key": s3_key,
             "metadata": metadata_dict,
             "created_at": created_at_str,
             "updated_at": updated_at_str
@@ -5713,6 +5772,33 @@ def get_file_uploads_by_entity(
     )
     
     return file_uploads
+
+
+def delete_file_uploads_by_entity(
+    db: Session,
+    entity_type: str,
+    entity_id: str
+) -> int:
+    """
+    Delete all file_upload rows for a given entity.
+    
+    Args:
+        db: Database session
+        entity_type: Entity type (e.g. ISSUE or PDF)
+        entity_id: Entity ID (CHAR(36) UUID)
+        
+    Returns:
+        Number of rows deleted
+    """
+    result = db.execute(
+        text("""
+            DELETE FROM file_upload
+            WHERE entity_type = :entity_type AND entity_id = :entity_id
+        """),
+        {"entity_type": entity_type, "entity_id": entity_id}
+    )
+    db.commit()
+    return result.rowcount
 
 
 def check_pricing_has_subscriptions(
@@ -6810,101 +6896,6 @@ def create_pdf(
     return pdf_data
 
 
-def create_pdf_html_page(
-    db: Session,
-    pdf_id: str,
-    page_no: int,
-    html_content: str
-) -> Dict[str, Any]:
-    """
-    Create a new PDF HTML page record.
-    
-    Args:
-        db: Database session
-        pdf_id: PDF ID (CHAR(36) UUID)
-        page_no: Page number (1-indexed)
-        html_content: HTML content for the page (LONGTEXT)
-        
-    Returns:
-        Dictionary with created PDF HTML page data
-    """
-    logger.info(
-        "Creating PDF HTML page record",
-        function="create_pdf_html_page",
-        pdf_id=pdf_id,
-        page_no=page_no,
-        html_content_length=len(html_content)
-    )
-    
-    # Generate UUID for the new PDF HTML page
-    page_id = str(uuid.uuid4())
-    
-    # Insert the new PDF HTML page
-    db.execute(
-        text("""
-            INSERT INTO pdf_html_page (id, page_no, pdf_id, html_content)
-            VALUES (:id, :page_no, :pdf_id, :html_content)
-        """),
-        {
-            "id": page_id,
-            "page_no": page_no,
-            "pdf_id": pdf_id,
-            "html_content": html_content
-        }
-    )
-    db.commit()
-    
-    # Fetch the created record
-    result = db.execute(
-        text("""
-            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
-            FROM pdf_html_page
-            WHERE id = :id
-        """),
-        {"id": page_id}
-    ).fetchone()
-    
-    if not result:
-        logger.error(
-            "Failed to retrieve created PDF HTML page",
-            function="create_pdf_html_page",
-            page_id=page_id
-        )
-        raise Exception("Failed to retrieve created PDF HTML page")
-    
-    page_id_val, page_no_val, pdf_id_val, html_content_val, created_at, updated_at = result
-    
-    # Convert timestamps to ISO format strings
-    if isinstance(created_at, datetime):
-        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-    else:
-        created_at_str = str(created_at)
-    
-    if isinstance(updated_at, datetime):
-        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-    else:
-        updated_at_str = str(updated_at)
-    
-    page_data = {
-        "id": page_id_val,
-        "page_no": page_no_val,
-        "pdf_id": pdf_id_val,
-        "html_content": html_content_val,
-        "created_at": created_at_str,
-        "updated_at": updated_at_str
-    }
-    
-    logger.info(
-        "Created PDF HTML page record successfully",
-        function="create_pdf_html_page",
-        page_id=page_id_val,
-        pdf_id=pdf_id_val,
-        page_no=page_no_val
-    )
-    
-    return page_data
-
-
 def get_pdfs_by_user_id(
     db: Session,
     user_id: str
@@ -7044,94 +7035,6 @@ def get_pdf_by_id_and_user_id(
     return pdf_data
 
 
-def get_pdf_html_pages_by_pdf_id(
-    db: Session,
-    pdf_id: str,
-    offset: int = 0,
-    limit: int = 20
-) -> Tuple[List[Dict[str, Any]], int]:
-    """
-    Get PDF HTML pages for a PDF with pagination, ordered by page_no ASC.
-    
-    Args:
-        db: Database session
-        pdf_id: PDF ID (CHAR(36) UUID)
-        offset: Pagination offset (default: 0)
-        limit: Pagination limit (default: 20)
-        
-    Returns:
-        Tuple of (list of page dictionaries, total count)
-    """
-    logger.info(
-        "Getting PDF HTML pages by pdf_id",
-        function="get_pdf_html_pages_by_pdf_id",
-        pdf_id=pdf_id,
-        offset=offset,
-        limit=limit
-    )
-    
-    # Get total count
-    count_result = db.execute(
-        text("SELECT COUNT(*) FROM pdf_html_page WHERE pdf_id = :pdf_id"),
-        {"pdf_id": pdf_id}
-    ).fetchone()
-    
-    total_count = count_result[0] if count_result else 0
-    
-    # Get paginated pages
-    pages_result = db.execute(
-        text("""
-            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
-            FROM pdf_html_page
-            WHERE pdf_id = :pdf_id
-            ORDER BY page_no ASC
-            LIMIT :limit OFFSET :offset
-        """),
-        {
-            "pdf_id": pdf_id,
-            "limit": limit,
-            "offset": offset
-        }
-    )
-    rows = pages_result.fetchall()
-    
-    pages = []
-    for row in rows:
-        page_id, page_no, pdf_id_val, html_content, created_at, updated_at = row
-        
-        # Convert timestamps to ISO format strings
-        if isinstance(created_at, datetime):
-            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-        else:
-            created_at_str = str(created_at)
-        
-        if isinstance(updated_at, datetime):
-            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-        else:
-            updated_at_str = str(updated_at)
-        
-        pages.append({
-            "id": page_id,
-            "page_no": page_no,
-            "pdf_id": pdf_id_val,
-            "html_content": html_content,
-            "created_at": created_at_str,
-            "updated_at": updated_at_str
-        })
-    
-    logger.info(
-        "Retrieved PDF HTML pages successfully",
-        function="get_pdf_html_pages_by_pdf_id",
-        pdf_id=pdf_id,
-        pages_count=len(pages),
-        total_count=total_count,
-        offset=offset,
-        limit=limit
-    )
-    
-    return pages, total_count
-
-
 def delete_pdf_by_id_and_user_id(
     db: Session,
     pdf_id: str,
@@ -7139,7 +7042,6 @@ def delete_pdf_by_id_and_user_id(
 ) -> bool:
     """
     Delete a PDF by ID and verify it belongs to the user.
-    Due to ON DELETE CASCADE constraint, all related pdf_html_page records will be automatically deleted.
     
     Args:
         db: Database session
