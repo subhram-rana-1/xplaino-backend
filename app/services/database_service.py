@@ -22,7 +22,7 @@ def get_or_create_user_by_google_sub(
     db: Session,
     sub: str,
     google_data: dict,
-    unauthenticated_user_id: str | None = None
+    unauthenticated_user_id: Optional[str] = None
 ) -> Tuple[str, str, bool]:
     """
     Get or create user and google_user_auth_info records.
