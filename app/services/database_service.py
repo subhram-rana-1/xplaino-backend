@@ -196,55 +196,84 @@ def get_or_create_user_by_google_sub(
             email=google_data.get("email")
         )
         
-        # Create personal folder for new user
-        # Determine folder name: "{given_name}'s Personal" > "{family_name}'s Personal" > "Personal"
+        # Create personal folder and PDF folder for new user
+        # Determine name part: given_name > family_name > fallback
         given_name = google_data.get("given_name")
         family_name = google_data.get("family_name")
-        
         if given_name and given_name.strip():
-            folder_name = f"{given_name.strip()}'s Personal"
+            name_part = given_name.strip()
         elif family_name and family_name.strip():
-            folder_name = f"{family_name.strip()}'s Personal"
+            name_part = family_name.strip()
         else:
-            folder_name = "Personal"
-        
-        # Ensure folder name doesn't exceed 50 characters (database constraint)
-        if len(folder_name) > 50:
-            folder_name = folder_name[:47] + "..."
-        
+            name_part = None
+
+        folder_name_personal = f"{name_part}'s Personal" if name_part else "Bookmarks"
+        folder_name_pdfs = f"{name_part}'s Pdfs" if name_part else "Pdfs"
+
+        # Ensure folder names don't exceed 50 characters (database constraint)
+        if len(folder_name_personal) > 50:
+            folder_name_personal = folder_name_personal[:47] + "..."
+        if len(folder_name_pdfs) > 50:
+            folder_name_pdfs = folder_name_pdfs[:47] + "..."
+
         logger.debug(
-            "Creating personal folder for new user",
+            "Creating personal and PDF folders for new user",
             function="get_or_create_user_by_google_sub",
             user_id=user_id,
-            folder_name=folder_name,
+            folder_name_personal=folder_name_personal,
+            folder_name_pdfs=folder_name_pdfs,
             has_given_name=bool(given_name),
             has_family_name=bool(family_name)
         )
-        
-        # Generate folder_id
-        folder_id = str(uuid.uuid4())
-        
-        # Create folder record (root folder, no parent_id)
+
+        # Create personal folder (root folder, type BOOKMARK)
+        folder_id_personal = str(uuid.uuid4())
         db.execute(
             text("""
-                INSERT INTO folder (id, name, parent_id, user_id)
-                VALUES (:id, :name, :parent_id, :user_id)
+                INSERT INTO folder (id, name, type, parent_id, user_id)
+                VALUES (:id, :name, :type, :parent_id, :user_id)
             """),
             {
-                "id": folder_id,
-                "name": folder_name,
+                "id": folder_id_personal,
+                "name": folder_name_personal,
+                "type": "BOOKMARK",
                 "parent_id": None,
                 "user_id": user_id
             }
         )
         db.flush()
-        
+
         logger.info(
             "Created personal folder for new user",
             function="get_or_create_user_by_google_sub",
             user_id=user_id,
-            folder_id=folder_id,
-            folder_name=folder_name
+            folder_id=folder_id_personal,
+            folder_name=folder_name_personal
+        )
+
+        # Create PDF folder (root folder, type PDF)
+        folder_id_pdfs = str(uuid.uuid4())
+        db.execute(
+            text("""
+                INSERT INTO folder (id, name, type, parent_id, user_id)
+                VALUES (:id, :name, :type, :parent_id, :user_id)
+            """),
+            {
+                "id": folder_id_pdfs,
+                "name": folder_name_pdfs,
+                "type": "PDF",
+                "parent_id": None,
+                "user_id": user_id
+            }
+        )
+        db.flush()
+
+        logger.info(
+            "Created PDF folder for new user",
+            function="get_or_create_user_by_google_sub",
+            user_id=user_id,
+            folder_id=folder_id_pdfs,
+            folder_name=folder_name_pdfs
         )
     
     db.commit()
@@ -1933,7 +1962,7 @@ def get_folders_by_user_id_and_parent_id(
     if parent_id is None:
         result = db.execute(
             text("""
-                SELECT id, name, parent_id, user_id, created_at, updated_at
+                SELECT id, name, type, parent_id, user_id, created_at, updated_at
                 FROM folder
                 WHERE user_id = :user_id AND parent_id IS NULL
                 ORDER BY created_at DESC
@@ -1943,7 +1972,7 @@ def get_folders_by_user_id_and_parent_id(
     else:
         result = db.execute(
             text("""
-                SELECT id, name, parent_id, user_id, created_at, updated_at
+                SELECT id, name, type, parent_id, user_id, created_at, updated_at
                 FROM folder
                 WHERE user_id = :user_id AND parent_id = :parent_id
                 ORDER BY created_at DESC
@@ -1956,7 +1985,7 @@ def get_folders_by_user_id_and_parent_id(
     
     folders = []
     for row in result:
-        folder_id, name, parent_id_val, user_id_val, created_at, updated_at = row
+        folder_id, name, folder_type, parent_id_val, user_id_val, created_at, updated_at = row
         
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -1972,6 +2001,7 @@ def get_folders_by_user_id_and_parent_id(
         folders.append({
             "id": folder_id,
             "name": name,
+            "type": folder_type,
             "parent_id": parent_id_val,
             "user_id": user_id_val,
             "created_at": created_at_str,
@@ -2553,7 +2583,7 @@ def get_folder_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id AND user_id = :user_id
         """),
@@ -2572,7 +2602,7 @@ def get_folder_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
+    folder_id_val, name, folder_type, parent_id, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2588,6 +2618,7 @@ def get_folder_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
+        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -2713,7 +2744,7 @@ def update_folder_name_by_id_and_user_id(
     # Fetch the updated record
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id
         """),
@@ -2728,7 +2759,7 @@ def update_folder_name_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
+    folder_id_val, name, folder_type, parent_id, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2744,6 +2775,7 @@ def update_folder_name_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
+        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -2764,7 +2796,8 @@ def create_paragraph_folder(
     db: Session,
     user_id: str,
     name: str,
-    parent_folder_id: Optional[str] = None
+    parent_folder_id: Optional[str] = None,
+    folder_type: str = "BOOKMARK"
 ) -> Dict[str, Any]:
     """
     Create a new folder for a user.
@@ -2774,6 +2807,7 @@ def create_paragraph_folder(
         user_id: User ID (CHAR(36) UUID)
         name: Folder name (max 50 characters)
         parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
+        folder_type: Folder type, either 'BOOKMARK' or 'PDF' (default: 'BOOKMARK')
         
     Returns:
         Dictionary with created folder data
@@ -2783,7 +2817,8 @@ def create_paragraph_folder(
         function="create_paragraph_folder",
         user_id=user_id,
         name=name,
-        has_parent_folder_id=parent_folder_id is not None
+        has_parent_folder_id=parent_folder_id is not None,
+        folder_type=folder_type
     )
     
     # Generate UUID for the new folder
@@ -2792,12 +2827,13 @@ def create_paragraph_folder(
     # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, parent_id, user_id)
-            VALUES (:id, :name, :parent_id, :user_id)
+            INSERT INTO folder (id, name, type, parent_id, user_id)
+            VALUES (:id, :name, :type, :parent_id, :user_id)
         """),
         {
             "id": folder_id,
             "name": name,
+            "type": folder_type,
             "parent_id": parent_folder_id,
             "user_id": user_id
         }
@@ -2807,7 +2843,7 @@ def create_paragraph_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -2822,7 +2858,7 @@ def create_paragraph_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2838,6 +2874,7 @@ def create_paragraph_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
+        "type": folder_type_val,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,
@@ -4056,7 +4093,8 @@ def create_link_folder(
     db: Session,
     user_id: str,
     name: str,
-    parent_folder_id: Optional[str] = None
+    parent_folder_id: Optional[str] = None,
+    folder_type: str = "BOOKMARK"
 ) -> Dict[str, Any]:
     """
     Create a new folder for a user.
@@ -4066,6 +4104,7 @@ def create_link_folder(
         user_id: User ID (CHAR(36) UUID)
         name: Folder name (max 50 characters)
         parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
+        folder_type: Folder type, either 'BOOKMARK' or 'PDF' (default: 'BOOKMARK')
         
     Returns:
         Dictionary with created folder data
@@ -4075,7 +4114,8 @@ def create_link_folder(
         function="create_link_folder",
         user_id=user_id,
         name=name,
-        has_parent_folder_id=parent_folder_id is not None
+        has_parent_folder_id=parent_folder_id is not None,
+        folder_type=folder_type
     )
     
     # Generate UUID for the new folder
@@ -4084,12 +4124,13 @@ def create_link_folder(
     # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, parent_id, user_id)
-            VALUES (:id, :name, :parent_id, :user_id)
+            INSERT INTO folder (id, name, type, parent_id, user_id)
+            VALUES (:id, :name, :type, :parent_id, :user_id)
         """),
         {
             "id": folder_id,
             "name": name,
+            "type": folder_type,
             "parent_id": parent_folder_id,
             "user_id": user_id
         }
@@ -4099,7 +4140,7 @@ def create_link_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -4114,7 +4155,7 @@ def create_link_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, folder_type_val, parent_id_val, user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -4130,6 +4171,7 @@ def create_link_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
+        "type": folder_type_val,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "created_at": created_at_str,

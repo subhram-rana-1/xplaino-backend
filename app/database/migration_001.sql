@@ -5,3 +5,10 @@ ALTER TABLE `user`
         FOREIGN KEY (unauthenticated_user_id)
         REFERENCES unauthenticated_user_api_usage(user_id)
         ON DELETE SET NULL;
+
+-- Migration 001: add type column to folder table
+ALTER TABLE folder
+    ADD COLUMN type ENUM('BOOKMARK', 'PDF') NOT NULL DEFAULT 'BOOKMARK' AFTER name;
+
+-- Backfill existing records
+UPDATE folder SET type = 'BOOKMARK';

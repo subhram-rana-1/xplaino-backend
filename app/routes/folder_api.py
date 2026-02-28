@@ -9,6 +9,7 @@ import structlog
 from app.models import (
     GetAllFoldersResponse,
     FolderWithSubFoldersResponse,
+    FolderType,
     CreateFolderRequest,
     CreateFolderResponse,
     RenameFolderRequest,
@@ -63,6 +64,7 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
         return FolderWithSubFoldersResponse(
             id=folder_data["id"],
             name=folder_data["name"],
+            type=folder_data["type"],
             created_at=folder_data["created_at"],
             updated_at=folder_data["updated_at"],
             subFolders=sub_folders
@@ -173,8 +175,9 @@ async def create_folder(
                 }
             )
     
-    # Create folder
-    folder_data = create_paragraph_folder(db, user_id, body.name, body.parentId)
+    # Create folder (default type to BOOKMARK if not provided)
+    folder_type = (body.type or FolderType.BOOKMARK).value
+    folder_data = create_paragraph_folder(db, user_id, body.name, body.parentId, folder_type)
     
     # Fetch user info
     user_info_data = get_user_info_with_email_by_user_id(db, user_id)
@@ -206,6 +209,7 @@ async def create_folder(
     return CreateFolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
+        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -344,6 +348,7 @@ async def rename_folder(
     return RenameFolderResponse(
         id=updated_folder["id"],
         name=updated_folder["name"],
+        type=updated_folder["type"],
         parent_id=updated_folder["parent_id"],
         user_id=updated_folder["user_id"],
         created_at=updated_folder["created_at"],

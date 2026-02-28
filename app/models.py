@@ -322,11 +322,18 @@ class CreateLinkFolderRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
 
 
+class FolderType(str, Enum):
+    """Folder type enum."""
+    BOOKMARK = "BOOKMARK"
+    PDF = "PDF"
+
+
 class FolderWithSubFoldersResponse(BaseModel):
     """Response model for a folder with nested sub-folders (recursive structure)."""
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
+    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
     updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
     subFolders: List["FolderWithSubFoldersResponse"] = Field(default_factory=list, description="List of sub-folders (recursive)")
@@ -343,6 +350,7 @@ class CreateFolderRequest(BaseModel):
     
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
     parentId: Optional[str] = Field(default=None, description="Parent folder ID (optional, UUID format)")
+    type: Optional[FolderType] = Field(default=FolderType.BOOKMARK, description="Folder type (BOOKMARK or PDF, defaults to BOOKMARK)")
 
 
 class CreateFolderResponse(BaseModel):
@@ -350,6 +358,7 @@ class CreateFolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
+    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -368,6 +377,7 @@ class RenameFolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
+    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")

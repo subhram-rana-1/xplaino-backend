@@ -5,9 +5,14 @@
 CREATE TABLE IF NOT EXISTS user (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     role ENUM('ADMIN', 'SUPER_ADMIN') NULL,
+    unauthenticated_user_id CHAR(36) NULL,
     settings JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_unauthenticated_user
+        FOREIGN KEY (unauthenticated_user_id)
+        REFERENCES unauthenticated_user_api_usage(user_id)
+        ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Google user authentication info table
@@ -78,6 +83,7 @@ CREATE TABLE IF NOT EXISTS unsubscribed_user_api_usage (
 CREATE TABLE IF NOT EXISTS folder (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     name VARCHAR(50) NOT NULL,
+    type ENUM('BOOKMARK', 'PDF') NOT NULL DEFAULT 'BOOKMARK',
     parent_id CHAR(36) NULL,
     user_id CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
