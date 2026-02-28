@@ -52,6 +52,7 @@ async def login(
     # Entry log with request metadata
     id_token_preview = request.idToken[:8] + "..." if request.idToken and len(request.idToken) > 8 else (request.idToken if request.idToken else None)
     x_source = http_request.headers.get("X-Source", "").strip()
+    unauthenticated_user_id = http_request.headers.get("X-Unauthenticated-User-Id") or None
     logger.info(
         "Login endpoint called",
         endpoint="/api/auth/login",
@@ -108,7 +109,7 @@ async def login(
             
             logger.debug("Getting or creating user by Google sub", sub=sub)
             user_id, google_auth_info_id, is_new_user = get_or_create_user_by_google_sub(
-                db, sub, google_data
+                db, sub, google_data, unauthenticated_user_id
             )
             
             logger.info(

@@ -21,7 +21,8 @@ logger = structlog.get_logger()
 def get_or_create_user_by_google_sub(
     db: Session,
     sub: str,
-    google_data: dict
+    google_data: dict,
+    unauthenticated_user_id: str | None = None
 ) -> Tuple[str, str, bool]:
     """
     Get or create user and google_user_auth_info records.
@@ -30,6 +31,7 @@ def get_or_create_user_by_google_sub(
         db: Database session
         sub: Google user ID (sub field)
         google_data: Decoded Google token data
+        unauthenticated_user_id: Optional ID from unauthenticated_user_api_usage to link on first login
         
     Returns:
         Tuple of (user_id, google_auth_info_id, is_new_user)
@@ -130,8 +132,12 @@ def get_or_create_user_by_google_sub(
         
         # Create user record with default settings
         db.execute(
-            text("INSERT INTO user (id, settings) VALUES (:user_id, :settings)"),
-            {"user_id": user_id, "settings": json.dumps(DEFAULT_USER_SETTINGS)}
+            text("INSERT INTO user (id, unauthenticated_user_id, settings) VALUES (:user_id, :unauthenticated_user_id, :settings)"),
+            {
+                "user_id": user_id,
+                "unauthenticated_user_id": unauthenticated_user_id,
+                "settings": json.dumps(DEFAULT_USER_SETTINGS)
+            }
         )
         db.flush()
         
