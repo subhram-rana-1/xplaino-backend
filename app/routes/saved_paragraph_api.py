@@ -23,7 +23,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_folders_by_user_id_and_parent_id,
+    get_folders_by_owner_and_parent_id,
     get_saved_paragraphs_by_user_id_and_folder_id,
     create_saved_paragraph,
     delete_saved_paragraph_by_id_and_user_id,
@@ -100,7 +100,7 @@ async def get_all_saved_paragraphs(
         )
     
     # Get sub-folders for the given folder_id (or root if folder_id is None)
-    sub_folders_data = get_folders_by_user_id_and_parent_id(db, user_id, folder_id)
+    sub_folders_data = get_folders_by_owner_and_parent_id(db, user_id=user_id, parent_id=folder_id)
     
     # Get saved paragraphs for the given folder_id (or root if folder_id is None)
     paragraphs_data, total_count = get_saved_paragraphs_by_user_id_and_folder_id(

@@ -334,6 +334,8 @@ class FolderWithSubFoldersResponse(BaseModel):
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
     type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
+    user_id: Optional[str] = Field(default=None, description="Authenticated user owner ID, if any")
+    unauthenticated_user_id: Optional[str] = Field(default=None, description="Unauthenticated user owner ID, if any")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
     updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
     subFolders: List["FolderWithSubFoldersResponse"] = Field(default_factory=list, description="List of sub-folders (recursive)")
