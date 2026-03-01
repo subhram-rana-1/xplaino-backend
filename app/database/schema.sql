@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS file_upload (
     file_name VARCHAR(50) NOT NULL,
     file_type ENUM('IMAGE', 'PDF') NOT NULL,
     entity_type ENUM('ISSUE', 'PDF') NOT NULL,
-    entity_id CHAR(36) NOT NULL,
+    entity_id CHAR(36) NULL,
     s3_key VARCHAR(1024) NOT NULL,
     metadata JSON,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -280,11 +280,17 @@ CREATE TABLE IF NOT EXISTS saved_image (
 CREATE TABLE IF NOT EXISTS pdf (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     file_name VARCHAR(255) NOT NULL,
-    created_by CHAR(36) NOT NULL,
+    created_by CHAR(36) NULL,
+    unauthenticated_user_id CHAR(36) NULL,
+    folder_id CHAR(36) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_created_by (created_by),
-    FOREIGN KEY (created_by) REFERENCES user(id)
+    INDEX idx_unauth_user_id (unauthenticated_user_id),
+    INDEX idx_folder_id (folder_id),
+    FOREIGN KEY (created_by) REFERENCES user(id),
+    FOREIGN KEY (unauthenticated_user_id) REFERENCES unauthenticated_user_api_usage(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Coupon table

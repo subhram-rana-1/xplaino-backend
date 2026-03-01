@@ -202,8 +202,6 @@ class S3Service:
         file_upload_id: str,
         file_name: str,
         entity_type: str,
-        entity_id: str,
-        file_type: str
     ) -> str:
         """
         Generate S3 key for the presigned-upload flow (client uploads directly).
@@ -214,15 +212,13 @@ class S3Service:
             file_upload_id: File upload record ID (UUID)
             file_name: Original file name
             entity_type: ISSUE or PDF
-            entity_id: Issue id or pdf id
-            file_type: IMAGE or PDF
             
         Returns:
-            S3 object key
+            S3 object key of the form {prefix}/{file_upload_id}_{sanitized_filename}
         """
         sanitized_filename = self._sanitize_filename(file_name)
         prefix = self.pdf_prefix if entity_type == "PDF" else self.issue_prefix
-        return f"{prefix}/{entity_type}/{entity_id}/{file_type}/{file_upload_id}_{sanitized_filename}"
+        return f"{prefix}/{file_upload_id}_{sanitized_filename}"
 
     def delete_object(self, s3_key: str) -> None:
         """

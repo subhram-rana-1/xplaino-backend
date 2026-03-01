@@ -118,6 +118,9 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
     # PDF APIs (method-specific)
     "GET:/api/pdf": "pdf_get_api_count_so_far",
     "GET:/api/pdf/": "pdf_get_api_count_so_far",
+
+    # File upload APIs (method-specific)
+    "POST:/api/file-upload/presigned-upload": "file_upload_presigned_upload_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping for unauthenticated users (METHOD:URL format)
@@ -204,6 +207,9 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
     # PDF APIs (method-specific)
     "GET:/api/pdf": "unauth_user_pdf_get_api_max_limit",
     "GET:/api/pdf/": "unauth_user_pdf_get_api_max_limit",
+
+    # File upload APIs (method-specific)
+    "POST:/api/file-upload/presigned-upload": "unauth_user_file_upload_presigned_upload_api_max_limit",
 }
 
 # API endpoint to authenticated unsubscribed max limit config mapping (METHOD:URL format)
@@ -290,6 +296,9 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
     # PDF APIs (method-specific)
     "GET:/api/pdf": "authenticated_unsubscribed_pdf_get_api_max_limit",
     "GET:/api/pdf/": "authenticated_unsubscribed_pdf_get_api_max_limit",
+
+    # File upload APIs (method-specific)
+    "POST:/api/file-upload/presigned-upload": "authenticated_unsubscribed_file_upload_presigned_upload_api_max_limit",
 }
 
 # API endpoint to Plus subscriber max limit config mapping (METHOD:URL format)
@@ -302,6 +311,7 @@ API_ENDPOINT_TO_PLUS_SUBSCRIBER_MAX_LIMIT_CONFIG = {
     "POST:/api/saved-link/": "plus_subscriber_saved_link_post_api_max_limit",
     "POST:/api/saved-image": "plus_subscriber_saved_image_post_api_max_limit",
     "POST:/api/saved-image/": "plus_subscriber_saved_image_post_api_max_limit",
+    "POST:/api/file-upload/presigned-upload": "plus_subscriber_file_upload_presigned_upload_api_max_limit",
 }
 
 
@@ -818,6 +828,7 @@ async def authenticate(
             # CRITICAL STEP: Increment usage counter
             increment_api_usage(db, unauthenticated_user_id, api_counter_field)
 
+        response.headers["X-Unauthenticated-User-Id"] = unauthenticated_user_id
         return {
             "authenticated": False,
             "unauthenticated_user_id": unauthenticated_user_id
@@ -839,6 +850,7 @@ async def authenticate(
             raise_login_required()
         else:
             new_user_id = create_unauthenticated_user_usage(db, api_counter_field)
+        response.headers["X-Unauthenticated-User-Id"] = new_user_id
         return {
             "authenticated": False,
             "unauthenticated_user_id": new_user_id,

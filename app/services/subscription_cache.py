@@ -37,6 +37,7 @@ PLUS_USER_RATE_LIMITED_APIS = {
     "POST:/api/saved-link/",
     "POST:/api/saved-image",
     "POST:/api/saved-image/",
+    "POST:/api/file-upload/presigned-upload",
 }
 
 

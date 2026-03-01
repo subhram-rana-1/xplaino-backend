@@ -147,6 +147,7 @@ async def cors_preflight_handler(request: Request, call_next):
                 response.headers["Access-Control-Allow-Origin"] = "*"
         if "Access-Control-Allow-Credentials" not in response.headers:
             response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id, X-Source"
     else:
         # For regular responses, add CORS headers
         # Use specific origin instead of wildcard when credentials are required

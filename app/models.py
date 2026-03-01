@@ -146,6 +146,10 @@ class LoginResponse(BaseModel):
     refreshTokenExpiresAt: int = Field(..., description="Unix timestamp when refresh token expires")
     userSessionPk: str = Field(..., description="User session primary key (ID from user_session table)")
     user: UserInfo = Field(..., description="User information")
+    unauthenticatedUserId: Optional[str] = Field(
+        default=None,
+        description="Unauthenticated user ID provided during login, if any"
+    )
 
 
 class LogoutResponse(BaseModel):
@@ -431,6 +435,12 @@ class FileType(str, Enum):
     PDF = "PDF"
 
 
+class UpdateFileUploadEntityRequest(BaseModel):
+    """Request model for updating entity_id on a file upload record."""
+
+    entity_id: str = Field(..., description="New entity ID (UUID)")
+
+
 class FileUploadResponse(BaseModel):
     """Response model for a file upload. s3_url is a presigned download URL generated from s3_key when building the response."""
     
@@ -438,7 +448,7 @@ class FileUploadResponse(BaseModel):
     file_name: str = Field(..., description="File name")
     file_type: str = Field(..., description="File type (IMAGE or PDF)")
     entity_type: str = Field(..., description="Entity type (ISSUE or PDF)")
-    entity_id: str = Field(..., description="Entity ID (UUID)")
+    entity_id: Optional[str] = Field(default=None, description="Entity ID (UUID)")
     s3_url: Optional[str] = Field(default=None, description="Presigned download URL (generated from s3_key)")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON")
     created_at: str = Field(..., description="ISO format timestamp when the file was uploaded")
@@ -992,7 +1002,9 @@ class PdfResponse(BaseModel):
     
     id: str = Field(..., description="PDF ID (UUID)")
     file_name: str = Field(..., description="File name")
-    created_by: str = Field(..., description="User ID who created the PDF (UUID)")
+    created_by: Optional[str] = Field(None, description="User ID who created the PDF (UUID), null for unauthenticated users")
+    unauthenticated_user_id: Optional[str] = Field(None, description="Unauthenticated user ID who created the PDF, null for authenticated users")
+    folder_id: Optional[str] = Field(None, description="Folder ID (UUID) this PDF belongs to, null if not in a folder")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
     file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="File uploads for this PDF (entity_type=PDF, entity_id=pdf.id)")
@@ -1008,6 +1020,7 @@ class CreatePdfRequest(BaseModel):
     """Request model for creating a PDF record (metadata only)."""
     
     file_name: str = Field(..., max_length=255, description="File name for the PDF")
+    folder_id: Optional[str] = Field(None, description="Folder ID (UUID) to associate with this PDF. Requires authentication and must belong to the user.")
 
 
 class CouponStatus(str, Enum):

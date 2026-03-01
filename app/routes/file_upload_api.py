@@ -1,6 +1,7 @@
 """API routes for file upload (presigned S3 upload and download URL by id)."""
 
 import uuid
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path
 from sqlalchemy.orm import Session
 import structlog
@@ -13,7 +14,11 @@ from app.services.database_service import (
     create_file_upload,
     get_file_upload_by_id,
     get_pdf_by_id_and_user_id,
+    get_pdf_by_id,
+    get_issue_by_id,
+    update_file_upload_entity_id,
 )
+from app.models import FileUploadResponse, UpdateFileUploadEntityRequest
 from app.services.s3_service import s3_service
 
 logger = structlog.get_logger()
@@ -31,7 +36,7 @@ class PresignedUploadRequest(BaseModel):
     file_name: str = Field(..., max_length=MAX_FILE_NAME_LENGTH, description="File name (max 255 characters)")
     file_type: str = Field(..., description="File type: IMAGE or PDF")
     entity_type: str = Field(..., description="Entity type: ISSUE or PDF")
-    entity_id: str = Field(..., description="Entity ID (issue id or pdf id)")
+    entity_id: Optional[str] = Field(default=None, description="Entity ID (issue id or pdf id)")
 
 
 class PresignedUploadResponse(BaseModel):
@@ -77,6 +82,19 @@ def _get_user_id_from_auth(auth_context: dict, db: Session) -> str:
     return user_id
 
 
+def _get_optional_user_id_from_auth(auth_context: dict, db: Session) -> Optional[str]:
+    """Return user_id from auth context, or None if the request is unauthenticated."""
+    if not auth_context.get("authenticated"):
+        return None
+    session_data = auth_context.get("session_data")
+    if not session_data:
+        return None
+    auth_vendor_id = session_data.get("auth_vendor_id")
+    if not auth_vendor_id:
+        return None
+    return get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+
+
 @router.post(
     "/presigned-upload",
     response_model=PresignedUploadResponse,
@@ -91,7 +109,7 @@ async def get_presigned_upload_url(
     db: Session = Depends(get_db)
 ):
     """Get a presigned S3 URL for client-side file upload and create file_upload record."""
-    user_id = _get_user_id_from_auth(auth_context, db)
+    user_id = _get_optional_user_id_from_auth(auth_context, db)
 
     # Validate file_type
     if body.file_type not in ("IMAGE", "PDF"):
@@ -106,8 +124,8 @@ async def get_presigned_upload_url(
             detail={"error_code": "INVALID_ENTITY_TYPE", "error_message": "entity_type must be ISSUE or PDF"}
         )
 
-    # When entity_type is PDF, validate that the pdf exists and belongs to the user
-    if body.entity_type == "PDF":
+    # When entity_type is PDF, entity_id is provided, and the user is authenticated, validate ownership
+    if body.entity_type == "PDF" and body.entity_id and user_id:
         pdf = get_pdf_by_id_and_user_id(db, body.entity_id, user_id)
         if not pdf:
             raise HTTPException(
@@ -121,8 +139,6 @@ async def get_presigned_upload_url(
         file_upload_id=file_upload_id,
         file_name=body.file_name,
         entity_type=body.entity_type,
-        entity_id=body.entity_id,
-        file_type=body.file_type
     )
 
     # Create file_upload record with the chosen id and s3_key
@@ -131,8 +147,8 @@ async def get_presigned_upload_url(
         file_name=body.file_name,
         file_type=body.file_type,
         entity_type=body.entity_type,
-        entity_id=body.entity_id,
         s3_key=s3_key,
+        entity_id=body.entity_id,
         metadata=None,
         file_upload_id=file_upload_id
     )
@@ -143,6 +159,9 @@ async def get_presigned_upload_url(
         content_type=content_type,
         expires_in=PRESIGNED_UPLOAD_EXPIRES_IN
     )
+
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
 
     return PresignedUploadResponse(
         upload_url=upload_url,
@@ -191,4 +210,69 @@ async def get_download_url(
     return DownloadUrlResponse(
         download_url=download_url,
         expires_in=PRESIGNED_DOWNLOAD_EXPIRES_IN
+    )
+
+
+@router.patch(
+    "/{file_upload_id}/entity",
+    response_model=FileUploadResponse,
+    summary="Update entity_id on a file upload",
+    description=(
+        "Updates the entity_id of an existing file_upload record. "
+        "Validates that the supplied entity_id exists as a primary key in the "
+        "corresponding entity table (issue or pdf) based on the record's entity_type."
+    )
+)
+async def update_file_upload_entity(
+    request: Request,
+    response: Response,
+    file_upload_id: str = Path(..., description="File upload ID (UUID)"),
+    body: UpdateFileUploadEntityRequest = ...,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Update entity_id on a file_upload record after validating the entity exists."""
+    _get_optional_user_id_from_auth(auth_context, db)
+
+    record = get_file_upload_by_id(db, file_upload_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "FILE_UPLOAD_NOT_FOUND", "error_message": "File upload not found"}
+        )
+
+    entity_type = record.get("entity_type")
+
+    if entity_type == "ISSUE":
+        issue = get_issue_by_id(db, body.entity_id)
+        if not issue:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "ISSUE_NOT_FOUND", "error_message": "Issue not found"}
+            )
+    elif entity_type == "PDF":
+        pdf = get_pdf_by_id(db, body.entity_id)
+        if not pdf:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "PDF_NOT_FOUND", "error_message": "PDF not found"}
+            )
+
+    updated = update_file_upload_entity_id(db, file_upload_id, body.entity_id)
+    if not updated:
+        raise HTTPException(
+            status_code=500,
+            detail={"error_code": "UPDATE_FAILED", "error_message": "Failed to update file upload"}
+        )
+
+    return FileUploadResponse(
+        id=updated["id"],
+        file_name=updated["file_name"],
+        file_type=updated["file_type"],
+        entity_type=updated["entity_type"],
+        entity_id=updated.get("entity_id"),
+        s3_url=None,
+        metadata=updated.get("metadata"),
+        created_at=updated["created_at"],
+        updated_at=updated["updated_at"]
     )

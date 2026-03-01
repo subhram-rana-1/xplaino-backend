@@ -99,6 +99,18 @@ async def get_all_saved_paragraphs(
             }
         )
     
+    # Validate folder exists and belongs to user (only when folder_id is provided)
+    if folder_id is not None:
+        folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "Folder not found or does not belong to user"
+                }
+            )
+
     # Get sub-folders for the given folder_id (or root if folder_id is None)
     sub_folders_data = get_folders_by_owner_and_parent_id(db, user_id=user_id, parent_id=folder_id)
     

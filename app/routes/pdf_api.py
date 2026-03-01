@@ -1,6 +1,6 @@
 """API routes for PDF management."""
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path, Query
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -18,9 +18,11 @@ from app.services.database_service import (
     create_pdf,
     get_pdfs_by_user_id,
     get_pdf_by_id_and_user_id,
+    get_pdf_by_id_and_unauthenticated_user_id,
     get_file_uploads_by_entity,
     delete_file_uploads_by_entity,
     delete_pdf_by_id_and_user_id,
+    get_folder_by_id_and_user_id,
 )
 from app.services.s3_service import s3_service
 
@@ -57,6 +59,16 @@ def _get_user_id_from_auth(auth_context: dict, db: Session) -> str:
     return user_id
 
 
+def _resolve_owner(auth_context: dict, db: Session) -> tuple:
+    """Resolve owner from auth context. Returns (user_id, unauthenticated_user_id)."""
+    if auth_context.get("authenticated"):
+        session_data = auth_context["session_data"]
+        auth_vendor_id = session_data["auth_vendor_id"]
+        user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+        return user_id, None
+    return None, auth_context["unauthenticated_user_id"]
+
+
 def _file_upload_to_response(fu: dict):
     """Build FileUploadResponse from file_upload row (with s3_url from s3_key)."""
     from app.models import FileUploadResponse
@@ -90,14 +102,35 @@ async def create_pdf_endpoint(
     db: Session = Depends(get_db)
 ):
     """Create a PDF record and return it."""
-    user_id = _get_user_id_from_auth(auth_context, db)
+    if body.folder_id is not None:
+        user_id = _get_user_id_from_auth(auth_context, db)
+        folder = get_folder_by_id_and_user_id(db, body.folder_id, user_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "FOLDER_NOT_FOUND", "error_message": "Folder not found or does not belong to user"}
+            )
+        unauthenticated_user_id = None
+    else:
+        user_id, unauthenticated_user_id = _resolve_owner(auth_context, db)
 
-    pdf_data = create_pdf(db=db, user_id=user_id, file_name=body.file_name)
+    pdf_data = create_pdf(
+        db=db,
+        file_name=body.file_name,
+        user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_id=body.folder_id
+    )
+
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
 
     return PdfResponse(
         id=pdf_data["id"],
         file_name=pdf_data["file_name"],
         created_by=pdf_data["created_by"],
+        unauthenticated_user_id=pdf_data["unauthenticated_user_id"],
+        folder_id=pdf_data["folder_id"],
         created_at=pdf_data["created_at"],
         updated_at=pdf_data["updated_at"],
         file_uploads=[]
@@ -108,18 +141,37 @@ async def create_pdf_endpoint(
     "",
     response_model=GetAllPdfsResponse,
     summary="Get all PDFs",
-    description="Get all PDF records for the authenticated user with their file uploads (entity_type=PDF)."
+    description=(
+        "Get all PDF records for the authenticated or unauthenticated user with their file uploads. "
+        "If folder_id is provided, authentication is required and only PDFs in that folder are returned."
+    )
 )
 async def get_all_pdfs_endpoint(
     request: Request,
     response: Response,
+    folder_id: Optional[str] = Query(None, description="Filter PDFs by folder ID. Requires authentication; folder must belong to the user."),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
-    """Get all PDFs for the authenticated user with file_uploads per PDF."""
-    user_id = _get_user_id_from_auth(auth_context, db)
+    """Get all PDFs for the authenticated or unauthenticated user with file_uploads per PDF."""
+    if folder_id is not None:
+        user_id = _get_user_id_from_auth(auth_context, db)
+        folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "FOLDER_NOT_FOUND", "error_message": "Folder not found or does not belong to user"}
+            )
+        unauthenticated_user_id = None
+    else:
+        user_id, unauthenticated_user_id = _resolve_owner(auth_context, db)
 
-    pdfs_data = get_pdfs_by_user_id(db, user_id)
+    pdfs_data = get_pdfs_by_user_id(
+        db,
+        user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_id=folder_id
+    )
 
     pdfs = []
     for pdf in pdfs_data:
@@ -130,6 +182,8 @@ async def get_all_pdfs_endpoint(
                 id=pdf["id"],
                 file_name=pdf["file_name"],
                 created_by=pdf["created_by"],
+                unauthenticated_user_id=pdf["unauthenticated_user_id"],
+                folder_id=pdf["folder_id"],
                 created_at=pdf["created_at"],
                 updated_at=pdf["updated_at"],
                 file_uploads=file_uploads
@@ -139,10 +193,69 @@ async def get_all_pdfs_endpoint(
     logger.info(
         "Retrieved all PDFs successfully",
         user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_id=folder_id,
         pdf_count=len(pdfs)
     )
 
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+
     return GetAllPdfsResponse(pdfs=pdfs)
+
+
+@router.get(
+    "/{pdf_id}",
+    response_model=PdfResponse,
+    summary="Get a PDF by ID",
+    description="Get a single PDF record by ID with its file uploads (including presigned download URLs). Supports both authenticated (Authorization header) and unauthenticated (X-Unauthenticated-User-Id header) users. Only the owner can access their own PDF."
+)
+async def get_pdf_by_id_endpoint(
+    request: Request,
+    response: Response,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Get a single PDF by ID for the authenticated or unauthenticated owner."""
+    user_id, unauthenticated_user_id = _resolve_owner(auth_context, db)
+
+    if user_id:
+        pdf_data = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+    elif unauthenticated_user_id:
+        pdf_data = get_pdf_by_id_and_unauthenticated_user_id(db, pdf_id, unauthenticated_user_id)
+    else:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found"}
+        )
+
+    if not pdf_data:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found or does not belong to user"}
+        )
+
+    file_uploads_data = get_file_uploads_by_entity(db, "PDF", pdf_id)
+    file_uploads = [_file_upload_to_response(fu) for fu in file_uploads_data]
+
+    logger.info(
+        "Retrieved PDF by ID successfully",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id
+    )
+
+    return PdfResponse(
+        id=pdf_data["id"],
+        file_name=pdf_data["file_name"],
+        created_by=pdf_data.get("created_by"),
+        unauthenticated_user_id=pdf_data.get("unauthenticated_user_id"),
+        folder_id=pdf_data.get("folder_id"),
+        created_at=pdf_data["created_at"],
+        updated_at=pdf_data["updated_at"],
+        file_uploads=file_uploads
+    )
 
 
 @router.delete(
