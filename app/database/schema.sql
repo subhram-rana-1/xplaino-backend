@@ -5,9 +5,14 @@
 CREATE TABLE IF NOT EXISTS user (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     role ENUM('ADMIN', 'SUPER_ADMIN') NULL,
+    unauthenticated_user_id CHAR(36) NULL,
     settings JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_unauthenticated_user
+        FOREIGN KEY (unauthenticated_user_id)
+        REFERENCES unauthenticated_user_api_usage(user_id)
+        ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Google user authentication info table
@@ -78,14 +83,19 @@ CREATE TABLE IF NOT EXISTS unsubscribed_user_api_usage (
 CREATE TABLE IF NOT EXISTS folder (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     name VARCHAR(50) NOT NULL,
+    type ENUM('BOOKMARK', 'PDF') NOT NULL DEFAULT 'BOOKMARK',
     parent_id CHAR(36) NULL,
-    user_id CHAR(36) NOT NULL,
+    user_id CHAR(36) NULL,
+    unauthenticated_user_id CHAR(36) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),
     INDEX idx_parent_id (parent_id),
     INDEX idx_user_parent (user_id, parent_id),
+    INDEX idx_unauth_user_id (unauthenticated_user_id),
+    INDEX idx_unauth_user_parent (unauthenticated_user_id, parent_id),
     FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (unauthenticated_user_id) REFERENCES unauthenticated_user_api_usage(user_id) ON DELETE SET NULL,
     FOREIGN KEY (parent_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -145,13 +155,14 @@ CREATE TABLE IF NOT EXISTS saved_link (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- File upload table
+-- When entity_type = 'PDF', entity_id references pdf(id). When entity_type = 'ISSUE', entity_id references issue(id).
 CREATE TABLE IF NOT EXISTS file_upload (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     file_name VARCHAR(50) NOT NULL,
     file_type ENUM('IMAGE', 'PDF') NOT NULL,
-    entity_type ENUM('ISSUE') NOT NULL,
-    entity_id CHAR(36) NOT NULL,
-    s3_url VARCHAR(2044),
+    entity_type ENUM('ISSUE', 'PDF') NOT NULL,
+    entity_id CHAR(36) NULL,
+    s3_key VARCHAR(1024) NOT NULL,
     metadata JSON,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -269,24 +280,17 @@ CREATE TABLE IF NOT EXISTS saved_image (
 CREATE TABLE IF NOT EXISTS pdf (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     file_name VARCHAR(255) NOT NULL,
-    created_by CHAR(36) NOT NULL,
+    created_by CHAR(36) NULL,
+    unauthenticated_user_id CHAR(36) NULL,
+    folder_id CHAR(36) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_created_by (created_by),
-    FOREIGN KEY (created_by) REFERENCES user(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- PDF HTML page table
-CREATE TABLE IF NOT EXISTS pdf_html_page (
-    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    page_no INT NOT NULL,
-    pdf_id CHAR(36) NOT NULL,
-    html_content LONGTEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_page_no (page_no),
-    INDEX idx_pdf_id (pdf_id),
-    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
+    INDEX idx_unauth_user_id (unauthenticated_user_id),
+    INDEX idx_folder_id (folder_id),
+    FOREIGN KEY (created_by) REFERENCES user(id),
+    FOREIGN KEY (unauthenticated_user_id) REFERENCES unauthenticated_user_api_usage(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Coupon table

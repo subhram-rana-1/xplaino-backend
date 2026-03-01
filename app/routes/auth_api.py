@@ -12,6 +12,7 @@ from app.models import LoginRequest, LoginResponse, LogoutRequest, LogoutRespons
 from app.database.connection import get_db
 from app.services.auth_service import validate_google_authentication, get_google_client_id
 from app.services.jwt_service import generate_access_token, get_token_expiry, decode_access_token
+from app.utils.utils import get_client_ip
 from app.services.database_service import (
     get_or_create_user_by_google_sub, 
     get_or_create_user_session,
@@ -19,7 +20,8 @@ from app.services.database_service import (
     get_user_info_by_sub,
     get_user_session_by_id,
     update_user_session_refresh_token,
-    get_user_role_by_user_id
+    get_user_role_by_user_id,
+    get_unauthenticated_user_id_by_user_id,
 )
 from app.exceptions import CatenException
 
@@ -52,6 +54,8 @@ async def login(
     # Entry log with request metadata
     id_token_preview = request.idToken[:8] + "..." if request.idToken and len(request.idToken) > 8 else (request.idToken if request.idToken else None)
     x_source = http_request.headers.get("X-Source", "").strip()
+    unauthenticated_user_id = http_request.headers.get("X-Unauthenticated-User-Id") or None
+    ip_address = get_client_ip(http_request)
     logger.info(
         "Login endpoint called",
         endpoint="/api/auth/login",
@@ -108,7 +112,7 @@ async def login(
             
             logger.debug("Getting or creating user by Google sub", sub=sub)
             user_id, google_auth_info_id, is_new_user = get_or_create_user_by_google_sub(
-                db, sub, google_data
+                db, sub, google_data, unauthenticated_user_id, ip_address
             )
             
             logger.info(
@@ -179,6 +183,9 @@ async def login(
             # Get user role
             user_role = get_user_role_by_user_id(db, user_id)
             
+            # Get unauthenticated_user_id from user table (if any)
+            unauthenticated_user_id_from_db = get_unauthenticated_user_id_by_user_id(db, user_id)
+            
             # Construct user info
             user_info = UserInfo(
                 id=user_id,
@@ -193,6 +200,7 @@ async def login(
             # Prepare response with refresh token in payload
             login_response = LoginResponse(
                 isLoggedIn=True,
+                unauthenticatedUserId=unauthenticated_user_id_from_db,
                 accessToken=access_token,
                 accessTokenExpiresAt=int(expire_at.timestamp()),
                 refreshToken=refresh_token,

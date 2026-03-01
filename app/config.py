@@ -2,7 +2,7 @@
 
 import sys
 from typing import List, FrozenSet
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -112,7 +112,25 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="us-east-1", description="AWS region")
     s3_bucket_name: str = Field(..., description="S3 bucket name")
     s3_issue_files_prefix: str = Field(default="issues/", description="S3 prefix for issue files")
-    
+    s3_pdf_files_prefix: str = Field(default="users/pdfs/", description="S3 prefix for PDF entity file uploads")
+
+    @model_validator(mode="after")
+    def validate_required_config_non_empty(self):
+        """Fail startup if any MUST-required config is missing or empty (e.g. AWS/S3)."""
+        required_attrs = [
+            "aws_access_key_id",
+            "aws_secret_access_key",
+            "s3_bucket_name",
+        ]
+        for attr in required_attrs:
+            val = getattr(self, attr, None)
+            if val is None or (isinstance(val, str) and not val.strip()):
+                raise ValueError(
+                    f"Required config '{attr}' must be set and non-empty. "
+                    "Set the corresponding environment variable and restart the server."
+                )
+        return self
+
     # API Usage Limits for Unauthenticated Users
     # v1 API Limits
     unauth_user_image_to_text_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated image-to-text API")
@@ -165,6 +183,9 @@ class Settings(BaseSettings):
     unauth_user_folders_post_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated POST folders API")
     unauth_user_folders_delete_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated DELETE folders API")
     
+    # Unauthenticated file-upload presigned-upload limit
+    unauth_user_file_upload_presigned_upload_api_max_limit: int = Field(default=3, description="Max limit for unauthenticated POST file-upload/presigned-upload API")
+
     # API Usage Limits for Authenticated Users (Unsubscribed)
     # v1 API Limits
     authenticated_unsubscribed_image_to_text_api_max_limit: int = Field(default=0, description="Max limit for authenticated unsubscribed image-to-text API")
@@ -228,6 +249,10 @@ class Settings(BaseSettings):
     plus_subscriber_saved_paragraph_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-paragraph API")
     plus_subscriber_saved_link_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-link API")
     plus_subscriber_saved_image_post_api_max_limit: int = Field(default=5, description="Max limit for Plus subscriber POST saved-image API")
+    plus_subscriber_file_upload_presigned_upload_api_max_limit: int = Field(default=15, description="Max limit for Plus subscriber POST file-upload/presigned-upload API")
+
+    # Authenticated unsubscribed file-upload presigned-upload limit
+    authenticated_unsubscribed_file_upload_presigned_upload_api_max_limit: int = Field(default=5, description="Max limit for authenticated unsubscribed POST file-upload/presigned-upload API")
 
     # Authenticated unsubscribed issue API limits (method-specific)
     authenticated_unsubscribed_issue_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed GET issue API")

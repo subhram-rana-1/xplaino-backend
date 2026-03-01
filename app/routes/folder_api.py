@@ -9,6 +9,7 @@ import structlog
 from app.models import (
     GetAllFoldersResponse,
     FolderWithSubFoldersResponse,
+    FolderType,
     CreateFolderRequest,
     CreateFolderResponse,
     RenameFolderRequest,
@@ -19,7 +20,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_folders_by_user_id_and_parent_id,
+    get_folders_by_owner_and_parent_id,
     create_paragraph_folder,
     get_folder_by_id_and_user_id,
     get_user_info_with_email_by_user_id,
@@ -63,6 +64,9 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
         return FolderWithSubFoldersResponse(
             id=folder_data["id"],
             name=folder_data["name"],
+            type=folder_data["type"],
+            user_id=folder_data.get("user_id"),
+            unauthenticated_user_id=folder_data.get("unauthenticated_user_id"),
             created_at=folder_data["created_at"],
             updated_at=folder_data["updated_at"],
             subFolders=sub_folders
@@ -84,36 +88,50 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
 async def get_all_folders(
     request: Request,
     response: Response,
+    folder_type: Optional[FolderType] = Query(
+        default=None,
+        alias="type",
+        description="Optional folder type filter (BOOKMARK or PDF). If omitted, returns all types.",
+    ),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
     """Get all folders for authenticated or unauthenticated users in hierarchical structure."""
-    # Extract user_id based on authentication status
-    # authenticate() middleware has already validated these fields exist
+    # Resolve owner: exactly one of user_id / unauthenticated_user_id will be set
     if auth_context.get("authenticated"):
         session_data = auth_context["session_data"]
         auth_vendor_id = session_data["auth_vendor_id"]
         user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+        unauthenticated_user_id = None
     else:
-        user_id = auth_context["unauthenticated_user_id"]
-    
+        user_id = None
+        unauthenticated_user_id = auth_context["unauthenticated_user_id"]
+
     # To build the full hierarchy, we need all folders
     # Get all folders by recursively fetching from root
     all_folders = []
     def get_all_folders_recursive(parent_id):
-        folders = get_folders_by_user_id_and_parent_id(db, user_id, parent_id)
+        folders = get_folders_by_owner_and_parent_id(
+            db,
+            user_id=user_id,
+            unauthenticated_user_id=unauthenticated_user_id,
+            parent_id=parent_id,
+            folder_type=folder_type.value if folder_type else None,
+        )
         all_folders.extend(folders)
         for folder in folders:
             get_all_folders_recursive(folder["id"])
-    
+
     get_all_folders_recursive(None)
-    
+
     # Build hierarchical structure
     folders = build_folder_hierarchy(all_folders)
-    
+
     logger.info(
         "Retrieved folders",
         user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_type_filter=folder_type.value if folder_type else None,
         folders_count=len(folders),
         total_folders_count=len(all_folders),
         authenticated=auth_context.get("authenticated", False)
@@ -143,14 +161,16 @@ async def create_folder(
     db: Session = Depends(get_db)
 ):
     """Create a folder for authenticated or unauthenticated users (unauthenticated will be blocked by rate limit)."""
-    # Extract user_id based on authentication status
+    # Resolve owner: exactly one of user_id / unauthenticated_user_id will be set
     if auth_context.get("authenticated"):
         session_data = auth_context["session_data"]
         auth_vendor_id = session_data["auth_vendor_id"]
         user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+        unauthenticated_user_id = None
     else:
-        user_id = auth_context["unauthenticated_user_id"]
-    
+        user_id = None
+        unauthenticated_user_id = auth_context["unauthenticated_user_id"]
+
     # Validate name length (Pydantic already validates min_length=1, but we check max_length explicitly)
     if len(body.name) > 50:
         raise HTTPException(
@@ -160,7 +180,7 @@ async def create_folder(
                 "error_message": "Name length exceeds maximum of 50 characters"
             }
         )
-    
+
     # If parentId is provided, validate it exists and belongs to the user
     if body.parentId:
         parent_folder = get_folder_by_id_and_user_id(db, body.parentId, user_id)
@@ -172,23 +192,40 @@ async def create_folder(
                     "error_message": "Parent folder not found or does not belong to user"
                 }
             )
-    
-    # Create folder
-    folder_data = create_paragraph_folder(db, user_id, body.name, body.parentId)
-    
-    # Fetch user info
-    user_info_data = get_user_info_with_email_by_user_id(db, user_id)
-    
-    # Construct UserInfo object
-    user_info = UserInfo(
-        id=user_id,
-        name=user_info_data.get("name", ""),
-        email=user_info_data.get("email", ""),
-        role=user_info_data.get("role"),
-        firstName=None,
-        lastName=None,
-        picture=None
+
+    # Create folder (default type to BOOKMARK if not provided)
+    folder_type = (body.type or FolderType.BOOKMARK).value
+    folder_data = create_paragraph_folder(
+        db,
+        user_id=user_id,
+        name=body.name,
+        parent_folder_id=body.parentId,
+        folder_type=folder_type,
+        unauthenticated_user_id=unauthenticated_user_id,
     )
+    
+    # Fetch user info (only available for authenticated users)
+    if user_id:
+        user_info_data = get_user_info_with_email_by_user_id(db, user_id)
+        user_info = UserInfo(
+            id=user_id,
+            name=user_info_data.get("name", ""),
+            email=user_info_data.get("email", ""),
+            role=user_info_data.get("role"),
+            firstName=None,
+            lastName=None,
+            picture=None
+        )
+    else:
+        user_info = UserInfo(
+            id=unauthenticated_user_id or "",
+            name="",
+            email="",
+            role=None,
+            firstName=None,
+            lastName=None,
+            picture=None
+        )
     
     logger.info(
         "Created folder successfully",
@@ -206,6 +243,7 @@ async def create_folder(
     return CreateFolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
+        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -344,6 +382,7 @@ async def rename_folder(
     return RenameFolderResponse(
         id=updated_folder["id"],
         name=updated_folder["name"],
+        type=updated_folder["type"],
         parent_id=updated_folder["parent_id"],
         user_id=updated_folder["user_id"],
         created_at=updated_folder["created_at"],

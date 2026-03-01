@@ -18,7 +18,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
-    get_folders_by_user_id_and_parent_id,
+    get_folders_by_owner_and_parent_id,
     get_saved_links_by_user_id_and_folder_id,
     create_saved_link,
     get_saved_link_by_url_and_user_id,
@@ -95,10 +95,20 @@ async def get_all_saved_links(
             }
         )
 
+    # Validate folder exists and belongs to user (only when folder_id is provided)
+    if folder_id is not None:
+        folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "Folder not found or does not belong to user"
+                }
+            )
+
     # Get sub-folders for the given folder_id (or root if folder_id is None)
-    sub_folders_data = get_folders_by_user_id_and_parent_id(
-        db, user_id, folder_id
-    )
+    sub_folders_data = get_folders_by_owner_and_parent_id(db, user_id=user_id, parent_id=folder_id)
 
     # Get saved links for the given folder_id (or root if folder_id is None)
     links_data, total_count = get_saved_links_by_user_id_and_folder_id(

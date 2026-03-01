@@ -21,7 +21,9 @@ logger = structlog.get_logger()
 def get_or_create_user_by_google_sub(
     db: Session,
     sub: str,
-    google_data: dict
+    google_data: dict,
+    unauthenticated_user_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
 ) -> Tuple[str, str, bool]:
     """
     Get or create user and google_user_auth_info records.
@@ -30,6 +32,8 @@ def get_or_create_user_by_google_sub(
         db: Database session
         sub: Google user ID (sub field)
         google_data: Decoded Google token data
+        unauthenticated_user_id: Optional ID from unauthenticated_user_api_usage to link on first login
+        ip_address: Optional client IP address, used to seed unsubscribed_user_api_usage on first login
         
     Returns:
         Tuple of (user_id, google_auth_info_id, is_new_user)
@@ -130,8 +134,12 @@ def get_or_create_user_by_google_sub(
         
         # Create user record with default settings
         db.execute(
-            text("INSERT INTO user (id, settings) VALUES (:user_id, :settings)"),
-            {"user_id": user_id, "settings": json.dumps(DEFAULT_USER_SETTINGS)}
+            text("INSERT INTO user (id, unauthenticated_user_id, settings) VALUES (:user_id, :unauthenticated_user_id, :settings)"),
+            {
+                "user_id": user_id,
+                "unauthenticated_user_id": unauthenticated_user_id,
+                "settings": json.dumps(DEFAULT_USER_SETTINGS)
+            }
         )
         db.flush()
         
@@ -189,56 +197,184 @@ def get_or_create_user_by_google_sub(
             sub=sub,
             email=google_data.get("email")
         )
-        
-        # Create personal folder for new user
-        # Determine folder name: "{given_name}'s Personal" > "{family_name}'s Personal" > "Personal"
+
+        # Backfill prior unauthenticated activity to the new authenticated user
+        if unauthenticated_user_id:
+            # Backfill pdf ownership
+            db.execute(
+                text("""
+                    UPDATE pdf
+                    SET created_by = :user_id
+                    WHERE unauthenticated_user_id = :unauthenticated_user_id
+                      AND created_by IS NULL
+                """),
+                {"user_id": user_id, "unauthenticated_user_id": unauthenticated_user_id}
+            )
+            logger.info(
+                "Backfilled pdf ownership for new user",
+                function="get_or_create_user_by_google_sub",
+                user_id=user_id,
+                unauthenticated_user_id=unauthenticated_user_id
+            )
+
+            # Backfill folder ownership
+            db.execute(
+                text("""
+                    UPDATE folder
+                    SET user_id = :user_id
+                    WHERE unauthenticated_user_id = :unauthenticated_user_id
+                      AND user_id IS NULL
+                """),
+                {"user_id": user_id, "unauthenticated_user_id": unauthenticated_user_id}
+            )
+            logger.info(
+                "Backfilled folder ownership for new user",
+                function="get_or_create_user_by_google_sub",
+                user_id=user_id,
+                unauthenticated_user_id=unauthenticated_user_id
+            )
+
+            # Seed unsubscribed_user_api_usage with ALL counters from the anonymous session
+            if ip_address:
+                unauth_usage = get_unauthenticated_user_usage(db, unauthenticated_user_id) or {}
+
+                seeded_api_usage = {
+                    "words_explanation_api_count_so_far": 0,
+                    "get_more_explanations_api_count_so_far": 0,
+                    "ask_api_count_so_far": 0,
+                    "simplify_api_count_so_far": 0,
+                    "summarise_api_count_so_far": 0,
+                    "image_to_text_api_count_so_far": 0,
+                    "pdf_to_text_api_count_so_far": 0,
+                    "important_words_from_text_v1_api_count_so_far": 0,
+                    "words_explanation_v1_api_count_so_far": 0,
+                    "get_random_paragraph_api_count_so_far": 0,
+                    "important_words_from_text_v2_api_count_so_far": 0,
+                    "pronunciation_api_count_so_far": 0,
+                    "voice_to_text_api_count_so_far": 0,
+                    "translate_api_count_so_far": 0,
+                    "web_search_api_count_so_far": 0,
+                    "web_search_stream_api_count_so_far": 0,
+                    "synonyms_api_count_so_far": 0,
+                    "antonyms_api_count_so_far": 0,
+                    "saved_words_get_api_count_so_far": 0,
+                    "saved_words_post_api_count_so_far": 0,
+                    "saved_words_delete_api_count_so_far": 0,
+                    "saved_paragraph_get_api_count_so_far": 0,
+                    "saved_paragraph_post_api_count_so_far": 0,
+                    "saved_paragraph_delete_api_count_so_far": 0,
+                    "saved_paragraph_folder_post_api_count_so_far": 0,
+                    "saved_paragraph_folder_delete_api_count_so_far": 0,
+                    "saved_link_get_api_count_so_far": 0,
+                    "saved_link_post_api_count_so_far": 0,
+                    "saved_link_delete_api_count_so_far": 0,
+                    "saved_link_folder_post_api_count_so_far": 0,
+                    "saved_link_folder_delete_api_count_so_far": 0,
+                    "folders_get_api_count_so_far": 0,
+                    "file_upload_presigned_upload_api_count_so_far": 0,
+                }
+
+                for key in seeded_api_usage:
+                    if key in unauth_usage:
+                        seeded_api_usage[key] = unauth_usage[key]
+
+                db.execute(
+                    text("""
+                        INSERT INTO unsubscribed_user_api_usage (user_id, ip_address, api_usage)
+                        VALUES (:user_id, :ip_address, :api_usage)
+                    """),
+                    {"user_id": user_id, "ip_address": ip_address, "api_usage": json.dumps(seeded_api_usage)}
+                )
+                logger.info(
+                    "Seeded unsubscribed_user_api_usage from anonymous session",
+                    function="get_or_create_user_by_google_sub",
+                    user_id=user_id,
+                    unauthenticated_user_id=unauthenticated_user_id,
+                    ip_address=ip_address
+                )
+
+            db.flush()
+
+        # Create personal folder and PDF folder for new user
+        # Determine name part: given_name > family_name > fallback
         given_name = google_data.get("given_name")
         family_name = google_data.get("family_name")
-        
         if given_name and given_name.strip():
-            folder_name = f"{given_name.strip()}'s Personal"
+            name_part = given_name.strip()
         elif family_name and family_name.strip():
-            folder_name = f"{family_name.strip()}'s Personal"
+            name_part = family_name.strip()
         else:
-            folder_name = "Personal"
-        
-        # Ensure folder name doesn't exceed 50 characters (database constraint)
-        if len(folder_name) > 50:
-            folder_name = folder_name[:47] + "..."
-        
+            name_part = None
+
+        folder_name_personal = f"{name_part}'s Personal" if name_part else "Bookmarks"
+        folder_name_pdfs = f"{name_part}'s Pdfs" if name_part else "Pdfs"
+
+        # Ensure folder names don't exceed 50 characters (database constraint)
+        if len(folder_name_personal) > 50:
+            folder_name_personal = folder_name_personal[:47] + "..."
+        if len(folder_name_pdfs) > 50:
+            folder_name_pdfs = folder_name_pdfs[:47] + "..."
+
         logger.debug(
-            "Creating personal folder for new user",
+            "Creating personal and PDF folders for new user",
             function="get_or_create_user_by_google_sub",
             user_id=user_id,
-            folder_name=folder_name,
+            folder_name_personal=folder_name_personal,
+            folder_name_pdfs=folder_name_pdfs,
             has_given_name=bool(given_name),
             has_family_name=bool(family_name)
         )
-        
-        # Generate folder_id
-        folder_id = str(uuid.uuid4())
-        
-        # Create folder record (root folder, no parent_id)
+
+        # Create personal folder (root folder, type BOOKMARK)
+        folder_id_personal = str(uuid.uuid4())
         db.execute(
             text("""
-                INSERT INTO folder (id, name, parent_id, user_id)
-                VALUES (:id, :name, :parent_id, :user_id)
+                INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
+                VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
             """),
             {
-                "id": folder_id,
-                "name": folder_name,
+                "id": folder_id_personal,
+                "name": folder_name_personal,
+                "type": "BOOKMARK",
                 "parent_id": None,
-                "user_id": user_id
+                "user_id": user_id,
+                "unauthenticated_user_id": None,
             }
         )
         db.flush()
-        
+
         logger.info(
             "Created personal folder for new user",
             function="get_or_create_user_by_google_sub",
             user_id=user_id,
-            folder_id=folder_id,
-            folder_name=folder_name
+            folder_id=folder_id_personal,
+            folder_name=folder_name_personal
+        )
+
+        # Create PDF folder (root folder, type PDF)
+        folder_id_pdfs = str(uuid.uuid4())
+        db.execute(
+            text("""
+                INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
+                VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
+            """),
+            {
+                "id": folder_id_pdfs,
+                "name": folder_name_pdfs,
+                "type": "PDF",
+                "parent_id": None,
+                "user_id": user_id,
+                "unauthenticated_user_id": None,
+            }
+        )
+        db.flush()
+
+        logger.info(
+            "Created PDF folder for new user",
+            function="get_or_create_user_by_google_sub",
+            user_id=user_id,
+            folder_id=folder_id_pdfs,
+            folder_name=folder_name_pdfs
         )
     
     db.commit()
@@ -729,7 +865,9 @@ def create_unauthenticated_user_usage(
         "saved_link_folder_post_api_count_so_far": 0,
         "saved_link_folder_delete_api_count_so_far": 0,
         # Method-specific counters for folders
-        "folders_get_api_count_so_far": 0
+        "folders_get_api_count_so_far": 0,
+        # File upload presigned-upload counter
+        "file_upload_presigned_upload_api_count_so_far": 0,
     }
     
     # Set the current API count to 1 (this API was just called)
@@ -949,7 +1087,9 @@ def create_authenticated_user_api_usage(
         "saved_link_folder_post_api_count_so_far": 0,
         "saved_link_folder_delete_api_count_so_far": 0,
         # Method-specific counters for folders
-        "folders_get_api_count_so_far": 0
+        "folders_get_api_count_so_far": 0,
+        # File upload presigned-upload counter
+        "file_upload_presigned_upload_api_count_so_far": 0,
     }
     
     # Ensure the api_name field exists (initialize to 0, will be incremented by caller)
@@ -1900,82 +2040,99 @@ def delete_saved_word_by_id_and_user_id(
         return False
 
 
-def get_folders_by_user_id_and_parent_id(
+def get_folders_by_owner_and_parent_id(
     db: Session,
-    user_id: str,
-    parent_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    unauthenticated_user_id: Optional[str] = None,
+    parent_id: Optional[str] = None,
+    folder_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Get folders for a user with a specific parent_id.
+    Get folders for a user (authenticated or unauthenticated) with a specific parent_id.
     If parent_id is None, get folders where parent_id IS NULL.
-    
+    Exactly one of user_id or unauthenticated_user_id should be provided.
+
     Args:
         db: Database session
-        user_id: User ID (CHAR(36) UUID)
+        user_id: Authenticated user ID (CHAR(36) UUID), or None
+        unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID), or None
         parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
-        
+        folder_type: Optional type filter ('BOOKMARK' or 'PDF'). If None, all types returned.
+
     Returns:
         List of folder dictionaries
     """
     logger.info(
-        "Getting folders by user_id and parent_id",
-        function="get_folders_by_user_id_and_parent_id",
+        "Getting folders by owner and parent_id",
+        function="get_folders_by_owner_and_parent_id",
         user_id=user_id,
-        parent_id=parent_id
+        unauthenticated_user_id=unauthenticated_user_id,
+        parent_id=parent_id,
+        folder_type=folder_type
     )
-    
+
+    if user_id is not None:
+        owner_filter = "user_id = :owner_id"
+        owner_param = {"owner_id": user_id}
+    else:
+        owner_filter = "unauthenticated_user_id = :owner_id"
+        owner_param = {"owner_id": unauthenticated_user_id}
+
+    type_filter = "AND type = :folder_type" if folder_type is not None else ""
+    type_param = {"folder_type": folder_type} if folder_type is not None else {}
+
     if parent_id is None:
         result = db.execute(
-            text("""
-                SELECT id, name, parent_id, user_id, created_at, updated_at
+            text(f"""
+                SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
                 FROM folder
-                WHERE user_id = :user_id AND parent_id IS NULL
+                WHERE {owner_filter} AND parent_id IS NULL {type_filter}
                 ORDER BY created_at DESC
             """),
-            {"user_id": user_id}
+            {**owner_param, **type_param}
         ).fetchall()
     else:
         result = db.execute(
-            text("""
-                SELECT id, name, parent_id, user_id, created_at, updated_at
+            text(f"""
+                SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
                 FROM folder
-                WHERE user_id = :user_id AND parent_id = :parent_id
+                WHERE {owner_filter} AND parent_id = :parent_id {type_filter}
                 ORDER BY created_at DESC
             """),
-            {
-                "user_id": user_id,
-                "parent_id": parent_id
-            }
+            {**owner_param, "parent_id": parent_id, **type_param}
         ).fetchall()
-    
+
     folders = []
     for row in result:
-        folder_id, name, parent_id_val, user_id_val, created_at, updated_at = row
-        
+        folder_id, name, folder_type, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = row
+
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
             created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
         else:
             created_at_str = str(created_at)
-        
+
         if isinstance(updated_at, datetime):
             updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
         else:
             updated_at_str = str(updated_at)
-        
+
         folders.append({
             "id": folder_id,
             "name": name,
+            "type": folder_type,
             "parent_id": parent_id_val,
             "user_id": user_id_val,
+            "unauthenticated_user_id": unauth_user_id_val,
             "created_at": created_at_str,
             "updated_at": updated_at_str
         })
-    
+
     logger.info(
         "Retrieved folders successfully",
-        function="get_folders_by_user_id_and_parent_id",
+        function="get_folders_by_owner_and_parent_id",
         user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
         parent_id=parent_id,
         folders_count=len(folders)
     )
@@ -2547,7 +2704,7 @@ def get_folder_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id AND user_id = :user_id
         """),
@@ -2566,7 +2723,7 @@ def get_folder_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
+    folder_id_val, name, folder_type, parent_id, user_id_val, unauth_user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2582,8 +2739,10 @@ def get_folder_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
+        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
+        "unauthenticated_user_id": unauth_user_id_val,
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -2707,7 +2866,7 @@ def update_folder_name_by_id_and_user_id(
     # Fetch the updated record
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id
         """),
@@ -2722,7 +2881,7 @@ def update_folder_name_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, parent_id, user_id_val, created_at, updated_at = result
+    folder_id_val, name, folder_type, parent_id, user_id_val, unauth_user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2738,8 +2897,10 @@ def update_folder_name_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
+        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
+        "unauthenticated_user_id": unauth_user_id_val,
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -2756,18 +2917,22 @@ def update_folder_name_by_id_and_user_id(
 
 def create_paragraph_folder(
     db: Session,
-    user_id: str,
+    user_id: Optional[str],
     name: str,
-    parent_folder_id: Optional[str] = None
+    parent_folder_id: Optional[str] = None,
+    folder_type: str = "BOOKMARK",
+    unauthenticated_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Create a new folder for a user.
+    Create a new folder for a user (authenticated or unauthenticated).
     
     Args:
         db: Database session
-        user_id: User ID (CHAR(36) UUID)
+        user_id: Authenticated user ID (CHAR(36) UUID), or None for unauthenticated
         name: Folder name (max 50 characters)
         parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
+        folder_type: Folder type, either 'BOOKMARK' or 'PDF' (default: 'BOOKMARK')
+        unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID), or None
         
     Returns:
         Dictionary with created folder data
@@ -2776,8 +2941,10 @@ def create_paragraph_folder(
         "Creating paragraph folder",
         function="create_paragraph_folder",
         user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
         name=name,
-        has_parent_folder_id=parent_folder_id is not None
+        has_parent_folder_id=parent_folder_id is not None,
+        folder_type=folder_type
     )
     
     # Generate UUID for the new folder
@@ -2786,14 +2953,16 @@ def create_paragraph_folder(
     # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, parent_id, user_id)
-            VALUES (:id, :name, :parent_id, :user_id)
+            INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
+            VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
         """),
         {
             "id": folder_id,
             "name": name,
+            "type": folder_type,
             "parent_id": parent_folder_id,
-            "user_id": user_id
+            "user_id": user_id,
+            "unauthenticated_user_id": unauthenticated_user_id,
         }
     )
     db.commit()
@@ -2801,7 +2970,7 @@ def create_paragraph_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -2816,7 +2985,7 @@ def create_paragraph_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, folder_type_val, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2832,8 +3001,10 @@ def create_paragraph_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
+        "type": folder_type_val,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
+        "unauthenticated_user_id": unauth_user_id_val,
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -4048,19 +4219,23 @@ def delete_saved_image_by_id_and_user_id(
 
 def create_link_folder(
     db: Session,
-    user_id: str,
+    user_id: Optional[str],
     name: str,
-    parent_folder_id: Optional[str] = None
+    parent_folder_id: Optional[str] = None,
+    folder_type: str = "BOOKMARK",
+    unauthenticated_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Create a new folder for a user.
-    
+    Create a new folder for a user (authenticated or unauthenticated).
+
     Args:
         db: Database session
-        user_id: User ID (CHAR(36) UUID)
+        user_id: Authenticated user ID (CHAR(36) UUID), or None for unauthenticated
         name: Folder name (max 50 characters)
         parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
-        
+        folder_type: Folder type, either 'BOOKMARK' or 'PDF' (default: 'BOOKMARK')
+        unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID), or None
+
     Returns:
         Dictionary with created folder data
     """
@@ -4068,38 +4243,42 @@ def create_link_folder(
         "Creating link folder",
         function="create_link_folder",
         user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
         name=name,
-        has_parent_folder_id=parent_folder_id is not None
+        has_parent_folder_id=parent_folder_id is not None,
+        folder_type=folder_type
     )
-    
+
     # Generate UUID for the new folder
     folder_id = str(uuid.uuid4())
-    
+
     # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, parent_id, user_id)
-            VALUES (:id, :name, :parent_id, :user_id)
+            INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
+            VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
         """),
         {
             "id": folder_id,
             "name": name,
+            "type": folder_type,
             "parent_id": parent_folder_id,
-            "user_id": user_id
+            "user_id": user_id,
+            "unauthenticated_user_id": unauthenticated_user_id,
         }
     )
     db.commit()
-    
+
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, parent_id, user_id, created_at, updated_at
+            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
         {"id": folder_id}
     ).fetchone()
-    
+
     if not result:
         logger.error(
             "Failed to retrieve created folder",
@@ -4107,36 +4286,38 @@ def create_link_folder(
             folder_id=folder_id
         )
         raise Exception("Failed to retrieve created folder")
-    
-    folder_id_val, name_val, parent_id_val, user_id_val, created_at, updated_at = result
-    
+
+    folder_id_val, name_val, folder_type_val, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = result
+
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
         created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
     else:
         created_at_str = str(created_at)
-    
+
     if isinstance(updated_at, datetime):
         updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
     else:
         updated_at_str = str(updated_at)
-    
+
     folder = {
         "id": folder_id_val,
         "name": name_val,
+        "type": folder_type_val,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
+        "unauthenticated_user_id": unauth_user_id_val,
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
-    
+
     logger.info(
         "Created link folder successfully",
         function="create_link_folder",
         folder_id=folder_id_val,
         user_id=user_id
     )
-    
+
     return folder
 
 
@@ -4923,6 +5104,51 @@ def get_user_role_by_user_id(
     return role
 
 
+def get_unauthenticated_user_id_by_user_id(
+    db: Session,
+    user_id: str
+) -> Optional[str]:
+    """
+    Get unauthenticated_user_id by user_id.
+    
+    Args:
+        db: Database session
+        user_id: User ID (CHAR(36) UUID)
+        
+    Returns:
+        Unauthenticated user ID (CHAR(36) UUID) or None if not set or user not found
+    """
+    logger.info(
+        "Getting unauthenticated_user_id by user_id",
+        function="get_unauthenticated_user_id_by_user_id",
+        user_id=user_id
+    )
+    
+    result = db.execute(
+        text("SELECT unauthenticated_user_id FROM user WHERE id = :user_id"),
+        {"user_id": user_id}
+    ).fetchone()
+    
+    if not result:
+        logger.warning(
+            "User not found",
+            function="get_unauthenticated_user_id_by_user_id",
+            user_id=user_id
+        )
+        return None
+    
+    unauthenticated_user_id = result[0]
+    
+    logger.info(
+        "Unauthenticated user ID retrieved successfully",
+        function="get_unauthenticated_user_id_by_user_id",
+        user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id
+    )
+    
+    return unauthenticated_user_id
+
+
 def get_user_name_by_user_id(
     db: Session,
     user_id: str
@@ -5517,9 +5743,10 @@ def create_file_upload(
     file_name: str,
     file_type: str,
     entity_type: str,
-    entity_id: str,
-    s3_url: str,
-    metadata: Optional[dict] = None
+    s3_key: str,
+    entity_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+    file_upload_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new file_upload record.
@@ -5528,13 +5755,14 @@ def create_file_upload(
         db: Database session
         file_name: File name (max 50 characters)
         file_type: File type (IMAGE or PDF)
-        entity_type: Entity type (ISSUE)
-        entity_id: Entity ID (CHAR(36) UUID)
-        s3_url: S3 URL for the file (max 2044 characters)
+        entity_type: Entity type (ISSUE or PDF)
+        s3_key: S3 object key for the file (max 1024 characters)
+        entity_id: Optional entity ID (CHAR(36) UUID; issue id or pdf id); may be NULL
         metadata: Optional metadata JSON
+        file_upload_id: Optional UUID for the record; when provided (e.g. presigned-upload flow) this id is used instead of generating a new one
         
     Returns:
-        Dictionary with created file_upload data
+        Dictionary with created file_upload data (includes s3_key)
     """
     logger.info(
         "Creating file upload",
@@ -5545,8 +5773,9 @@ def create_file_upload(
         entity_id=entity_id
     )
     
-    # Generate UUID for the new file_upload
-    file_upload_id = str(uuid.uuid4())
+    # Use provided id or generate UUID for the new file_upload
+    if file_upload_id is None:
+        file_upload_id = str(uuid.uuid4())
     
     # Prepare metadata JSON
     metadata_json = json.dumps(metadata) if metadata else None
@@ -5554,8 +5783,8 @@ def create_file_upload(
     # Insert the new file_upload
     db.execute(
         text("""
-            INSERT INTO file_upload (id, file_name, file_type, entity_type, entity_id, s3_url, metadata)
-            VALUES (:id, :file_name, :file_type, :entity_type, :entity_id, :s3_url, :metadata)
+            INSERT INTO file_upload (id, file_name, file_type, entity_type, entity_id, s3_key, metadata)
+            VALUES (:id, :file_name, :file_type, :entity_type, :entity_id, :s3_key, :metadata)
         """),
         {
             "id": file_upload_id,
@@ -5563,7 +5792,7 @@ def create_file_upload(
             "file_type": file_type,
             "entity_type": entity_type,
             "entity_id": entity_id,
-            "s3_url": s3_url,
+            "s3_key": s3_key,
             "metadata": metadata_json
         }
     )
@@ -5572,7 +5801,7 @@ def create_file_upload(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, file_name, file_type, entity_type, entity_id, s3_url, metadata, created_at, updated_at
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_key, metadata, created_at, updated_at
             FROM file_upload
             WHERE id = :id
         """),
@@ -5588,7 +5817,7 @@ def create_file_upload(
         raise Exception("Failed to retrieve created file_upload")
     
     (file_upload_id_val, file_name_val, file_type_val, entity_type_val, entity_id_val,
-     s3_url_val, metadata_val, created_at, updated_at) = result
+     s3_key_val, metadata_val, created_at, updated_at) = result
     
     # Parse metadata JSON if present
     metadata_dict = None
@@ -5615,7 +5844,7 @@ def create_file_upload(
         "file_type": file_type_val,
         "entity_type": entity_type_val,
         "entity_id": entity_id_val,
-        "s3_url": s3_url_val,
+        "s3_key": s3_key_val,
         "metadata": metadata_dict,
         "created_at": created_at_str,
         "updated_at": updated_at_str
@@ -5631,6 +5860,62 @@ def create_file_upload(
     return file_upload
 
 
+def get_file_upload_by_id(db: Session, file_upload_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a single file_upload by id.
+    
+    Args:
+        db: Database session
+        file_upload_id: File upload ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with file_upload data (includes s3_key) or None if not found
+    """
+    result = db.execute(
+        text("""
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_key, metadata, created_at, updated_at
+            FROM file_upload
+            WHERE id = :id
+        """),
+        {"id": file_upload_id}
+    ).fetchone()
+    
+    if not result:
+        return None
+    
+    (file_upload_id_val, file_name_val, file_type_val, entity_type_val, entity_id_val,
+     s3_key_val, metadata_val, created_at, updated_at) = result
+    
+    metadata_dict = None
+    if metadata_val:
+        try:
+            metadata_dict = json.loads(metadata_val) if isinstance(metadata_val, str) else metadata_val
+        except (json.JSONDecodeError, TypeError):
+            metadata_dict = None
+    
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    return {
+        "id": file_upload_id_val,
+        "file_name": file_name_val,
+        "file_type": file_type_val,
+        "entity_type": entity_type_val,
+        "entity_id": entity_id_val,
+        "s3_key": s3_key_val,
+        "metadata": metadata_dict,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+
+
 def get_file_uploads_by_entity(
     db: Session,
     entity_type: str,
@@ -5641,11 +5926,11 @@ def get_file_uploads_by_entity(
     
     Args:
         db: Database session
-        entity_type: Entity type (ISSUE)
-        entity_id: Entity ID (CHAR(36) UUID)
+        entity_type: Entity type (ISSUE or PDF)
+        entity_id: Entity ID (CHAR(36) UUID; issue id or pdf id)
         
     Returns:
-        List of dictionaries with file_upload data
+        List of dictionaries with file_upload data (each includes s3_key)
     """
     logger.info(
         "Getting file uploads by entity",
@@ -5656,7 +5941,7 @@ def get_file_uploads_by_entity(
     
     result = db.execute(
         text("""
-            SELECT id, file_name, file_type, entity_type, entity_id, s3_url, metadata, created_at, updated_at
+            SELECT id, file_name, file_type, entity_type, entity_id, s3_key, metadata, created_at, updated_at
             FROM file_upload
             WHERE entity_type = :entity_type AND entity_id = :entity_id
             ORDER BY created_at ASC
@@ -5670,7 +5955,7 @@ def get_file_uploads_by_entity(
     file_uploads = []
     for row in result:
         (file_upload_id, file_name, file_type, entity_type_val, entity_id_val,
-         s3_url, metadata, created_at, updated_at) = row
+         s3_key, metadata, created_at, updated_at) = row
         
         # Parse metadata JSON if present
         metadata_dict = None
@@ -5697,7 +5982,7 @@ def get_file_uploads_by_entity(
             "file_type": file_type,
             "entity_type": entity_type_val,
             "entity_id": entity_id_val,
-            "s3_url": s3_url,
+            "s3_key": s3_key,
             "metadata": metadata_dict,
             "created_at": created_at_str,
             "updated_at": updated_at_str
@@ -5713,6 +5998,114 @@ def get_file_uploads_by_entity(
     )
     
     return file_uploads
+
+
+def delete_file_uploads_by_entity(
+    db: Session,
+    entity_type: str,
+    entity_id: str
+) -> int:
+    """
+    Delete all file_upload rows for a given entity.
+    
+    Args:
+        db: Database session
+        entity_type: Entity type (e.g. ISSUE or PDF)
+        entity_id: Entity ID (CHAR(36) UUID)
+        
+    Returns:
+        Number of rows deleted
+    """
+    result = db.execute(
+        text("""
+            DELETE FROM file_upload
+            WHERE entity_type = :entity_type AND entity_id = :entity_id
+        """),
+        {"entity_type": entity_type, "entity_id": entity_id}
+    )
+    db.commit()
+    return result.rowcount
+
+
+def get_pdf_by_id(db: Session, pdf_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a PDF by its ID (existence check only, no ownership validation).
+    
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with PDF data or None if not found
+    """
+    result = db.execute(
+        text("""
+            SELECT id, file_name, created_by, folder_id, created_at, updated_at
+            FROM pdf
+            WHERE id = :pdf_id
+        """),
+        {"pdf_id": pdf_id}
+    ).fetchone()
+    
+    if not result:
+        return None
+    
+    (pdf_id_val, file_name, created_by, folder_id, created_at, updated_at) = result
+    
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+    
+    return {
+        "id": pdf_id_val,
+        "file_name": file_name,
+        "created_by": created_by,
+        "folder_id": folder_id,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+
+
+def update_file_upload_entity_id(
+    db: Session,
+    file_upload_id: str,
+    entity_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update entity_id on an existing file_upload record.
+    
+    Args:
+        db: Database session
+        file_upload_id: File upload ID (CHAR(36) UUID)
+        entity_id: New entity ID (CHAR(36) UUID)
+        
+    Returns:
+        Dictionary with updated file_upload data or None if record not found
+    """
+    logger.info(
+        "Updating file upload entity_id",
+        function="update_file_upload_entity_id",
+        file_upload_id=file_upload_id,
+        entity_id=entity_id
+    )
+    
+    db.execute(
+        text("""
+            UPDATE file_upload
+            SET entity_id = :entity_id
+            WHERE id = :id
+        """),
+        {"entity_id": entity_id, "id": file_upload_id}
+    )
+    db.commit()
+    
+    return get_file_upload_by_id(db, file_upload_id)
 
 
 def check_pricing_has_subscriptions(
@@ -6723,16 +7116,20 @@ def delete_domain(
 
 def create_pdf(
     db: Session,
-    user_id: str,
-    file_name: str
+    file_name: str,
+    user_id: Optional[str] = None,
+    unauthenticated_user_id: Optional[str] = None,
+    folder_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new PDF record.
     
     Args:
         db: Database session
-        user_id: User ID (CHAR(36) UUID)
         file_name: File name (max 255 characters)
+        user_id: User ID (CHAR(36) UUID), set for authenticated users
+        unauthenticated_user_id: Unauthenticated user ID, set for unauthenticated users
+        folder_id: Folder ID (CHAR(36) UUID), optional folder association
         
     Returns:
         Dictionary with created PDF data
@@ -6741,7 +7138,9 @@ def create_pdf(
         "Creating PDF record",
         function="create_pdf",
         user_id=user_id,
-        file_name=file_name
+        unauthenticated_user_id=unauthenticated_user_id,
+        file_name=file_name,
+        folder_id=folder_id
     )
     
     # Generate UUID for the new PDF
@@ -6750,13 +7149,15 @@ def create_pdf(
     # Insert the new PDF
     db.execute(
         text("""
-            INSERT INTO pdf (id, file_name, created_by)
-            VALUES (:id, :file_name, :created_by)
+            INSERT INTO pdf (id, file_name, created_by, unauthenticated_user_id, folder_id)
+            VALUES (:id, :file_name, :created_by, :unauthenticated_user_id, :folder_id)
         """),
         {
             "id": pdf_id,
             "file_name": file_name,
-            "created_by": user_id
+            "created_by": user_id,
+            "unauthenticated_user_id": unauthenticated_user_id,
+            "folder_id": folder_id
         }
     )
     db.commit()
@@ -6764,7 +7165,7 @@ def create_pdf(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, file_name, created_by, created_at, updated_at
+            SELECT id, file_name, created_by, unauthenticated_user_id, folder_id, created_at, updated_at
             FROM pdf
             WHERE id = :id
         """),
@@ -6779,7 +7180,7 @@ def create_pdf(
         )
         raise Exception("Failed to retrieve created PDF")
     
-    pdf_id_val, file_name_val, created_by_val, created_at, updated_at = result
+    pdf_id_val, file_name_val, created_by_val, unauth_user_id_val, folder_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -6796,6 +7197,8 @@ def create_pdf(
         "id": pdf_id_val,
         "file_name": file_name_val,
         "created_by": created_by_val,
+        "unauthenticated_user_id": unauth_user_id_val,
+        "folder_id": folder_id_val,
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -6804,117 +7207,28 @@ def create_pdf(
         "Created PDF record successfully",
         function="create_pdf",
         pdf_id=pdf_id_val,
-        user_id=user_id
+        user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_id=folder_id_val
     )
     
     return pdf_data
 
 
-def create_pdf_html_page(
-    db: Session,
-    pdf_id: str,
-    page_no: int,
-    html_content: str
-) -> Dict[str, Any]:
-    """
-    Create a new PDF HTML page record.
-    
-    Args:
-        db: Database session
-        pdf_id: PDF ID (CHAR(36) UUID)
-        page_no: Page number (1-indexed)
-        html_content: HTML content for the page (LONGTEXT)
-        
-    Returns:
-        Dictionary with created PDF HTML page data
-    """
-    logger.info(
-        "Creating PDF HTML page record",
-        function="create_pdf_html_page",
-        pdf_id=pdf_id,
-        page_no=page_no,
-        html_content_length=len(html_content)
-    )
-    
-    # Generate UUID for the new PDF HTML page
-    page_id = str(uuid.uuid4())
-    
-    # Insert the new PDF HTML page
-    db.execute(
-        text("""
-            INSERT INTO pdf_html_page (id, page_no, pdf_id, html_content)
-            VALUES (:id, :page_no, :pdf_id, :html_content)
-        """),
-        {
-            "id": page_id,
-            "page_no": page_no,
-            "pdf_id": pdf_id,
-            "html_content": html_content
-        }
-    )
-    db.commit()
-    
-    # Fetch the created record
-    result = db.execute(
-        text("""
-            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
-            FROM pdf_html_page
-            WHERE id = :id
-        """),
-        {"id": page_id}
-    ).fetchone()
-    
-    if not result:
-        logger.error(
-            "Failed to retrieve created PDF HTML page",
-            function="create_pdf_html_page",
-            page_id=page_id
-        )
-        raise Exception("Failed to retrieve created PDF HTML page")
-    
-    page_id_val, page_no_val, pdf_id_val, html_content_val, created_at, updated_at = result
-    
-    # Convert timestamps to ISO format strings
-    if isinstance(created_at, datetime):
-        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-    else:
-        created_at_str = str(created_at)
-    
-    if isinstance(updated_at, datetime):
-        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-    else:
-        updated_at_str = str(updated_at)
-    
-    page_data = {
-        "id": page_id_val,
-        "page_no": page_no_val,
-        "pdf_id": pdf_id_val,
-        "html_content": html_content_val,
-        "created_at": created_at_str,
-        "updated_at": updated_at_str
-    }
-    
-    logger.info(
-        "Created PDF HTML page record successfully",
-        function="create_pdf_html_page",
-        page_id=page_id_val,
-        pdf_id=pdf_id_val,
-        page_no=page_no_val
-    )
-    
-    return page_data
-
-
 def get_pdfs_by_user_id(
     db: Session,
-    user_id: str
+    user_id: Optional[str] = None,
+    unauthenticated_user_id: Optional[str] = None,
+    folder_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Get all PDF records for a user.
+    Get all PDF records for a user (authenticated or unauthenticated).
     
     Args:
         db: Database session
-        user_id: User ID (CHAR(36) UUID)
+        user_id: User ID (CHAR(36) UUID), set for authenticated users
+        unauthenticated_user_id: Unauthenticated user ID, set for unauthenticated users
+        folder_id: Optional folder ID to filter PDFs by folder
         
     Returns:
         List of PDF dictionaries
@@ -6922,23 +7236,40 @@ def get_pdfs_by_user_id(
     logger.info(
         "Getting PDFs by user_id",
         function="get_pdfs_by_user_id",
-        user_id=user_id
+        user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_id=folder_id
     )
     
-    result = db.execute(
-        text("""
-            SELECT id, file_name, created_by, created_at, updated_at
-            FROM pdf
-            WHERE created_by = :user_id
-            ORDER BY created_at DESC
-        """),
-        {"user_id": user_id}
-    )
+    if user_id is not None:
+        folder_filter = "AND folder_id = :folder_id" if folder_id is not None else ""
+        params: Dict[str, Any] = {"user_id": user_id}
+        if folder_id is not None:
+            params["folder_id"] = folder_id
+        result = db.execute(
+            text(f"""
+                SELECT id, file_name, created_by, unauthenticated_user_id, folder_id, created_at, updated_at
+                FROM pdf
+                WHERE created_by = :user_id {folder_filter}
+                ORDER BY created_at DESC
+            """),
+            params
+        )
+    else:
+        result = db.execute(
+            text("""
+                SELECT id, file_name, created_by, unauthenticated_user_id, folder_id, created_at, updated_at
+                FROM pdf
+                WHERE unauthenticated_user_id = :unauthenticated_user_id
+                ORDER BY created_at DESC
+            """),
+            {"unauthenticated_user_id": unauthenticated_user_id}
+        )
     rows = result.fetchall()
     
     pdfs = []
     for row in rows:
-        pdf_id, file_name, created_by, created_at, updated_at = row
+        pdf_id, file_name, created_by, unauth_user_id_val, folder_id_val, created_at, updated_at = row
         
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -6955,6 +7286,8 @@ def get_pdfs_by_user_id(
             "id": pdf_id,
             "file_name": file_name,
             "created_by": created_by,
+            "unauthenticated_user_id": unauth_user_id_val,
+            "folder_id": folder_id_val,
             "created_at": created_at_str,
             "updated_at": updated_at_str
         })
@@ -6963,6 +7296,8 @@ def get_pdfs_by_user_id(
         "Retrieved PDFs successfully",
         function="get_pdfs_by_user_id",
         user_id=user_id,
+        unauthenticated_user_id=unauthenticated_user_id,
+        folder_id=folder_id,
         pdf_count=len(pdfs)
     )
     
@@ -6994,7 +7329,7 @@ def get_pdf_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, file_name, created_by, created_at, updated_at
+            SELECT id, file_name, created_by, unauthenticated_user_id, folder_id, created_at, updated_at
             FROM pdf
             WHERE id = :pdf_id AND created_by = :user_id
         """),
@@ -7013,7 +7348,7 @@ def get_pdf_by_id_and_user_id(
         )
         return None
     
-    pdf_id_val, file_name, created_by, created_at, updated_at = result
+    pdf_id_val, file_name, created_by, unauth_user_id_val, folder_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -7030,6 +7365,8 @@ def get_pdf_by_id_and_user_id(
         "id": pdf_id_val,
         "file_name": file_name,
         "created_by": created_by,
+        "unauthenticated_user_id": unauth_user_id_val,
+        "folder_id": folder_id_val,
         "created_at": created_at_str,
         "updated_at": updated_at_str
     }
@@ -7044,92 +7381,80 @@ def get_pdf_by_id_and_user_id(
     return pdf_data
 
 
-def get_pdf_html_pages_by_pdf_id(
+def get_pdf_by_id_and_unauthenticated_user_id(
     db: Session,
     pdf_id: str,
-    offset: int = 0,
-    limit: int = 20
-) -> Tuple[List[Dict[str, Any]], int]:
+    unauthenticated_user_id: str
+) -> Optional[Dict[str, Any]]:
     """
-    Get PDF HTML pages for a PDF with pagination, ordered by page_no ASC.
-    
+    Get a PDF by ID and verify it belongs to the unauthenticated user.
+
     Args:
         db: Database session
         pdf_id: PDF ID (CHAR(36) UUID)
-        offset: Pagination offset (default: 0)
-        limit: Pagination limit (default: 20)
-        
+        unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID)
+
     Returns:
-        Tuple of (list of page dictionaries, total count)
+        Dictionary with PDF data or None if not found or doesn't belong to user
     """
     logger.info(
-        "Getting PDF HTML pages by pdf_id",
-        function="get_pdf_html_pages_by_pdf_id",
+        "Getting PDF by id and unauthenticated_user_id",
+        function="get_pdf_by_id_and_unauthenticated_user_id",
         pdf_id=pdf_id,
-        offset=offset,
-        limit=limit
+        unauthenticated_user_id=unauthenticated_user_id
     )
-    
-    # Get total count
-    count_result = db.execute(
-        text("SELECT COUNT(*) FROM pdf_html_page WHERE pdf_id = :pdf_id"),
-        {"pdf_id": pdf_id}
-    ).fetchone()
-    
-    total_count = count_result[0] if count_result else 0
-    
-    # Get paginated pages
-    pages_result = db.execute(
+
+    result = db.execute(
         text("""
-            SELECT id, page_no, pdf_id, html_content, created_at, updated_at
-            FROM pdf_html_page
-            WHERE pdf_id = :pdf_id
-            ORDER BY page_no ASC
-            LIMIT :limit OFFSET :offset
+            SELECT id, file_name, created_by, unauthenticated_user_id, folder_id, created_at, updated_at
+            FROM pdf
+            WHERE id = :pdf_id AND unauthenticated_user_id = :unauthenticated_user_id
         """),
         {
             "pdf_id": pdf_id,
-            "limit": limit,
-            "offset": offset
+            "unauthenticated_user_id": unauthenticated_user_id
         }
-    )
-    rows = pages_result.fetchall()
-    
-    pages = []
-    for row in rows:
-        page_id, page_no, pdf_id_val, html_content, created_at, updated_at = row
-        
-        # Convert timestamps to ISO format strings
-        if isinstance(created_at, datetime):
-            created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
-        else:
-            created_at_str = str(created_at)
-        
-        if isinstance(updated_at, datetime):
-            updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
-        else:
-            updated_at_str = str(updated_at)
-        
-        pages.append({
-            "id": page_id,
-            "page_no": page_no,
-            "pdf_id": pdf_id_val,
-            "html_content": html_content,
-            "created_at": created_at_str,
-            "updated_at": updated_at_str
-        })
-    
+    ).fetchone()
+
+    if not result:
+        logger.warning(
+            "PDF not found or doesn't belong to unauthenticated user",
+            function="get_pdf_by_id_and_unauthenticated_user_id",
+            pdf_id=pdf_id,
+            unauthenticated_user_id=unauthenticated_user_id
+        )
+        return None
+
+    pdf_id_val, file_name, created_by, unauth_user_id_val, folder_id_val, created_at, updated_at = result
+
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.isoformat() + "Z" if created_at.tzinfo else created_at.isoformat()
+    else:
+        created_at_str = str(created_at)
+
+    if isinstance(updated_at, datetime):
+        updated_at_str = updated_at.isoformat() + "Z" if updated_at.tzinfo else updated_at.isoformat()
+    else:
+        updated_at_str = str(updated_at)
+
+    pdf_data = {
+        "id": pdf_id_val,
+        "file_name": file_name,
+        "created_by": created_by,
+        "unauthenticated_user_id": unauth_user_id_val,
+        "folder_id": folder_id_val,
+        "created_at": created_at_str,
+        "updated_at": updated_at_str
+    }
+
     logger.info(
-        "Retrieved PDF HTML pages successfully",
-        function="get_pdf_html_pages_by_pdf_id",
-        pdf_id=pdf_id,
-        pages_count=len(pages),
-        total_count=total_count,
-        offset=offset,
-        limit=limit
+        "Retrieved PDF successfully",
+        function="get_pdf_by_id_and_unauthenticated_user_id",
+        pdf_id=pdf_id_val,
+        unauthenticated_user_id=unauthenticated_user_id
     )
-    
-    return pages, total_count
+
+    return pdf_data
 
 
 def delete_pdf_by_id_and_user_id(
@@ -7139,7 +7464,6 @@ def delete_pdf_by_id_and_user_id(
 ) -> bool:
     """
     Delete a PDF by ID and verify it belongs to the user.
-    Due to ON DELETE CASCADE constraint, all related pdf_html_page records will be automatically deleted.
     
     Args:
         db: Database session

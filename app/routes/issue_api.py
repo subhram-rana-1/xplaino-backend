@@ -45,6 +45,14 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/issue", tags=["Issues"])
 
 
+def _file_upload_s3_url(fu: dict) -> Optional[str]:
+    """Generate presigned download URL from file_upload dict (has s3_key); return None if no key."""
+    s3_key = fu.get("s3_key")
+    if not s3_key:
+        return None
+    return s3_service.generate_presigned_get_url(s3_key)
+
+
 @router.get(
     "/",
     response_model=GetMyIssuesResponse,
@@ -116,7 +124,7 @@ async def get_my_issues(
                 file_type=fu["file_type"],
                 entity_type=fu["entity_type"],
                 entity_id=fu["entity_id"],
-                s3_url=fu["s3_url"],
+                s3_url=_file_upload_s3_url(fu),
                 metadata=fu["metadata"],
                 created_at=fu["created_at"],
                 updated_at=fu["updated_at"]
@@ -247,7 +255,7 @@ async def get_all_issues_endpoint(
                 file_type=fu["file_type"],
                 entity_type=fu["entity_type"],
                 entity_id=fu["entity_id"],
-                s3_url=fu["s3_url"],
+                s3_url=_file_upload_s3_url(fu),
                 metadata=fu["metadata"],
                 created_at=fu["created_at"],
                 updated_at=fu["updated_at"]
@@ -403,7 +411,7 @@ async def get_issue_by_ticket_id_endpoint(
             file_type=fu["file_type"],
             entity_type=fu["entity_type"],
             entity_id=fu["entity_id"],
-            s3_url=fu["s3_url"],
+            s3_url=_file_upload_s3_url(fu),
             metadata=fu["metadata"],
             created_at=fu["created_at"],
             updated_at=fu["updated_at"]
@@ -543,7 +551,7 @@ async def update_issue_endpoint(
             file_type=fu["file_type"],
             entity_type=fu["entity_type"],
             entity_id=fu["entity_id"],
-            s3_url=fu["s3_url"],
+            s3_url=_file_upload_s3_url(fu),
             metadata=fu["metadata"],
             created_at=fu["created_at"],
             updated_at=fu["updated_at"]
@@ -761,8 +769,8 @@ async def report_issue(
     file_uploads = []
     for validated_file in validated_files:
         try:
-            # Upload to S3
-            s3_url = s3_service.upload_file(
+            # Upload to S3 (returns s3_key)
+            s3_key = s3_service.upload_file(
                 file_data=validated_file["file_data"],
                 file_name=validated_file["file_name"],
                 file_type=validated_file["file_type"],
@@ -776,7 +784,7 @@ async def report_issue(
                 file_type=validated_file["file_type"],
                 entity_type="ISSUE",
                 entity_id=issue_id,
-                s3_url=s3_url,
+                s3_key=s3_key,
                 metadata=None
             )
             
@@ -787,7 +795,7 @@ async def report_issue(
                     file_type=file_upload_data["file_type"],
                     entity_type=file_upload_data["entity_type"],
                     entity_id=file_upload_data["entity_id"],
-                    s3_url=file_upload_data["s3_url"],
+                    s3_url=_file_upload_s3_url(file_upload_data),
                     metadata=file_upload_data["metadata"],
                     created_at=file_upload_data["created_at"],
                     updated_at=file_upload_data["updated_at"]
@@ -820,7 +828,7 @@ async def report_issue(
             file_type=fu["file_type"],
             entity_type=fu["entity_type"],
             entity_id=fu["entity_id"],
-            s3_url=fu["s3_url"],
+            s3_url=_file_upload_s3_url(fu),
             metadata=fu["metadata"],
             created_at=fu["created_at"],
             updated_at=fu["updated_at"]

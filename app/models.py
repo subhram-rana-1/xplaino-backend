@@ -146,6 +146,10 @@ class LoginResponse(BaseModel):
     refreshTokenExpiresAt: int = Field(..., description="Unix timestamp when refresh token expires")
     userSessionPk: str = Field(..., description="User session primary key (ID from user_session table)")
     user: UserInfo = Field(..., description="User information")
+    unauthenticatedUserId: Optional[str] = Field(
+        default=None,
+        description="Unauthenticated user ID provided during login, if any"
+    )
 
 
 class LogoutResponse(BaseModel):
@@ -322,11 +326,20 @@ class CreateLinkFolderRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
 
 
+class FolderType(str, Enum):
+    """Folder type enum."""
+    BOOKMARK = "BOOKMARK"
+    PDF = "PDF"
+
+
 class FolderWithSubFoldersResponse(BaseModel):
     """Response model for a folder with nested sub-folders (recursive structure)."""
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
+    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
+    user_id: Optional[str] = Field(default=None, description="Authenticated user owner ID, if any")
+    unauthenticated_user_id: Optional[str] = Field(default=None, description="Unauthenticated user owner ID, if any")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
     updated_at: str = Field(..., description="ISO format timestamp when the folder was last updated")
     subFolders: List["FolderWithSubFoldersResponse"] = Field(default_factory=list, description="List of sub-folders (recursive)")
@@ -343,6 +356,7 @@ class CreateFolderRequest(BaseModel):
     
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
     parentId: Optional[str] = Field(default=None, description="Parent folder ID (optional, UUID format)")
+    type: Optional[FolderType] = Field(default=FolderType.BOOKMARK, description="Folder type (BOOKMARK or PDF, defaults to BOOKMARK)")
 
 
 class CreateFolderResponse(BaseModel):
@@ -350,6 +364,7 @@ class CreateFolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
+    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -368,6 +383,7 @@ class RenameFolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
+    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -408,8 +424,9 @@ class UpdateIssueRequest(BaseModel):
 
 
 class EntityType(str, Enum):
-    """Entity type enum for file uploads."""
+    """Entity type enum for file uploads (entity_id references issue.id or pdf.id)."""
     ISSUE = "ISSUE"
+    PDF = "PDF"
 
 
 class FileType(str, Enum):
@@ -418,15 +435,21 @@ class FileType(str, Enum):
     PDF = "PDF"
 
 
+class UpdateFileUploadEntityRequest(BaseModel):
+    """Request model for updating entity_id on a file upload record."""
+
+    entity_id: str = Field(..., description="New entity ID (UUID)")
+
+
 class FileUploadResponse(BaseModel):
-    """Response model for a file upload."""
+    """Response model for a file upload. s3_url is a presigned download URL generated from s3_key when building the response."""
     
     id: str = Field(..., description="File upload ID (UUID)")
     file_name: str = Field(..., description="File name")
     file_type: str = Field(..., description="File type (IMAGE or PDF)")
-    entity_type: str = Field(..., description="Entity type (ISSUE)")
-    entity_id: str = Field(..., description="Entity ID (UUID)")
-    s3_url: Optional[str] = Field(default=None, description="S3 URL for the file")
+    entity_type: str = Field(..., description="Entity type (ISSUE or PDF)")
+    entity_id: Optional[str] = Field(default=None, description="Entity ID (UUID)")
+    s3_url: Optional[str] = Field(default=None, description="Presigned download URL (generated from s3_key)")
     metadata: Optional[dict] = Field(default=None, description="Optional metadata JSON")
     created_at: str = Field(..., description="ISO format timestamp when the file was uploaded")
     updated_at: str = Field(..., description="ISO format timestamp when the file was last updated")
@@ -979,20 +1002,12 @@ class PdfResponse(BaseModel):
     
     id: str = Field(..., description="PDF ID (UUID)")
     file_name: str = Field(..., description="File name")
-    created_by: str = Field(..., description="User ID who created the PDF (UUID)")
+    created_by: Optional[str] = Field(None, description="User ID who created the PDF (UUID), null for unauthenticated users")
+    unauthenticated_user_id: Optional[str] = Field(None, description="Unauthenticated user ID who created the PDF, null for authenticated users")
+    folder_id: Optional[str] = Field(None, description="Folder ID (UUID) this PDF belongs to, null if not in a folder")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
-
-
-class PdfHtmlPageResponse(BaseModel):
-    """Response model for PDF HTML page."""
-    
-    id: str = Field(..., description="PDF HTML page ID (UUID)")
-    page_no: int = Field(..., description="Page number (1-indexed)")
-    pdf_id: str = Field(..., description="PDF ID (UUID)")
-    html_content: str = Field(..., description="HTML content for the page")
-    created_at: str = Field(..., description="Creation timestamp (ISO format)")
-    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+    file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="File uploads for this PDF (entity_type=PDF, entity_id=pdf.id)")
 
 
 class GetAllPdfsResponse(BaseModel):
@@ -1001,14 +1016,11 @@ class GetAllPdfsResponse(BaseModel):
     pdfs: List[PdfResponse] = Field(..., description="List of PDF records")
 
 
-class GetPdfHtmlPagesResponse(BaseModel):
-    """Response model for getting paginated PDF HTML pages."""
+class CreatePdfRequest(BaseModel):
+    """Request model for creating a PDF record (metadata only)."""
     
-    pages: List[PdfHtmlPageResponse] = Field(..., description="List of PDF HTML pages")
-    total: int = Field(..., description="Total number of pages")
-    offset: int = Field(..., description="Pagination offset")
-    limit: int = Field(..., description="Pagination limit")
-    has_next: bool = Field(..., description="Whether there are more pages")
+    file_name: str = Field(..., max_length=255, description="File name for the PDF")
+    folder_id: Optional[str] = Field(None, description="Folder ID (UUID) to associate with this PDF. Requires authentication and must belong to the user.")
 
 
 class CouponStatus(str, Enum):

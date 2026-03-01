@@ -37,6 +37,7 @@ from app.routes import (
     paddle_webhook_api,
     subscription_api,
     extension_uninstall_api,
+    file_upload_api,
 )
 from app.services.rate_limiter import rate_limiter
 
@@ -146,6 +147,7 @@ async def cors_preflight_handler(request: Request, call_next):
                 response.headers["Access-Control-Allow-Origin"] = "*"
         if "Access-Control-Allow-Credentials" not in response.headers:
             response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Type, Cache-Control, X-Accel-Buffering, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Methods, Access-Control-Allow-Headers, X-Unauthenticated-User-Id, X-Source"
     else:
         # For regular responses, add CORS headers
         # Use specific origin instead of wildcard when credentials are required
@@ -217,6 +219,7 @@ app.include_router(saved_paragraph_api.router)
 app.include_router(saved_link_api.router)
 app.include_router(saved_image_api.router)
 app.include_router(issue_api.router)
+app.include_router(file_upload_api.router)
 app.include_router(comment_api.router)
 app.include_router(pricing_api.router)
 app.include_router(domain_api.router)
