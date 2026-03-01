@@ -40,6 +40,18 @@ ALTER TABLE pdf
 ALTER TABLE file_upload
     MODIFY COLUMN entity_id CHAR(36) NULL;
 
+-- Migration 001: add 'PDF' to entity_type enum in file_upload table
+ALTER TABLE file_upload
+    MODIFY COLUMN entity_type ENUM('ISSUE', 'PDF') NOT NULL;
+
+-- Migration 001: rename s3_url to s3_key in file_upload table
+ALTER TABLE file_upload
+    RENAME COLUMN s3_url TO s3_key;
+
+-- Migration 001: increase file_name length to 100 in file_upload table
+ALTER TABLE file_upload
+    MODIFY COLUMN file_name VARCHAR(100) NOT NULL;
+
 -- Migration 002: add folder_id FK to pdf table
 ALTER TABLE pdf
     ADD COLUMN folder_id CHAR(36) NULL AFTER unauthenticated_user_id,

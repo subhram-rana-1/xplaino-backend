@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS saved_link (
 -- When entity_type = 'PDF', entity_id references pdf(id). When entity_type = 'ISSUE', entity_id references issue(id).
 CREATE TABLE IF NOT EXISTS file_upload (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    file_name VARCHAR(50) NOT NULL,
+    file_name VARCHAR(100) NOT NULL,
     file_type ENUM('IMAGE', 'PDF') NOT NULL,
     entity_type ENUM('ISSUE', 'PDF') NOT NULL,
     entity_id CHAR(36) NULL,
