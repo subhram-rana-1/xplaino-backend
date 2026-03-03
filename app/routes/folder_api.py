@@ -1,6 +1,6 @@
 """API routes for folder management."""
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Response, Query, Path
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
@@ -9,7 +9,6 @@ import structlog
 from app.models import (
     GetAllFoldersResponse,
     FolderWithSubFoldersResponse,
-    FolderType,
     CreateFolderRequest,
     CreateFolderResponse,
     RenameFolderRequest,
@@ -64,7 +63,6 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
         return FolderWithSubFoldersResponse(
             id=folder_data["id"],
             name=folder_data["name"],
-            type=folder_data["type"],
             user_id=folder_data.get("user_id"),
             unauthenticated_user_id=folder_data.get("unauthenticated_user_id"),
             created_at=folder_data["created_at"],
@@ -88,11 +86,6 @@ def build_folder_hierarchy(folders: List[Dict[str, Any]]) -> List[FolderWithSubF
 async def get_all_folders(
     request: Request,
     response: Response,
-    folder_type: Optional[FolderType] = Query(
-        default=None,
-        alias="type",
-        description="Optional folder type filter (BOOKMARK or PDF). If omitted, returns all types.",
-    ),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
@@ -116,7 +109,6 @@ async def get_all_folders(
             user_id=user_id,
             unauthenticated_user_id=unauthenticated_user_id,
             parent_id=parent_id,
-            folder_type=folder_type.value if folder_type else None,
         )
         all_folders.extend(folders)
         for folder in folders:
@@ -131,7 +123,6 @@ async def get_all_folders(
         "Retrieved folders",
         user_id=user_id,
         unauthenticated_user_id=unauthenticated_user_id,
-        folder_type_filter=folder_type.value if folder_type else None,
         folders_count=len(folders),
         total_folders_count=len(all_folders),
         authenticated=auth_context.get("authenticated", False)
@@ -193,14 +184,11 @@ async def create_folder(
                 }
             )
 
-    # Create folder (default type to BOOKMARK if not provided)
-    folder_type = (body.type or FolderType.BOOKMARK).value
     folder_data = create_paragraph_folder(
         db,
         user_id=user_id,
         name=body.name,
         parent_folder_id=body.parentId,
-        folder_type=folder_type,
         unauthenticated_user_id=unauthenticated_user_id,
     )
     
@@ -243,7 +231,6 @@ async def create_folder(
     return CreateFolderResponse(
         id=folder_data["id"],
         name=folder_data["name"],
-        type=folder_data["type"],
         parent_id=folder_data["parent_id"],
         user_id=folder_data["user_id"],
         created_at=folder_data["created_at"],
@@ -382,7 +369,6 @@ async def rename_folder(
     return RenameFolderResponse(
         id=updated_folder["id"],
         name=updated_folder["name"],
-        type=updated_folder["type"],
         parent_id=updated_folder["parent_id"],
         user_id=updated_folder["user_id"],
         created_at=updated_folder["created_at"],

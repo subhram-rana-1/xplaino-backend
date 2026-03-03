@@ -325,17 +325,16 @@ def get_or_create_user_by_google_sub(
             has_family_name=bool(family_name)
         )
 
-        # Create personal folder (root folder, type BOOKMARK)
+        # Create personal folder (root folder)
         folder_id_personal = str(uuid.uuid4())
         db.execute(
             text("""
-                INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
-                VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
+                INSERT INTO folder (id, name, parent_id, user_id, unauthenticated_user_id)
+                VALUES (:id, :name, :parent_id, :user_id, :unauthenticated_user_id)
             """),
             {
                 "id": folder_id_personal,
                 "name": folder_name_personal,
-                "type": "BOOKMARK",
                 "parent_id": None,
                 "user_id": user_id,
                 "unauthenticated_user_id": None,
@@ -351,17 +350,16 @@ def get_or_create_user_by_google_sub(
             folder_name=folder_name_personal
         )
 
-        # Create PDF folder (root folder, type PDF)
+        # Create PDF folder (root folder)
         folder_id_pdfs = str(uuid.uuid4())
         db.execute(
             text("""
-                INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
-                VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
+                INSERT INTO folder (id, name, parent_id, user_id, unauthenticated_user_id)
+                VALUES (:id, :name, :parent_id, :user_id, :unauthenticated_user_id)
             """),
             {
                 "id": folder_id_pdfs,
                 "name": folder_name_pdfs,
-                "type": "PDF",
                 "parent_id": None,
                 "user_id": user_id,
                 "unauthenticated_user_id": None,
@@ -2045,7 +2043,6 @@ def get_folders_by_owner_and_parent_id(
     user_id: Optional[str] = None,
     unauthenticated_user_id: Optional[str] = None,
     parent_id: Optional[str] = None,
-    folder_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Get folders for a user (authenticated or unauthenticated) with a specific parent_id.
@@ -2057,7 +2054,6 @@ def get_folders_by_owner_and_parent_id(
         user_id: Authenticated user ID (CHAR(36) UUID), or None
         unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID), or None
         parent_id: Parent folder ID (CHAR(36) UUID) or None for root folders
-        folder_type: Optional type filter ('BOOKMARK' or 'PDF'). If None, all types returned.
 
     Returns:
         List of folder dictionaries
@@ -2068,7 +2064,6 @@ def get_folders_by_owner_and_parent_id(
         user_id=user_id,
         unauthenticated_user_id=unauthenticated_user_id,
         parent_id=parent_id,
-        folder_type=folder_type
     )
 
     if user_id is not None:
@@ -2078,33 +2073,30 @@ def get_folders_by_owner_and_parent_id(
         owner_filter = "unauthenticated_user_id = :owner_id"
         owner_param = {"owner_id": unauthenticated_user_id}
 
-    type_filter = "AND type = :folder_type" if folder_type is not None else ""
-    type_param = {"folder_type": folder_type} if folder_type is not None else {}
-
     if parent_id is None:
         result = db.execute(
             text(f"""
-                SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
+                SELECT id, name, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
                 FROM folder
-                WHERE {owner_filter} AND parent_id IS NULL {type_filter}
+                WHERE {owner_filter} AND parent_id IS NULL
                 ORDER BY created_at DESC
             """),
-            {**owner_param, **type_param}
+            owner_param
         ).fetchall()
     else:
         result = db.execute(
             text(f"""
-                SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
+                SELECT id, name, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
                 FROM folder
-                WHERE {owner_filter} AND parent_id = :parent_id {type_filter}
+                WHERE {owner_filter} AND parent_id = :parent_id
                 ORDER BY created_at DESC
             """),
-            {**owner_param, "parent_id": parent_id, **type_param}
+            {**owner_param, "parent_id": parent_id}
         ).fetchall()
 
     folders = []
     for row in result:
-        folder_id, name, folder_type, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = row
+        folder_id, name, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = row
 
         # Convert timestamps to ISO format strings
         if isinstance(created_at, datetime):
@@ -2120,7 +2112,6 @@ def get_folders_by_owner_and_parent_id(
         folders.append({
             "id": folder_id,
             "name": name,
-            "type": folder_type,
             "parent_id": parent_id_val,
             "user_id": user_id_val,
             "unauthenticated_user_id": unauth_user_id_val,
@@ -2704,7 +2695,7 @@ def get_folder_by_id_and_user_id(
     
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id AND user_id = :user_id
         """),
@@ -2723,7 +2714,7 @@ def get_folder_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, folder_type, parent_id, user_id_val, unauth_user_id_val, created_at, updated_at = result
+    folder_id_val, name, parent_id, user_id_val, unauth_user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2739,7 +2730,6 @@ def get_folder_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
-        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
         "unauthenticated_user_id": unauth_user_id_val,
@@ -2866,7 +2856,7 @@ def update_folder_name_by_id_and_user_id(
     # Fetch the updated record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :folder_id
         """),
@@ -2881,7 +2871,7 @@ def update_folder_name_by_id_and_user_id(
         )
         return None
     
-    folder_id_val, name, folder_type, parent_id, user_id_val, unauth_user_id_val, created_at, updated_at = result
+    folder_id_val, name, parent_id, user_id_val, unauth_user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -2897,7 +2887,6 @@ def update_folder_name_by_id_and_user_id(
     folder = {
         "id": folder_id_val,
         "name": name,
-        "type": folder_type,
         "parent_id": parent_id,
         "user_id": user_id_val,
         "unauthenticated_user_id": unauth_user_id_val,
@@ -2920,7 +2909,6 @@ def create_paragraph_folder(
     user_id: Optional[str],
     name: str,
     parent_folder_id: Optional[str] = None,
-    folder_type: str = "BOOKMARK",
     unauthenticated_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -2931,7 +2919,6 @@ def create_paragraph_folder(
         user_id: Authenticated user ID (CHAR(36) UUID), or None for unauthenticated
         name: Folder name (max 50 characters)
         parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
-        folder_type: Folder type, either 'BOOKMARK' or 'PDF' (default: 'BOOKMARK')
         unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID), or None
         
     Returns:
@@ -2944,7 +2931,6 @@ def create_paragraph_folder(
         unauthenticated_user_id=unauthenticated_user_id,
         name=name,
         has_parent_folder_id=parent_folder_id is not None,
-        folder_type=folder_type
     )
     
     # Generate UUID for the new folder
@@ -2953,13 +2939,12 @@ def create_paragraph_folder(
     # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
-            VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
+            INSERT INTO folder (id, name, parent_id, user_id, unauthenticated_user_id)
+            VALUES (:id, :name, :parent_id, :user_id, :unauthenticated_user_id)
         """),
         {
             "id": folder_id,
             "name": name,
-            "type": folder_type,
             "parent_id": parent_folder_id,
             "user_id": user_id,
             "unauthenticated_user_id": unauthenticated_user_id,
@@ -2970,7 +2955,7 @@ def create_paragraph_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -2985,7 +2970,7 @@ def create_paragraph_folder(
         )
         raise Exception("Failed to retrieve created folder")
     
-    folder_id_val, name_val, folder_type_val, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = result
     
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -3001,7 +2986,6 @@ def create_paragraph_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
-        "type": folder_type_val,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "unauthenticated_user_id": unauth_user_id_val,
@@ -4222,7 +4206,6 @@ def create_link_folder(
     user_id: Optional[str],
     name: str,
     parent_folder_id: Optional[str] = None,
-    folder_type: str = "BOOKMARK",
     unauthenticated_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -4233,7 +4216,6 @@ def create_link_folder(
         user_id: Authenticated user ID (CHAR(36) UUID), or None for unauthenticated
         name: Folder name (max 50 characters)
         parent_folder_id: Optional parent folder ID (CHAR(36) UUID)
-        folder_type: Folder type, either 'BOOKMARK' or 'PDF' (default: 'BOOKMARK')
         unauthenticated_user_id: Unauthenticated user ID (CHAR(36) UUID), or None
 
     Returns:
@@ -4246,7 +4228,6 @@ def create_link_folder(
         unauthenticated_user_id=unauthenticated_user_id,
         name=name,
         has_parent_folder_id=parent_folder_id is not None,
-        folder_type=folder_type
     )
 
     # Generate UUID for the new folder
@@ -4255,13 +4236,12 @@ def create_link_folder(
     # Insert the new folder
     db.execute(
         text("""
-            INSERT INTO folder (id, name, type, parent_id, user_id, unauthenticated_user_id)
-            VALUES (:id, :name, :type, :parent_id, :user_id, :unauthenticated_user_id)
+            INSERT INTO folder (id, name, parent_id, user_id, unauthenticated_user_id)
+            VALUES (:id, :name, :parent_id, :user_id, :unauthenticated_user_id)
         """),
         {
             "id": folder_id,
             "name": name,
-            "type": folder_type,
             "parent_id": parent_folder_id,
             "user_id": user_id,
             "unauthenticated_user_id": unauthenticated_user_id,
@@ -4272,7 +4252,7 @@ def create_link_folder(
     # Fetch the created record
     result = db.execute(
         text("""
-            SELECT id, name, type, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
+            SELECT id, name, parent_id, user_id, unauthenticated_user_id, created_at, updated_at
             FROM folder
             WHERE id = :id
         """),
@@ -4287,7 +4267,7 @@ def create_link_folder(
         )
         raise Exception("Failed to retrieve created folder")
 
-    folder_id_val, name_val, folder_type_val, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = result
+    folder_id_val, name_val, parent_id_val, user_id_val, unauth_user_id_val, created_at, updated_at = result
 
     # Convert timestamps to ISO format strings
     if isinstance(created_at, datetime):
@@ -4303,7 +4283,6 @@ def create_link_folder(
     folder = {
         "id": folder_id_val,
         "name": name_val,
-        "type": folder_type_val,
         "parent_id": parent_id_val,
         "user_id": user_id_val,
         "unauthenticated_user_id": unauth_user_id_val,

@@ -83,7 +83,6 @@ CREATE TABLE IF NOT EXISTS unsubscribed_user_api_usage (
 CREATE TABLE IF NOT EXISTS folder (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     name VARCHAR(50) NOT NULL,
-    type ENUM('BOOKMARK', 'PDF') NOT NULL DEFAULT 'BOOKMARK',
     parent_id CHAR(36) NULL,
     user_id CHAR(36) NULL,
     unauthenticated_user_id CHAR(36) NULL,

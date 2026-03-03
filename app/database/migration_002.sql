@@ -32,3 +32,6 @@ CREATE TABLE IF NOT EXISTS pdf_highlight (
     FOREIGN KEY (user_id)             REFERENCES user(id) ON DELETE CASCADE,
     FOREIGN KEY (highlight_colour_id) REFERENCES highlight_colour(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migration 003: drop type column from folder table
+ALTER TABLE folder DROP COLUMN type;
