@@ -129,7 +129,7 @@ async def get_pdf_highlights(
     response: Response,
     pdf_id: str,
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
-    limit: int = Query(default=20, ge=1, le=100, description="Pagination limit (max 100)"),
+    limit: int = Query(default=20, ge=1, le=1000, description="Pagination limit (max 1000)"),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db),
 ):

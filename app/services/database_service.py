@@ -8404,3 +8404,254 @@ def delete_pdf_highlight_by_id_and_user_id(
     )
     return deleted
 
+
+def create_pdf_note(
+    db: Session,
+    user_id: str,
+    pdf_id: str,
+    start_text: str,
+    end_text: str,
+    content: str,
+) -> Dict[str, Any]:
+    """
+    Insert a new pdf_note record.
+
+    Args:
+        db: Database session
+        user_id: Authenticated user's ID
+        pdf_id: FK to pdf.id (must belong to user_id)
+        start_text: First 15 characters of the noted text
+        end_text: Last 15 characters of the noted text
+        content: Note content (max 1024 characters)
+
+    Returns:
+        Dict with the created note's fields
+    """
+    logger.info(
+        "Creating PDF note",
+        function="create_pdf_note",
+        user_id=user_id,
+        pdf_id=pdf_id,
+    )
+
+    note_id = str(uuid.uuid4())
+
+    db.execute(
+        text("""
+            INSERT INTO pdf_note (id, pdf_id, user_id, start_text, end_text, content)
+            VALUES (:id, :pdf_id, :user_id, :start_text, :end_text, :content)
+        """),
+        {
+            "id": note_id,
+            "pdf_id": pdf_id,
+            "user_id": user_id,
+            "start_text": start_text,
+            "end_text": end_text,
+            "content": content,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, start_text, end_text, content, created_at, updated_at
+            FROM pdf_note
+            WHERE id = :id
+        """),
+        {"id": note_id},
+    ).fetchone()
+
+    note = {
+        "id": str(row[0]),
+        "pdf_id": str(row[1]),
+        "user_id": str(row[2]),
+        "start_text": row[3],
+        "end_text": row[4],
+        "content": row[5],
+        "created_at": row[6].isoformat() if row[6] else None,
+        "updated_at": row[7].isoformat() if row[7] else None,
+    }
+
+    logger.info(
+        "PDF note created successfully",
+        function="create_pdf_note",
+        note_id=note["id"],
+        user_id=user_id,
+        pdf_id=pdf_id,
+    )
+    return note
+
+
+def update_pdf_note_content(
+    db: Session,
+    note_id: str,
+    user_id: str,
+    content: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the content of a pdf_note owned by the given user.
+
+    Args:
+        db: Database session
+        note_id: pdf_note.id to update
+        user_id: Authenticated user's ID (ownership check)
+        content: New note content
+
+    Returns:
+        Dict with the updated note's fields, or None if not found / not owned by user
+    """
+    logger.info(
+        "Updating PDF note content",
+        function="update_pdf_note_content",
+        note_id=note_id,
+        user_id=user_id,
+    )
+
+    result = db.execute(
+        text("""
+            UPDATE pdf_note
+            SET content = :content
+            WHERE id = :note_id AND user_id = :user_id
+        """),
+        {"content": content, "note_id": note_id, "user_id": user_id},
+    )
+    db.commit()
+
+    if result.rowcount == 0:
+        logger.info(
+            "PDF note not found or not owned by user",
+            function="update_pdf_note_content",
+            note_id=note_id,
+            user_id=user_id,
+        )
+        return None
+
+    row = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, start_text, end_text, content, created_at, updated_at
+            FROM pdf_note
+            WHERE id = :id
+        """),
+        {"id": note_id},
+    ).fetchone()
+
+    note = {
+        "id": str(row[0]),
+        "pdf_id": str(row[1]),
+        "user_id": str(row[2]),
+        "start_text": row[3],
+        "end_text": row[4],
+        "content": row[5],
+        "created_at": row[6].isoformat() if row[6] else None,
+        "updated_at": row[7].isoformat() if row[7] else None,
+    }
+
+    logger.info(
+        "PDF note updated successfully",
+        function="update_pdf_note_content",
+        note_id=note_id,
+        user_id=user_id,
+    )
+    return note
+
+
+def delete_pdf_note_by_id_and_user_id(
+    db: Session,
+    note_id: str,
+    user_id: str,
+) -> bool:
+    """
+    Delete a pdf_note record if it belongs to the given user.
+
+    Args:
+        db: Database session
+        note_id: pdf_note.id to delete
+        user_id: Authenticated user's ID (ownership check)
+
+    Returns:
+        True if a row was deleted, False if not found or not owned by user
+    """
+    logger.info(
+        "Deleting PDF note",
+        function="delete_pdf_note_by_id_and_user_id",
+        note_id=note_id,
+        user_id=user_id,
+    )
+
+    result = db.execute(
+        text("""
+            DELETE FROM pdf_note
+            WHERE id = :note_id AND user_id = :user_id
+        """),
+        {"note_id": note_id, "user_id": user_id},
+    )
+    db.commit()
+
+    deleted = result.rowcount > 0
+
+    logger.info(
+        "PDF note deletion result",
+        function="delete_pdf_note_by_id_and_user_id",
+        note_id=note_id,
+        user_id=user_id,
+        deleted=deleted,
+    )
+    return deleted
+
+
+def get_pdf_notes_by_pdf_and_user(
+    db: Session,
+    pdf_id: str,
+    user_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    Get all pdf_note records for a given PDF belonging to the authenticated user.
+
+    Args:
+        db: Database session
+        pdf_id: PDF ID
+        user_id: Authenticated user's ID
+
+    Returns:
+        List of note dicts ordered by created_at ascending
+    """
+    logger.info(
+        "Fetching PDF notes",
+        function="get_pdf_notes_by_pdf_and_user",
+        pdf_id=pdf_id,
+        user_id=user_id,
+    )
+
+    rows = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, start_text, end_text, content, created_at, updated_at
+            FROM pdf_note
+            WHERE pdf_id = :pdf_id AND user_id = :user_id
+            ORDER BY created_at ASC
+        """),
+        {"pdf_id": pdf_id, "user_id": user_id},
+    ).fetchall()
+
+    notes = [
+        {
+            "id": str(row[0]),
+            "pdf_id": str(row[1]),
+            "user_id": str(row[2]),
+            "start_text": row[3],
+            "end_text": row[4],
+            "content": row[5],
+            "created_at": row[6].isoformat() if row[6] else None,
+            "updated_at": row[7].isoformat() if row[7] else None,
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "Fetched PDF notes successfully",
+        function="get_pdf_notes_by_pdf_and_user",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        count=len(notes),
+    )
+    return notes
+

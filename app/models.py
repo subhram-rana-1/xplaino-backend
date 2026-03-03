@@ -1567,3 +1567,38 @@ class GetPdfHighlightsResponse(BaseModel):
     total: int = Field(..., description="Total number of highlights for this PDF")
     offset: int = Field(..., description="Pagination offset used in this request")
     limit: int = Field(..., description="Pagination limit used in this request")
+
+
+class CreatePdfNoteRequest(BaseModel):
+    """Request body for creating a PDF note."""
+
+    pdfId: str = Field(..., description="ID of the PDF the note is attached to")
+    startText: str = Field(..., min_length=1, max_length=15, description="First 15 characters of the noted text")
+    endText: str = Field(..., min_length=1, max_length=15, description="Last 15 characters of the noted text")
+    content: str = Field(..., min_length=1, max_length=1024, description="Note content (max 1024 characters)")
+
+
+class UpdatePdfNoteRequest(BaseModel):
+    """Request body for updating a PDF note (content only)."""
+
+    content: str = Field(..., min_length=1, max_length=1024, description="Updated note content (max 1024 characters)")
+
+
+class PdfNoteResponse(BaseModel):
+    """A single PDF note record."""
+
+    id: str = Field(..., description="Note ID")
+    pdfId: str = Field(..., description="ID of the PDF this note belongs to")
+    userId: str = Field(..., description="ID of the user who created the note")
+    startText: str = Field(..., description="First 15 characters of the noted text")
+    endText: str = Field(..., description="Last 15 characters of the noted text")
+    content: str = Field(..., description="Note content")
+    createdAt: str = Field(..., description="Creation timestamp (ISO format)")
+    updatedAt: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetPdfNotesResponse(BaseModel):
+    """Response containing all notes for a PDF belonging to the authenticated user."""
+
+    pdfId: str = Field(..., description="ID of the PDF")
+    notes: List[PdfNoteResponse]
