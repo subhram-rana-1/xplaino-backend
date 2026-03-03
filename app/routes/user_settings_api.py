@@ -10,6 +10,7 @@ from app.models import (
     UpdateSettingsRequest,
     SettingsResponse,
     UserSettingsResponse,
+    HighlighterSetting,
     Theme,
     NativeLanguage,
     PageTranslationView,
@@ -124,6 +125,14 @@ async def get_user_settings(
             theme_value=theme_value
         )
         theme = Theme.LIGHT
+
+    highlighter = None
+    highlighter_dict = settings_dict.get("highlighter")
+    if highlighter_dict and isinstance(highlighter_dict, dict):
+        highlighter = HighlighterSetting(
+            id=highlighter_dict["id"],
+            hexcode=highlighter_dict["hexcode"]
+        )
     
     logger.info(
         "User settings retrieved successfully",
@@ -135,7 +144,8 @@ async def get_user_settings(
         settings=SettingsResponse(
             nativeLanguage=native_language,
             pageTranslationView=page_translation_view,
-            theme=theme
+            theme=theme,
+            highlighter=highlighter,
         )
     )
 
@@ -219,12 +229,21 @@ async def update_user_settings(
         nativeLanguage=body.nativeLanguage.value if body.nativeLanguage else None,
         pageTranslationView=body.pageTranslationView.value
     )
-    
+
+    # Fetch existing settings so we can preserve highlighter when not supplied
+    existing_settings = get_user_settings_by_user_id(db, user_id) or {}
+
+    if body.highlighter is not None:
+        highlighter_value = {"id": body.highlighter.id, "hexcode": body.highlighter.hexcode}
+    else:
+        highlighter_value = existing_settings.get("highlighter")
+
     # Convert settings to JSON (flattened structure)
     settings_dict = {
         "nativeLanguage": body.nativeLanguage.value if body.nativeLanguage else None,
         "pageTranslationView": body.pageTranslationView.value,
-        "theme": body.theme.value
+        "theme": body.theme.value,
+        "highlighter": highlighter_value,
     }
     settings_json = json.dumps(settings_dict)
     
@@ -259,11 +278,19 @@ async def update_user_settings(
         "User settings updated successfully",
         user_id=user_id
     )
-    
+
+    highlighter = None
+    if highlighter_value and isinstance(highlighter_value, dict):
+        highlighter = HighlighterSetting(
+            id=highlighter_value["id"],
+            hexcode=highlighter_value["hexcode"]
+        )
+
     # Return the updated settings
     return SettingsResponse(
         nativeLanguage=body.nativeLanguage,
         pageTranslationView=body.pageTranslationView,
-        theme=body.theme
+        theme=body.theme,
+        highlighter=highlighter,
     )
 

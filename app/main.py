@@ -38,6 +38,7 @@ from app.routes import (
     subscription_api,
     extension_uninstall_api,
     file_upload_api,
+    highlight_api,
 )
 from app.services.rate_limiter import rate_limiter
 
@@ -232,6 +233,7 @@ app.include_router(pre_launch_user_api.router)
 app.include_router(paddle_webhook_api.router)
 app.include_router(subscription_api.router)
 app.include_router(extension_uninstall_api.router)
+app.include_router(highlight_api.router)
 
 
 @app.get("/metrics", include_in_schema=False)

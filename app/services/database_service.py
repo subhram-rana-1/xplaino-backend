@@ -8182,3 +8182,246 @@ def save_extension_uninstallation_feedback(
         reason=reason
     )
 
+
+# ---------------------------------------------------------------------------
+# Highlight colour functions
+# ---------------------------------------------------------------------------
+
+def get_all_highlight_colours(db: Session) -> List[Dict[str, Any]]:
+    """
+    Retrieve all highlight colour records.
+
+    Args:
+        db: Database session
+
+    Returns:
+        List of dicts with keys: id, hexcode
+    """
+    logger.info("Fetching all highlight colours", function="get_all_highlight_colours")
+
+    rows = db.execute(
+        text("SELECT id, hexcode FROM highlight_colour ORDER BY created_at ASC")
+    ).fetchall()
+
+    colours = [{"id": str(row[0]), "hexcode": row[1]} for row in rows]
+
+    logger.info(
+        "Fetched highlight colours successfully",
+        function="get_all_highlight_colours",
+        count=len(colours)
+    )
+    return colours
+
+
+def get_highlight_colour_by_id(db: Session, highlight_colour_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a single highlight colour by its ID (used for FK validation).
+
+    Args:
+        db: Database session
+        highlight_colour_id: Highlight colour ID (CHAR(36) UUID)
+
+    Returns:
+        Dict with id and hexcode, or None if not found
+    """
+    row = db.execute(
+        text("SELECT id, hexcode FROM highlight_colour WHERE id = :id"),
+        {"id": highlight_colour_id}
+    ).fetchone()
+
+    if not row:
+        return None
+    return {"id": str(row[0]), "hexcode": row[1]}
+
+
+def create_pdf_highlight(
+    db: Session,
+    user_id: str,
+    highlight_colour_id: str,
+    pdf_id: str,
+    start_text: str,
+    end_text: str
+) -> Dict[str, Any]:
+    """
+    Insert a new pdf_highlight record.
+
+    Args:
+        db: Database session
+        user_id: Authenticated user's ID
+        highlight_colour_id: FK to highlight_colour.id
+        pdf_id: FK to pdf.id (must belong to user_id)
+        start_text: First 15 characters of the highlighted text
+        end_text: Last 15 characters of the highlighted text
+
+    Returns:
+        Dict with the created highlight's fields
+    """
+    logger.info(
+        "Creating PDF highlight",
+        function="create_pdf_highlight",
+        user_id=user_id,
+        pdf_id=pdf_id,
+        highlight_colour_id=highlight_colour_id
+    )
+
+    highlight_id = str(uuid.uuid4())
+
+    db.execute(
+        text("""
+            INSERT INTO pdf_highlight (id, pdf_id, user_id, highlight_colour_id, start_text, end_text)
+            VALUES (:id, :pdf_id, :user_id, :highlight_colour_id, :start_text, :end_text)
+        """),
+        {
+            "id": highlight_id,
+            "pdf_id": pdf_id,
+            "user_id": user_id,
+            "highlight_colour_id": highlight_colour_id,
+            "start_text": start_text,
+            "end_text": end_text
+        }
+    )
+    db.commit()
+
+    row = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, highlight_colour_id, start_text, end_text, created_at, updated_at
+            FROM pdf_highlight
+            WHERE id = :id
+        """),
+        {"id": highlight_id}
+    ).fetchone()
+
+    highlight = {
+        "id": str(row[0]),
+        "pdf_id": str(row[1]),
+        "user_id": str(row[2]),
+        "highlight_colour_id": str(row[3]),
+        "start_text": row[4],
+        "end_text": row[5],
+        "created_at": row[6],
+        "updated_at": row[7]
+    }
+
+    logger.info(
+        "PDF highlight created successfully",
+        function="create_pdf_highlight",
+        highlight_id=highlight["id"],
+        user_id=user_id,
+        pdf_id=pdf_id
+    )
+    return highlight
+
+
+def get_pdf_highlights_by_pdf_and_user(
+    db: Session,
+    pdf_id: str,
+    user_id: str,
+    offset: int,
+    limit: int
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get paginated pdf_highlight records for a given PDF and user.
+
+    Args:
+        db: Database session
+        pdf_id: PDF ID
+        user_id: Authenticated user's ID
+        offset: Pagination offset
+        limit: Pagination limit
+
+    Returns:
+        Tuple of (list of highlight dicts, total count)
+    """
+    logger.info(
+        "Fetching PDF highlights",
+        function="get_pdf_highlights_by_pdf_and_user",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        offset=offset,
+        limit=limit
+    )
+
+    total_row = db.execute(
+        text("""
+            SELECT COUNT(*) FROM pdf_highlight
+            WHERE pdf_id = :pdf_id AND user_id = :user_id
+        """),
+        {"pdf_id": pdf_id, "user_id": user_id}
+    ).fetchone()
+    total_count = int(total_row[0]) if total_row else 0
+
+    rows = db.execute(
+        text("""
+            SELECT id, highlight_colour_id, start_text, end_text
+            FROM pdf_highlight
+            WHERE pdf_id = :pdf_id AND user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"pdf_id": pdf_id, "user_id": user_id, "limit": limit, "offset": offset}
+    ).fetchall()
+
+    highlights = [
+        {
+            "id": str(row[0]),
+            "highlight_colour_id": str(row[1]),
+            "start_text": row[2],
+            "end_text": row[3]
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "Fetched PDF highlights successfully",
+        function="get_pdf_highlights_by_pdf_and_user",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        count=len(highlights),
+        total=total_count
+    )
+    return highlights, total_count
+
+
+def delete_pdf_highlight_by_id_and_user_id(
+    db: Session,
+    highlight_id: str,
+    user_id: str
+) -> bool:
+    """
+    Delete a pdf_highlight record if it belongs to the given user.
+
+    Args:
+        db: Database session
+        highlight_id: pdf_highlight.id to delete
+        user_id: Authenticated user's ID (ownership check)
+
+    Returns:
+        True if a row was deleted, False if not found or not owned by user
+    """
+    logger.info(
+        "Deleting PDF highlight",
+        function="delete_pdf_highlight_by_id_and_user_id",
+        highlight_id=highlight_id,
+        user_id=user_id
+    )
+
+    result = db.execute(
+        text("""
+            DELETE FROM pdf_highlight
+            WHERE id = :highlight_id AND user_id = :user_id
+        """),
+        {"highlight_id": highlight_id, "user_id": user_id}
+    )
+    db.commit()
+
+    deleted = result.rowcount > 0
+
+    logger.info(
+        "PDF highlight deletion result",
+        function="delete_pdf_highlight_by_id_and_user_id",
+        highlight_id=highlight_id,
+        user_id=user_id,
+        deleted=deleted
+    )
+    return deleted
+

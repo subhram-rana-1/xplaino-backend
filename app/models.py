@@ -885,12 +885,20 @@ class Settings(BaseModel):
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
 
 
+class HighlighterSetting(BaseModel):
+    """The user's active highlight colour preference."""
+
+    id: str = Field(..., description="highlight_colour.id")
+    hexcode: str = Field(..., description="Hex colour code, e.g. #FFF9C4")
+
+
 class UpdateSettingsRequest(BaseModel):
     """Request model for updating user settings (PATCH)."""
     
     nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
     pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+    highlighter: Optional[HighlighterSetting] = Field(default=None, description="Active highlight colour; omit to leave the existing value unchanged")
 
 
 class SettingsResponse(BaseModel):
@@ -899,13 +907,15 @@ class SettingsResponse(BaseModel):
     nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
     pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+    highlighter: Optional[HighlighterSetting] = Field(default=None, description="Active highlight colour, or null if none selected")
 
 
 # Default user settings constant
 DEFAULT_USER_SETTINGS = {
     "nativeLanguage": None,
     "pageTranslationView": "REPLACE",
-    "theme": "LIGHT"
+    "theme": "LIGHT",
+    "highlighter": None
 }
 
 
@@ -1522,3 +1532,48 @@ class ExtensionUninstallationFeedbackResponse(BaseModel):
     
     success: bool = Field(..., description="Whether the feedback was saved successfully")
     message: str = Field(..., description="Response message")
+
+
+# ---------------------------------------------------------------------------
+# Highlight models
+# ---------------------------------------------------------------------------
+
+class HighlightColourResponse(BaseModel):
+    """A single highlight colour record."""
+
+    id: str = Field(..., description="Highlight colour ID")
+    hexcode: str = Field(..., description="Hex colour code, e.g. #FFF9C4")
+
+
+class GetAllHighlightColoursResponse(BaseModel):
+    """Response for listing all available highlight colours."""
+
+    colours: List[HighlightColourResponse]
+
+
+class CreatePdfHighlightRequest(BaseModel):
+    """Request body for creating a PDF highlight."""
+
+    highlightColourId: str = Field(..., description="ID of the highlight colour to use")
+    pdfId: str = Field(..., description="ID of the PDF that contains the highlight")
+    startText: str = Field(..., min_length=1, max_length=15, description="First 15 characters of the highlighted text")
+    endText: str = Field(..., min_length=1, max_length=15, description="Last 15 characters of the highlighted text")
+
+
+class PdfHighlightResponse(BaseModel):
+    """A single PDF highlight record."""
+
+    id: str = Field(..., description="Highlight ID")
+    highlightColourId: str = Field(..., description="ID of the highlight colour")
+    startText: str = Field(..., description="First 15 characters of the highlighted text")
+    endText: str = Field(..., description="Last 15 characters of the highlighted text")
+
+
+class GetPdfHighlightsResponse(BaseModel):
+    """Paginated response for PDF highlights belonging to the authenticated user."""
+
+    pdfId: str = Field(..., description="ID of the PDF")
+    highlights: List[PdfHighlightResponse]
+    total: int = Field(..., description="Total number of highlights for this PDF")
+    offset: int = Field(..., description="Pagination offset used in this request")
+    limit: int = Field(..., description="Pagination limit used in this request")
