@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path, Query
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 import structlog
 
@@ -10,19 +11,37 @@ from app.models import (
     PdfResponse,
     GetAllPdfsResponse,
     CreatePdfRequest,
+    CreatePdfCopyRequest,
+    ShareResourceRequest,
+    PdfShareResponse,
+    SharedPdfItem,
+    GetSharedPdfsResponse,
+    GetShareeListResponse,
+    ShareeItem,
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
     create_pdf,
+    create_pdf_copy,
     get_pdfs_by_user_id,
+    get_pdfs_by_folder_id,
+    get_pdf_by_id,
     get_pdf_by_id_and_user_id,
     get_pdf_by_id_and_unauthenticated_user_id,
+    check_pdf_access_for_user,
+    update_pdf_access_level,
     get_file_uploads_by_entity,
     delete_file_uploads_by_entity,
     delete_pdf_by_id_and_user_id,
     get_folder_by_id_and_user_id,
+    check_folder_access_for_user,
+    share_pdf,
+    unshare_pdf,
+    get_pdfs_shared_with_email,
+    get_pdf_sharee_list,
+    get_user_info_with_email_by_user_id,
 )
 from app.services.s3_service import s3_service
 
@@ -131,6 +150,8 @@ async def create_pdf_endpoint(
         created_by=pdf_data["created_by"],
         unauthenticated_user_id=pdf_data["unauthenticated_user_id"],
         folder_id=pdf_data["folder_id"],
+        parent_id=pdf_data.get("parent_id"),
+        access_level=pdf_data["access_level"],
         created_at=pdf_data["created_at"],
         updated_at=pdf_data["updated_at"],
         file_uploads=[]
@@ -154,24 +175,26 @@ async def get_all_pdfs_endpoint(
     db: Session = Depends(get_db)
 ):
     """Get all PDFs for the authenticated or unauthenticated user with file_uploads per PDF."""
+    unauthenticated_user_id = None
     if folder_id is not None:
         user_id = _get_user_id_from_auth(auth_context, db)
-        folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+        user_info = get_user_info_with_email_by_user_id(db, user_id)
+        user_email = user_info.get("email") if user_info else None
+        folder = check_folder_access_for_user(db, folder_id, user_id, user_email or "")
         if not folder:
             raise HTTPException(
                 status_code=404,
-                detail={"error_code": "FOLDER_NOT_FOUND", "error_message": "Folder not found or does not belong to user"}
+                detail={"error_code": "NOT_FOUND", "error_message": "You don't have access to this folder"}
             )
-        unauthenticated_user_id = None
+        pdfs_data = get_pdfs_by_folder_id(db, folder_id)
     else:
         user_id, unauthenticated_user_id = _resolve_owner(auth_context, db)
-
-    pdfs_data = get_pdfs_by_user_id(
-        db,
-        user_id=user_id,
-        unauthenticated_user_id=unauthenticated_user_id,
-        folder_id=folder_id
-    )
+        pdfs_data = get_pdfs_by_user_id(
+            db,
+            user_id=user_id,
+            unauthenticated_user_id=unauthenticated_user_id,
+            folder_id=None
+        )
 
     pdfs = []
     for pdf in pdfs_data:
@@ -184,6 +207,8 @@ async def get_all_pdfs_endpoint(
                 created_by=pdf["created_by"],
                 unauthenticated_user_id=pdf["unauthenticated_user_id"],
                 folder_id=pdf["folder_id"],
+                parent_id=pdf.get("parent_id"),
+                access_level=pdf["access_level"],
                 created_at=pdf["created_at"],
                 updated_at=pdf["updated_at"],
                 file_uploads=file_uploads
@@ -205,10 +230,60 @@ async def get_all_pdfs_endpoint(
 
 
 @router.get(
+    "/shared-with-me",
+    response_model=GetSharedPdfsResponse,
+    summary="Get PDFs shared with me",
+    description="Get all PDFs that have been directly shared with the authenticated user. Does not include PDFs inside shared folders."
+)
+async def get_shared_pdfs_endpoint(
+    request: Request,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Return all PDFs directly shared with the caller. Requires authentication."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    user_info_data = get_user_info_with_email_by_user_id(db, user_id)
+    email = user_info_data.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "NO_EMAIL",
+                "error_message": "Authenticated user does not have an email address on record"
+            }
+        )
+
+    pdfs_data = get_pdfs_shared_with_email(db, email)
+
+    logger.info(
+        "Retrieved shared PDFs",
+        user_id=user_id,
+        email=email,
+        count=len(pdfs_data),
+    )
+
+    return GetSharedPdfsResponse(
+        pdfs=[
+            SharedPdfItem(
+                id=p["id"],
+                file_name=p["file_name"],
+                created_by=p["created_by"],
+                folder_id=p["folder_id"],
+                created_at=p["created_at"],
+                updated_at=p["updated_at"],
+                shared_at=p["shared_at"],
+            )
+            for p in pdfs_data
+        ]
+    )
+
+
+@router.get(
     "/{pdf_id}",
     response_model=PdfResponse,
     summary="Get a PDF by ID",
-    description="Get a single PDF record by ID with its file uploads (including presigned download URLs). Supports both authenticated (Authorization header) and unauthenticated (X-Unauthenticated-User-Id header) users. Only the owner can access their own PDF."
+    description="Get a single PDF record by ID with its file uploads (including presigned download URLs). Public PDFs are accessible without any authentication. For private PDFs, supports both authenticated (Authorization header) and unauthenticated (X-Unauthenticated-User-Id header) users — only the owner can access them."
 )
 async def get_pdf_by_id_endpoint(
     request: Request,
@@ -217,19 +292,75 @@ async def get_pdf_by_id_endpoint(
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db)
 ):
-    """Get a single PDF by ID for the authenticated or unauthenticated owner."""
-    user_id, unauthenticated_user_id = _resolve_owner(auth_context, db)
+    """Get a single PDF by ID. Skips ownership validation for public PDFs."""
+    pdf_data = get_pdf_by_id(db, pdf_id)
 
-    if user_id:
-        pdf_data = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
-    elif unauthenticated_user_id:
-        pdf_data = get_pdf_by_id_and_unauthenticated_user_id(db, pdf_id, unauthenticated_user_id)
-    else:
+    if not pdf_data:
         raise HTTPException(
             status_code=404,
             detail={"error_code": "NOT_FOUND", "error_message": "PDF not found"}
         )
 
+    if pdf_data.get("access_level") != "PUBLIC":
+        user_id, unauthenticated_user_id = _resolve_owner(auth_context, db)
+
+        if user_id:
+            user_info = get_user_info_with_email_by_user_id(db, user_id)
+            user_email = user_info.get("email") if user_info else None
+            pdf_data = check_pdf_access_for_user(db, pdf_id, user_id, user_email or "")
+        elif unauthenticated_user_id:
+            pdf_data = get_pdf_by_id_and_unauthenticated_user_id(db, pdf_id, unauthenticated_user_id)
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "NOT_FOUND", "error_message": "PDF not found"}
+            )
+
+        if not pdf_data:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "NOT_FOUND", "error_message": "PDF not found or does not belong to user"}
+            )
+
+    file_uploads_data = get_file_uploads_by_entity(db, "PDF", pdf_id)
+    file_uploads = [_file_upload_to_response(fu) for fu in file_uploads_data]
+
+    logger.info(
+        "Retrieved PDF by ID successfully",
+        pdf_id=pdf_id,
+        access_level=pdf_data.get("access_level")
+    )
+
+    return PdfResponse(
+        id=pdf_data["id"],
+        file_name=pdf_data["file_name"],
+        created_by=pdf_data.get("created_by"),
+        unauthenticated_user_id=pdf_data.get("unauthenticated_user_id"),
+        folder_id=pdf_data.get("folder_id"),
+        parent_id=pdf_data.get("parent_id"),
+        access_level=pdf_data["access_level"],
+        created_at=pdf_data["created_at"],
+        updated_at=pdf_data["updated_at"],
+        file_uploads=file_uploads
+    )
+
+
+@router.post(
+    "/{pdf_id}/make-public",
+    response_model=PdfResponse,
+    summary="Make a PDF public",
+    description="Mark a PDF as publicly accessible. Only the authenticated owner can perform this action. Once public, the PDF can be retrieved by anyone without authentication."
+)
+async def make_pdf_public_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Set access_level to PUBLIC for the given PDF. Only the owner can do this."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    pdf_data = update_pdf_access_level(db, pdf_id, user_id, "PUBLIC")
     if not pdf_data:
         raise HTTPException(
             status_code=404,
@@ -240,10 +371,9 @@ async def get_pdf_by_id_endpoint(
     file_uploads = [_file_upload_to_response(fu) for fu in file_uploads_data]
 
     logger.info(
-        "Retrieved PDF by ID successfully",
+        "PDF marked as public",
         pdf_id=pdf_id,
-        user_id=user_id,
-        unauthenticated_user_id=unauthenticated_user_id
+        user_id=user_id
     )
 
     return PdfResponse(
@@ -252,9 +382,140 @@ async def get_pdf_by_id_endpoint(
         created_by=pdf_data.get("created_by"),
         unauthenticated_user_id=pdf_data.get("unauthenticated_user_id"),
         folder_id=pdf_data.get("folder_id"),
+        parent_id=pdf_data.get("parent_id"),
+        access_level=pdf_data["access_level"],
         created_at=pdf_data["created_at"],
         updated_at=pdf_data["updated_at"],
         file_uploads=file_uploads
+    )
+
+
+@router.post(
+    "/{pdf_id}/make-private",
+    response_model=PdfResponse,
+    summary="Make a PDF private",
+    description="Mark a PDF as private. Only the authenticated owner can perform this action. Once private, the PDF can only be retrieved by the owner or users it has been shared with."
+)
+async def make_pdf_private_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Set access_level to PRIVATE for the given PDF. Only the owner can do this."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    pdf_data = update_pdf_access_level(db, pdf_id, user_id, "PRIVATE")
+    if not pdf_data:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found or does not belong to user"}
+        )
+
+    file_uploads_data = get_file_uploads_by_entity(db, "PDF", pdf_id)
+    file_uploads = [_file_upload_to_response(fu) for fu in file_uploads_data]
+
+    logger.info(
+        "PDF marked as private",
+        pdf_id=pdf_id,
+        user_id=user_id
+    )
+
+    return PdfResponse(
+        id=pdf_data["id"],
+        file_name=pdf_data["file_name"],
+        created_by=pdf_data.get("created_by"),
+        unauthenticated_user_id=pdf_data.get("unauthenticated_user_id"),
+        folder_id=pdf_data.get("folder_id"),
+        parent_id=pdf_data.get("parent_id"),
+        access_level=pdf_data["access_level"],
+        created_at=pdf_data["created_at"],
+        updated_at=pdf_data["updated_at"],
+        file_uploads=file_uploads
+    )
+
+
+@router.post(
+    "/{pdf_id}/create-copy",
+    response_model=PdfResponse,
+    status_code=201,
+    summary="Create a copy of a public PDF",
+    description=(
+        "Create a private copy of a PUBLIC PDF under the authenticated user's ownership. "
+        "The copy will have file_name='copy - {original_name}', access_level=PRIVATE, and parent_id set to the source PDF's ID. "
+        "A corresponding file_upload record (with the same s3_key and metadata as the source) is created atomically in the same transaction. "
+        "Only PUBLIC PDFs can be copied via this endpoint."
+    )
+)
+async def create_pdf_copy_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="Source PDF ID (UUID). Must be a PUBLIC PDF."),
+    body: CreatePdfCopyRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Create a private copy of a PUBLIC PDF. Requires authentication."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    source_pdf = get_pdf_by_id(db, pdf_id)
+    if not source_pdf:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found"}
+        )
+
+    if source_pdf.get("access_level") != "PUBLIC":
+        raise HTTPException(
+            status_code=403,
+            detail={"error_code": "PDF_NOT_PUBLIC", "error_message": "Only PUBLIC PDFs can be copied"}
+        )
+
+    folder_id = body.folder_id if body else None
+    if folder_id is not None:
+        folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "FOLDER_NOT_FOUND", "error_message": "Folder not found or does not belong to user"}
+            )
+
+    source_file_uploads = get_file_uploads_by_entity(db, "PDF", pdf_id)
+    source_file_upload = source_file_uploads[0] if source_file_uploads else None
+
+    if not source_file_upload:
+        raise HTTPException(
+            status_code=422,
+            detail={"error_code": "NO_FILE_UPLOAD", "error_message": "Source PDF has no file upload record to copy"}
+        )
+
+    new_pdf_data, new_file_upload_data = create_pdf_copy(
+        db=db,
+        source_pdf_id=pdf_id,
+        source_file_name=source_pdf["file_name"],
+        source_file_upload=source_file_upload,
+        user_id=user_id,
+        folder_id=folder_id
+    )
+
+    logger.info(
+        "Created PDF copy successfully",
+        source_pdf_id=pdf_id,
+        new_pdf_id=new_pdf_data["id"],
+        user_id=user_id,
+        folder_id=folder_id
+    )
+
+    return PdfResponse(
+        id=new_pdf_data["id"],
+        file_name=new_pdf_data["file_name"],
+        created_by=new_pdf_data.get("created_by"),
+        unauthenticated_user_id=new_pdf_data.get("unauthenticated_user_id"),
+        folder_id=new_pdf_data.get("folder_id"),
+        parent_id=new_pdf_data.get("parent_id"),
+        access_level=new_pdf_data["access_level"],
+        created_at=new_pdf_data["created_at"],
+        updated_at=new_pdf_data["updated_at"],
+        file_uploads=[_file_upload_to_response(new_file_upload_data)]
     )
 
 
@@ -306,3 +567,145 @@ async def delete_pdf_endpoint(
 
     logger.info("Deleted PDF successfully", pdf_id=pdf_id, user_id=user_id)
     return FastAPIResponse(status_code=204)
+
+
+@router.post(
+    "/{pdf_id}/share",
+    response_model=PdfShareResponse,
+    status_code=201,
+    summary="Share a PDF",
+    description="Share a PDF with another user by their email address. Only the PDF owner can share it."
+)
+async def share_pdf_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    body: ShareResourceRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Share a PDF with another user by email. Requires authentication."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    pdf = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+    if not pdf:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "PDF not found or does not belong to user"
+            }
+        )
+
+    try:
+        share_data = share_pdf(db, pdf_id, body.email)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "ALREADY_SHARED",
+                "error_message": "PDF is already shared with this email"
+            }
+        )
+
+    logger.info(
+        "Shared PDF successfully",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        shared_to_email=body.email,
+    )
+
+    return PdfShareResponse(
+        id=share_data["id"],
+        pdf_id=share_data["pdf_id"],
+        shared_to_email=share_data["shared_to_email"],
+        created_at=share_data["created_at"],
+    )
+
+
+@router.delete(
+    "/{pdf_id}/share",
+    status_code=204,
+    summary="Unshare a PDF",
+    description="Remove a share for a PDF with a specific user by their email address. Only the PDF owner can unshare it."
+)
+async def unshare_pdf_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    body: ShareResourceRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Unshare a PDF from a user by email. Requires authentication."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    pdf = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+    if not pdf:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "PDF not found or does not belong to user"
+            }
+        )
+
+    deleted = unshare_pdf(db, pdf_id, body.email)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "SHARE_NOT_FOUND",
+                "error_message": "Share record not found for this PDF and email"
+            }
+        )
+
+    logger.info(
+        "Unshared PDF successfully",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        shared_to_email=body.email,
+    )
+
+    return FastAPIResponse(status_code=204)
+
+
+@router.get(
+    "/{pdf_id}/share",
+    response_model=GetShareeListResponse,
+    summary="Get sharee list for a PDF",
+    description="Get all email addresses the owner has shared this PDF with. Only the PDF owner can view this list."
+)
+async def get_pdf_sharee_list_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Return all recipients this PDF has been shared with. Requires authentication and ownership."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    pdf = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+    if not pdf:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "PDF not found or does not belong to user"
+            }
+        )
+
+    sharees_data = get_pdf_sharee_list(db, pdf_id)
+
+    logger.info(
+        "Retrieved PDF sharee list",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        count=len(sharees_data),
+    )
+
+    return GetShareeListResponse(
+        sharees=[
+            ShareeItem(email=s["email"], shared_at=s["shared_at"])
+            for s in sharees_data
+        ]
+    )

@@ -326,18 +326,11 @@ class CreateLinkFolderRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
 
 
-class FolderType(str, Enum):
-    """Folder type enum."""
-    BOOKMARK = "BOOKMARK"
-    PDF = "PDF"
-
-
 class FolderWithSubFoldersResponse(BaseModel):
     """Response model for a folder with nested sub-folders (recursive structure)."""
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
-    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     user_id: Optional[str] = Field(default=None, description="Authenticated user owner ID, if any")
     unauthenticated_user_id: Optional[str] = Field(default=None, description="Unauthenticated user owner ID, if any")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -356,7 +349,6 @@ class CreateFolderRequest(BaseModel):
     
     name: str = Field(..., min_length=1, max_length=50, description="Folder name (max 50 characters)")
     parentId: Optional[str] = Field(default=None, description="Parent folder ID (optional, UUID format)")
-    type: Optional[FolderType] = Field(default=FolderType.BOOKMARK, description="Folder type (BOOKMARK or PDF, defaults to BOOKMARK)")
 
 
 class CreateFolderResponse(BaseModel):
@@ -364,7 +356,6 @@ class CreateFolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
-    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -383,7 +374,6 @@ class RenameFolderResponse(BaseModel):
     
     id: str = Field(..., description="Folder ID (UUID)")
     name: str = Field(..., description="Folder name")
-    type: FolderType = Field(..., description="Folder type (BOOKMARK or PDF)")
     parent_id: Optional[str] = Field(default=None, description="Parent folder ID (nullable)")
     user_id: str = Field(..., description="User ID who owns the folder (UUID)")
     created_at: str = Field(..., description="ISO format timestamp when the folder was created")
@@ -885,12 +875,20 @@ class Settings(BaseModel):
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
 
 
+class HighlighterSetting(BaseModel):
+    """The user's active highlight colour preference."""
+
+    id: str = Field(..., description="highlight_colour.id")
+    hexcode: str = Field(..., description="Hex colour code, e.g. #FFF9C4")
+
+
 class UpdateSettingsRequest(BaseModel):
     """Request model for updating user settings (PATCH)."""
     
     nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
     pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+    highlighter: Optional[HighlighterSetting] = Field(default=None, description="Active highlight colour; omit to leave the existing value unchanged")
 
 
 class SettingsResponse(BaseModel):
@@ -899,13 +897,15 @@ class SettingsResponse(BaseModel):
     nativeLanguage: Optional[NativeLanguage] = Field(default=None, description="Native language code (e.g., 'EN', 'ES', 'FR', 'DE', 'HI')")
     pageTranslationView: PageTranslationView = Field(..., description="Page translation view mode (APPEND or REPLACE)")
     theme: Theme = Field(..., description="Theme preference (LIGHT or DARK)")
+    highlighter: Optional[HighlighterSetting] = Field(default=None, description="Active highlight colour, or null if none selected")
 
 
 # Default user settings constant
 DEFAULT_USER_SETTINGS = {
     "nativeLanguage": None,
     "pageTranslationView": "REPLACE",
-    "theme": "LIGHT"
+    "theme": "LIGHT",
+    "highlighter": None
 }
 
 
@@ -1005,6 +1005,8 @@ class PdfResponse(BaseModel):
     created_by: Optional[str] = Field(None, description="User ID who created the PDF (UUID), null for unauthenticated users")
     unauthenticated_user_id: Optional[str] = Field(None, description="Unauthenticated user ID who created the PDF, null for authenticated users")
     folder_id: Optional[str] = Field(None, description="Folder ID (UUID) this PDF belongs to, null if not in a folder")
+    parent_id: Optional[str] = Field(None, description="Parent PDF ID (UUID) if this PDF is a copy of another PDF, null otherwise")
+    access_level: str = Field(..., description="Access level of the PDF (PRIVATE or PUBLIC)")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
     updated_at: str = Field(..., description="Last update timestamp (ISO format)")
     file_uploads: List[FileUploadResponse] = Field(default_factory=list, description="File uploads for this PDF (entity_type=PDF, entity_id=pdf.id)")
@@ -1021,6 +1023,12 @@ class CreatePdfRequest(BaseModel):
     
     file_name: str = Field(..., max_length=255, description="File name for the PDF")
     folder_id: Optional[str] = Field(None, description="Folder ID (UUID) to associate with this PDF. Requires authentication and must belong to the user.")
+
+
+class CreatePdfCopyRequest(BaseModel):
+    """Request model for creating a copy of a PUBLIC PDF."""
+
+    folder_id: Optional[str] = Field(None, description="Folder ID (UUID) to place the copy in. Requires authentication and must belong to the user.")
 
 
 class CouponStatus(str, Enum):
@@ -1522,3 +1530,164 @@ class ExtensionUninstallationFeedbackResponse(BaseModel):
     
     success: bool = Field(..., description="Whether the feedback was saved successfully")
     message: str = Field(..., description="Response message")
+
+
+# ---------------------------------------------------------------------------
+# Highlight models
+# ---------------------------------------------------------------------------
+
+class HighlightColourResponse(BaseModel):
+    """A single highlight colour record."""
+
+    id: str = Field(..., description="Highlight colour ID")
+    hexcode: str = Field(..., description="Hex colour code, e.g. #FFF9C4")
+
+
+class GetAllHighlightColoursResponse(BaseModel):
+    """Response for listing all available highlight colours."""
+
+    colours: List[HighlightColourResponse]
+
+
+class CreatePdfHighlightRequest(BaseModel):
+    """Request body for creating a PDF highlight."""
+
+    highlightColourId: str = Field(..., description="ID of the highlight colour to use")
+    pdfId: str = Field(..., description="ID of the PDF that contains the highlight")
+    startText: str = Field(..., min_length=1, max_length=50, description="First 50 characters of the highlighted text")
+    endText: str = Field(..., min_length=1, max_length=50, description="Last 50 characters of the highlighted text")
+
+
+class PdfHighlightResponse(BaseModel):
+    """A single PDF highlight record."""
+
+    id: str = Field(..., description="Highlight ID")
+    highlightColourId: str = Field(..., description="ID of the highlight colour")
+    startText: str = Field(..., description="First 50 characters of the highlighted text")
+    endText: str = Field(..., description="Last 50 characters of the highlighted text")
+
+
+class GetPdfHighlightsResponse(BaseModel):
+    """Paginated response for PDF highlights belonging to the authenticated user."""
+
+    pdfId: str = Field(..., description="ID of the PDF")
+    highlights: List[PdfHighlightResponse]
+    total: int = Field(..., description="Total number of highlights for this PDF")
+    offset: int = Field(..., description="Pagination offset used in this request")
+    limit: int = Field(..., description="Pagination limit used in this request")
+
+
+class CreatePdfNoteRequest(BaseModel):
+    """Request body for creating a PDF note."""
+
+    pdfId: str = Field(..., description="ID of the PDF the note is attached to")
+    startText: str = Field(..., min_length=1, max_length=50, description="First 50 characters of the noted text")
+    endText: str = Field(..., min_length=1, max_length=50, description="Last 50 characters of the noted text")
+    content: str = Field(..., min_length=1, max_length=1024, description="Note content (max 1024 characters)")
+
+
+class UpdatePdfNoteRequest(BaseModel):
+    """Request body for updating a PDF note (content only)."""
+
+    content: str = Field(..., min_length=1, max_length=1024, description="Updated note content (max 1024 characters)")
+
+
+class PdfNoteResponse(BaseModel):
+    """A single PDF note record."""
+
+    id: str = Field(..., description="Note ID")
+    pdfId: str = Field(..., description="ID of the PDF this note belongs to")
+    userId: str = Field(..., description="ID of the user who created the note")
+    startText: str = Field(..., description="First 50 characters of the noted text")
+    endText: str = Field(..., description="Last 50 characters of the noted text")
+    content: str = Field(..., description="Note content")
+    createdAt: str = Field(..., description="Creation timestamp (ISO format)")
+    updatedAt: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetPdfNotesResponse(BaseModel):
+    """Response containing all notes for a PDF belonging to the authenticated user."""
+
+    pdfId: str = Field(..., description="ID of the PDF")
+    notes: List[PdfNoteResponse]
+
+
+# ---------------------------------------------------------------------------
+# Share / Unshare models
+# ---------------------------------------------------------------------------
+
+class ShareResourceRequest(BaseModel):
+    """Request body for sharing a PDF or folder with another user by email."""
+
+    email: str = Field(..., min_length=1, max_length=256, description="Email address of the user to share with")
+
+
+class FolderShareResponse(BaseModel):
+    """Response returned after successfully sharing a folder."""
+
+    id: str = Field(..., description="Share record ID")
+    folder_id: str = Field(..., description="ID of the shared folder")
+    shared_to_email: str = Field(..., description="Email of the user the folder was shared with")
+    created_at: str = Field(..., description="Timestamp when the share was created (ISO format)")
+
+
+class PdfShareResponse(BaseModel):
+    """Response returned after successfully sharing a PDF."""
+
+    id: str = Field(..., description="Share record ID")
+    pdf_id: str = Field(..., description="ID of the shared PDF")
+    shared_to_email: str = Field(..., description="Email of the user the PDF was shared with")
+    created_at: str = Field(..., description="Timestamp when the share was created (ISO format)")
+
+
+# ---------------------------------------------------------------------------
+# Share query models
+# ---------------------------------------------------------------------------
+
+class SharedFolderItem(BaseModel):
+    """A folder that has been shared with the caller, including when it was shared."""
+
+    id: str = Field(..., description="Folder ID (UUID)")
+    name: str = Field(..., description="Folder name")
+    parent_id: Optional[str] = Field(None, description="Parent folder ID (nullable)")
+    user_id: Optional[str] = Field(None, description="ID of the user who owns the folder")
+    created_at: str = Field(..., description="Folder creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Folder last-update timestamp (ISO format)")
+    shared_at: str = Field(..., description="Timestamp when the folder was shared with the caller (ISO format)")
+
+
+class GetSharedFoldersResponse(BaseModel):
+    """Response containing all folders shared with the authenticated user."""
+
+    folders: List[SharedFolderItem] = Field(..., description="List of folders shared with the caller")
+
+
+class SharedPdfItem(BaseModel):
+    """A PDF that has been directly shared with the caller, including when it was shared."""
+
+    id: str = Field(..., description="PDF ID (UUID)")
+    file_name: str = Field(..., description="File name")
+    created_by: Optional[str] = Field(None, description="User ID of the PDF owner")
+    folder_id: Optional[str] = Field(None, description="Folder ID the PDF belongs to, if any")
+    created_at: str = Field(..., description="PDF creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="PDF last-update timestamp (ISO format)")
+    shared_at: str = Field(..., description="Timestamp when the PDF was shared with the caller (ISO format)")
+
+
+class GetSharedPdfsResponse(BaseModel):
+    """Response containing all PDFs directly shared with the authenticated user."""
+
+    pdfs: List[SharedPdfItem] = Field(..., description="List of PDFs directly shared with the caller")
+
+
+class ShareeItem(BaseModel):
+    """A single recipient entry in a sharee list."""
+
+    email: str = Field(..., description="Email address of the recipient")
+    shared_at: str = Field(..., description="Timestamp when the share was created (ISO format)")
+
+
+class GetShareeListResponse(BaseModel):
+    """Response containing all users a resource has been shared with."""
+
+    sharees: List[ShareeItem] = Field(..., description="List of email recipients and their share timestamps")
