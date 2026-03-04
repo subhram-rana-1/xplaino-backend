@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Dict, Any, Optional
 import structlog
 
@@ -13,6 +14,12 @@ from app.models import (
     CreateFolderResponse,
     RenameFolderRequest,
     RenameFolderResponse,
+    ShareResourceRequest,
+    FolderShareResponse,
+    SharedFolderItem,
+    GetSharedFoldersResponse,
+    GetShareeListResponse,
+    ShareeItem,
     UserInfo
 )
 from app.database.connection import get_db
@@ -24,7 +31,11 @@ from app.services.database_service import (
     get_folder_by_id_and_user_id,
     get_user_info_with_email_by_user_id,
     delete_folder_by_id_and_user_id,
-    update_folder_name_by_id_and_user_id
+    update_folder_name_by_id_and_user_id,
+    share_folder,
+    unshare_folder,
+    get_folders_shared_with_email,
+    get_folder_sharee_list,
 )
 
 logger = structlog.get_logger()
@@ -239,6 +250,66 @@ async def create_folder(
     )
 
 
+@router.get(
+    "/shared-with-me",
+    response_model=GetSharedFoldersResponse,
+    summary="Get folders shared with me",
+    description="Get all folders that have been shared with the authenticated user."
+)
+async def get_shared_folders_endpoint(
+    request: Request,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Return all folders shared with the caller. Requires authentication."""
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "UNAUTHORIZED",
+                "error_message": "Authentication required to view shared folders"
+            }
+        )
+
+    auth_vendor_id = auth_context["session_data"]["auth_vendor_id"]
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+
+    user_info_data = get_user_info_with_email_by_user_id(db, user_id)
+    email = user_info_data.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "NO_EMAIL",
+                "error_message": "Authenticated user does not have an email address on record"
+            }
+        )
+
+    folders_data = get_folders_shared_with_email(db, email)
+
+    logger.info(
+        "Retrieved shared folders",
+        user_id=user_id,
+        email=email,
+        count=len(folders_data),
+    )
+
+    return GetSharedFoldersResponse(
+        folders=[
+            SharedFolderItem(
+                id=f["id"],
+                name=f["name"],
+                parent_id=f["parent_id"],
+                user_id=f["user_id"],
+                created_at=f["created_at"],
+                updated_at=f["updated_at"],
+                shared_at=f["shared_at"],
+            )
+            for f in folders_data
+        ]
+    )
+
+
 @router.delete(
     "/{folder_id}",
     status_code=204,
@@ -373,5 +444,177 @@ async def rename_folder(
         user_id=updated_folder["user_id"],
         created_at=updated_folder["created_at"],
         updated_at=updated_folder["updated_at"]
+    )
+
+
+@router.post(
+    "/{folder_id}/share",
+    response_model=FolderShareResponse,
+    status_code=201,
+    summary="Share a folder",
+    description="Share a folder with another user by their email address. Only the folder owner can share it."
+)
+async def share_folder_endpoint(
+    request: Request,
+    folder_id: str = Path(..., description="Folder ID (UUID)"),
+    body: ShareResourceRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Share a folder with another user by email. Requires authentication."""
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "UNAUTHORIZED",
+                "error_message": "Authentication required to share a folder"
+            }
+        )
+
+    auth_vendor_id = auth_context["session_data"]["auth_vendor_id"]
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+
+    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+
+    try:
+        share_data = share_folder(db, folder_id, body.email)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "ALREADY_SHARED",
+                "error_message": "Folder is already shared with this email"
+            }
+        )
+
+    logger.info(
+        "Shared folder successfully",
+        folder_id=folder_id,
+        user_id=user_id,
+        shared_to_email=body.email,
+    )
+
+    return FolderShareResponse(
+        id=share_data["id"],
+        folder_id=share_data["folder_id"],
+        shared_to_email=share_data["shared_to_email"],
+        created_at=share_data["created_at"],
+    )
+
+
+@router.delete(
+    "/{folder_id}/share",
+    status_code=204,
+    summary="Unshare a folder",
+    description="Remove a share for a folder with a specific user by their email address. Only the folder owner can unshare it."
+)
+async def unshare_folder_endpoint(
+    request: Request,
+    folder_id: str = Path(..., description="Folder ID (UUID)"),
+    body: ShareResourceRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Unshare a folder from a user by email. Requires authentication."""
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "UNAUTHORIZED",
+                "error_message": "Authentication required to unshare a folder"
+            }
+        )
+
+    auth_vendor_id = auth_context["session_data"]["auth_vendor_id"]
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+
+    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+
+    deleted = unshare_folder(db, folder_id, body.email)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "SHARE_NOT_FOUND",
+                "error_message": "Share record not found for this folder and email"
+            }
+        )
+
+    logger.info(
+        "Unshared folder successfully",
+        folder_id=folder_id,
+        user_id=user_id,
+        shared_to_email=body.email,
+    )
+
+    return FastAPIResponse(status_code=204)
+
+
+@router.get(
+    "/{folder_id}/share",
+    response_model=GetShareeListResponse,
+    summary="Get sharee list for a folder",
+    description="Get all email addresses the owner has shared this folder with. Only the folder owner can view this list."
+)
+async def get_folder_sharee_list_endpoint(
+    request: Request,
+    folder_id: str = Path(..., description="Folder ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db)
+):
+    """Return all recipients this folder has been shared with. Requires authentication and ownership."""
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "UNAUTHORIZED",
+                "error_message": "Authentication required to view folder sharee list"
+            }
+        )
+
+    auth_vendor_id = auth_context["session_data"]["auth_vendor_id"]
+    user_id = get_user_id_by_auth_vendor_id(db, auth_vendor_id)
+
+    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    if not folder:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "NOT_FOUND",
+                "error_message": "Folder not found or does not belong to user"
+            }
+        )
+
+    sharees_data = get_folder_sharee_list(db, folder_id)
+
+    logger.info(
+        "Retrieved folder sharee list",
+        folder_id=folder_id,
+        user_id=user_id,
+        count=len(sharees_data),
+    )
+
+    return GetShareeListResponse(
+        sharees=[
+            ShareeItem(email=s["email"], shared_at=s["shared_at"])
+            for s in sharees_data
+        ]
     )
 

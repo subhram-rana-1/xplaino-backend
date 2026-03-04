@@ -17,9 +17,11 @@ from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
     get_saved_words_by_folder_id_and_user_id,
+    get_saved_words_by_folder_id,
     create_saved_word,
     delete_saved_word_by_id_and_user_id,
     get_folder_by_id_and_user_id,
+    check_folder_access_for_user,
     get_user_info_with_email_by_user_id,
     get_saved_word_by_id_and_user_id,
     update_saved_word_folder_id
@@ -36,7 +38,7 @@ router = APIRouter(prefix="/api/saved-words", tags=["Saved Words"])
     summary="Get saved words by folder ID",
     description="Get paginated list of saved words for the authenticated user filtered by folder ID, ordered by most recent first"
 )
-async def get_saved_words_by_folder_id(
+async def get_saved_words(
     request: Request,
     response: Response,
     folder_id: str = Query(..., description="Folder ID to filter by"),
@@ -55,19 +57,31 @@ async def get_saved_words_by_folder_id(
     else:
         user_id = auth_context["unauthenticated_user_id"]
     
-    # Validate folder exists and belongs to user
-    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
-    if not folder:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error_code": "NOT_FOUND",
-                "error_message": "Folder not found or does not belong to user"
-            }
-        )
-    
-    # Get saved words filtered by folder_id
-    words_data, total_count = get_saved_words_by_folder_id_and_user_id(db, user_id, folder_id, offset, limit)
+    # Validate folder access and fetch words
+    if auth_context.get("authenticated"):
+        user_info = get_user_info_with_email_by_user_id(db, user_id)
+        user_email = user_info.get("email") if user_info else None
+        folder = check_folder_access_for_user(db, folder_id, user_id, user_email or "")
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "You don't have access to this folder"
+                }
+            )
+        words_data, total_count = get_saved_words_by_folder_id(db, folder_id, offset, limit)
+    else:
+        folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+        if not folder:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "Folder not found or does not belong to user"
+                }
+            )
+        words_data, total_count = get_saved_words_by_folder_id_and_user_id(db, user_id, folder_id, offset, limit)
     
     # Convert to response models with user info
     words = []

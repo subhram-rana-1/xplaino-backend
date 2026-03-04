@@ -282,14 +282,18 @@ CREATE TABLE IF NOT EXISTS pdf (
     created_by CHAR(36) NULL,
     unauthenticated_user_id CHAR(36) NULL,
     folder_id CHAR(36) NULL,
+    parent_id CHAR(36) NULL,
+    access_level ENUM('PRIVATE', 'PUBLIC') NOT NULL DEFAULT 'PRIVATE',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_created_by (created_by),
     INDEX idx_unauth_user_id (unauthenticated_user_id),
     INDEX idx_folder_id (folder_id),
+    INDEX idx_parent_id (parent_id),
     FOREIGN KEY (created_by) REFERENCES user(id),
     FOREIGN KEY (unauthenticated_user_id) REFERENCES unauthenticated_user_api_usage(user_id) ON DELETE SET NULL,
-    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE SET NULL
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE SET NULL,
+    FOREIGN KEY (parent_id) REFERENCES pdf(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Coupon table
@@ -470,8 +474,8 @@ CREATE TABLE IF NOT EXISTS pdf_highlight (
     pdf_id               CHAR(36) NOT NULL,
     user_id              CHAR(36) NOT NULL,
     highlight_colour_id  CHAR(36) NOT NULL,
-    start_text           VARCHAR(15) NOT NULL,
-    end_text             VARCHAR(15) NOT NULL,
+    start_text           VARCHAR(50) NOT NULL,
+    end_text             VARCHAR(50) NOT NULL,
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_pdf_id (pdf_id),
@@ -481,30 +485,28 @@ CREATE TABLE IF NOT EXISTS pdf_highlight (
     FOREIGN KEY (highlight_colour_id) REFERENCES highlight_colour(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Folder share table (owner shares a folder with another authenticated user)
+-- Folder share table (owner shares a folder with another user identified by email)
 CREATE TABLE IF NOT EXISTS folder_share (
-    id         CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    folder_id  CHAR(36) NOT NULL,
-    shared_to  CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_folder_shared_to (folder_id, shared_to),
-    INDEX idx_folder_id (folder_id),
-    INDEX idx_shared_to (shared_to),
-    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE,
-    FOREIGN KEY (shared_to) REFERENCES user(id)   ON DELETE CASCADE
+    id              CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+    folder_id       CHAR(36)     NOT NULL,
+    shared_to_email VARCHAR(256) NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_folder_shared_to_email (folder_id, shared_to_email),
+    INDEX idx_folder_id      (folder_id),
+    INDEX idx_shared_to_email (shared_to_email),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- PDF share table (owner shares a PDF with another authenticated user)
+-- PDF share table (owner shares a PDF with another user identified by email)
 CREATE TABLE IF NOT EXISTS pdf_share (
-    id         CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    pdf_id     CHAR(36) NOT NULL,
-    shared_to  CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_pdf_shared_to (pdf_id, shared_to),
-    INDEX idx_pdf_id   (pdf_id),
-    INDEX idx_shared_to (shared_to),
-    FOREIGN KEY (pdf_id)    REFERENCES pdf(id)  ON DELETE CASCADE,
-    FOREIGN KEY (shared_to) REFERENCES user(id) ON DELETE CASCADE
+    id              CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+    pdf_id          CHAR(36)     NOT NULL,
+    shared_to_email VARCHAR(256) NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_pdf_shared_to_email (pdf_id, shared_to_email),
+    INDEX idx_pdf_id          (pdf_id),
+    INDEX idx_shared_to_email (shared_to_email),
+    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- PDF note table (user-created notes on a PDF)
@@ -512,8 +514,8 @@ CREATE TABLE IF NOT EXISTS pdf_note (
     id          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
     pdf_id      CHAR(36)      NOT NULL,
     user_id     CHAR(36)      NOT NULL,
-    start_text  VARCHAR(15)   NOT NULL,
-    end_text    VARCHAR(15)   NOT NULL,
+    start_text  VARCHAR(50)   NOT NULL,
+    end_text    VARCHAR(50)   NOT NULL,
     content     VARCHAR(1024) NOT NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

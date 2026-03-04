@@ -17,10 +17,12 @@ from app.services.database_service import (
     get_all_highlight_colours,
     get_highlight_colour_by_id,
     create_pdf_highlight,
-    get_pdf_highlights_by_pdf_and_user,
+    get_pdf_highlights_by_pdf,
     delete_pdf_highlight_by_id_and_user_id,
     get_pdf_by_id_and_user_id,
+    check_pdf_access_for_user,
     get_user_id_by_auth_vendor_id,
+    get_user_info_with_email_by_user_id,
 )
 
 logger = structlog.get_logger()
@@ -146,19 +148,21 @@ async def get_pdf_highlights(
     session_data = auth_context["session_data"]
     user_id = get_user_id_by_auth_vendor_id(db, session_data["auth_vendor_id"])
 
-    # Validate PDF exists and belongs to this user
-    pdf = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+    # Validate PDF is accessible to this user (owner or sharee)
+    user_info = get_user_info_with_email_by_user_id(db, user_id)
+    user_email = user_info.get("email") if user_info else None
+    pdf = check_pdf_access_for_user(db, pdf_id, user_id, user_email or "")
     if not pdf:
         raise HTTPException(
             status_code=404,
             detail={
                 "error_code": "NOT_FOUND",
-                "error_message": "PDF not found or does not belong to the user",
+                "error_message": "PDF not found or not accessible to the user",
             },
         )
 
-    highlights_data, total_count = get_pdf_highlights_by_pdf_and_user(
-        db, pdf_id=pdf_id, user_id=user_id, offset=offset, limit=limit
+    highlights_data, total_count = get_pdf_highlights_by_pdf(
+        db, pdf_id=pdf_id, offset=offset, limit=limit
     )
 
     highlights = [

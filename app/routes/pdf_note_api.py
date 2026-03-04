@@ -16,7 +16,7 @@ from app.services.database_service import (
     create_pdf_note,
     update_pdf_note_content,
     delete_pdf_note_by_id_and_user_id,
-    get_pdf_notes_by_pdf_and_user,
+    get_pdf_notes_by_pdf,
     get_pdf_by_id_and_user_id,
     get_user_id_by_auth_vendor_id,
 )
@@ -229,7 +229,7 @@ async def get_notes_by_pdf(
             },
         )
 
-    notes_data = get_pdf_notes_by_pdf_and_user(db, pdf_id=pdf_id, user_id=user_id)
+    notes_data = get_pdf_notes_by_pdf(db, pdf_id=pdf_id)
 
     notes = [
         PdfNoteResponse(

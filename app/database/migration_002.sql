@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS pdf_highlight (
     pdf_id               CHAR(36) NOT NULL,
     user_id              CHAR(36) NOT NULL,
     highlight_colour_id  CHAR(36) NOT NULL,
-    start_text           VARCHAR(15) NOT NULL,
-    end_text             VARCHAR(15) NOT NULL,
+    start_text           VARCHAR(50) NOT NULL,
+    end_text             VARCHAR(50) NOT NULL,
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_pdf_id (pdf_id),
@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS pdf_note (
     id          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
     pdf_id      CHAR(36)      NOT NULL,
     user_id     CHAR(36)      NOT NULL,
-    start_text  VARCHAR(15)   NOT NULL,
-    end_text    VARCHAR(15)   NOT NULL,
+    start_text  VARCHAR(50)   NOT NULL,
+    end_text    VARCHAR(50)   NOT NULL,
     content     VARCHAR(1024) NOT NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -52,28 +52,45 @@ CREATE TABLE IF NOT EXISTS pdf_note (
     FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Migration 005: create folder_share table
+-- Migration 005: widen start_text / end_text on pdf_highlight and pdf_note
+ALTER TABLE pdf_highlight
+    MODIFY COLUMN start_text VARCHAR(50) NOT NULL,
+    MODIFY COLUMN end_text   VARCHAR(50) NOT NULL;
+
+ALTER TABLE pdf_note
+    MODIFY COLUMN start_text VARCHAR(50) NOT NULL,
+    MODIFY COLUMN end_text   VARCHAR(50) NOT NULL;
+
+-- Migration 006: create folder_share table
 CREATE TABLE IF NOT EXISTS folder_share (
-    id         CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    folder_id  CHAR(36) NOT NULL,
-    shared_to  CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_folder_shared_to (folder_id, shared_to),
-    INDEX idx_folder_id (folder_id),
-    INDEX idx_shared_to (shared_to),
-    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE,
-    FOREIGN KEY (shared_to) REFERENCES user(id)   ON DELETE CASCADE
+    id              CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+    folder_id       CHAR(36)     NOT NULL,
+    shared_to_email VARCHAR(256) NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_folder_shared_to_email (folder_id, shared_to_email),
+    INDEX idx_folder_id       (folder_id),
+    INDEX idx_shared_to_email (shared_to_email),
+    FOREIGN KEY (folder_id) REFERENCES folder(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Migration 005: create pdf_share table
+-- Migration 006: create pdf_share table
 CREATE TABLE IF NOT EXISTS pdf_share (
-    id         CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    pdf_id     CHAR(36) NOT NULL,
-    shared_to  CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_pdf_shared_to (pdf_id, shared_to),
-    INDEX idx_pdf_id    (pdf_id),
-    INDEX idx_shared_to (shared_to),
-    FOREIGN KEY (pdf_id)    REFERENCES pdf(id)  ON DELETE CASCADE,
-    FOREIGN KEY (shared_to) REFERENCES user(id) ON DELETE CASCADE
+    id              CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+    pdf_id          CHAR(36)     NOT NULL,
+    shared_to_email VARCHAR(256) NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_pdf_shared_to_email (pdf_id, shared_to_email),
+    INDEX idx_pdf_id          (pdf_id),
+    INDEX idx_shared_to_email (shared_to_email),
+    FOREIGN KEY (pdf_id) REFERENCES pdf(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migration 007: Add access_level to pdf table
+ALTER TABLE pdf
+    ADD COLUMN access_level ENUM('PRIVATE', 'PUBLIC') NOT NULL DEFAULT 'PRIVATE';
+
+-- Migration 008: Add parent_id to pdf table (self-referential FK for copied PDFs)
+ALTER TABLE pdf
+    ADD COLUMN parent_id CHAR(36) NULL,
+    ADD INDEX idx_parent_id (parent_id),
+    ADD CONSTRAINT fk_pdf_parent_id FOREIGN KEY (parent_id) REFERENCES pdf(id) ON DELETE SET NULL;

@@ -18,11 +18,13 @@ from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
     get_saved_images_by_folder_id_and_user_id,
+    get_saved_images_by_folder_id,
     create_saved_image,
     get_saved_image_by_id_and_user_id,
     update_saved_image_folder_id,
     delete_saved_image_by_id_and_user_id,
     get_folder_by_id_and_user_id,
+    check_folder_access_for_user,
     get_user_info_with_email_by_user_id
 )
 
@@ -226,20 +228,22 @@ async def get_all_saved_images_by_folder_id(
             }
         )
 
-    # Validate folder exists and belongs to the user
-    folder = get_folder_by_id_and_user_id(db, folder_id, user_id)
+    # Validate folder exists and is accessible (owner or sharee)
+    user_info = get_user_info_with_email_by_user_id(db, user_id)
+    user_email = user_info.get("email") if user_info else None
+    folder = check_folder_access_for_user(db, folder_id, user_id, user_email or "")
     if not folder:
         raise HTTPException(
             status_code=404,
             detail={
                 "error_code": "NOT_FOUND",
-                "error_message": "Folder not found or does not belong to user"
+                "error_message": "You don't have access to this folder"
             }
         )
 
     # Get saved images for the folder
-    images_data, total_count = get_saved_images_by_folder_id_and_user_id(
-        db, user_id, folder_id, offset, limit
+    images_data, total_count = get_saved_images_by_folder_id(
+        db, folder_id, offset, limit
     )
 
     # Get user info for each image's user_id (all should be the same user_id, but we'll fetch for each)
