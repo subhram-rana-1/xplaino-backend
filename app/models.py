@@ -1691,3 +1691,149 @@ class GetShareeListResponse(BaseModel):
     """Response containing all users a resource has been shared with."""
 
     sharees: List[ShareeItem] = Field(..., description="List of email recipients and their share timestamps")
+
+
+# ---------------------------------------------------------------------------
+# Custom User Prompt models
+# ---------------------------------------------------------------------------
+
+class CreateCustomUserPromptRequest(BaseModel):
+    """Request body for creating a custom user prompt."""
+
+    title: str = Field(..., min_length=1, max_length=200, description="Prompt title (max 200 characters)")
+    description: str = Field(..., min_length=1, description="Prompt description / body text")
+
+
+class UpdateCustomUserPromptRequest(BaseModel):
+    """Request body for updating a custom user prompt (PATCH — all fields optional)."""
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200, description="New prompt title (max 200 characters)")
+    description: Optional[str] = Field(default=None, min_length=1, description="New prompt description / body text")
+
+
+class CustomUserPromptResponse(BaseModel):
+    """A single custom user prompt record."""
+
+    id: str = Field(..., description="Prompt ID (UUID)")
+    userId: str = Field(..., description="ID of the user who owns this prompt")
+    title: str = Field(..., description="Prompt title")
+    description: str = Field(..., description="Prompt description / body text")
+    isHidden: bool = Field(..., description="Whether the prompt is hidden from the owner's list")
+    createdAt: str = Field(..., description="Creation timestamp (ISO format)")
+    updatedAt: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetAllCustomUserPromptsResponse(BaseModel):
+    """Paginated list of the caller's own custom user prompts."""
+
+    prompts: List[CustomUserPromptResponse] = Field(..., description="List of custom user prompts")
+    total: int = Field(..., description="Total number of non-hidden prompts owned by the user")
+    offset: int = Field(..., description="Pagination offset used in this request")
+    limit: int = Field(..., description="Pagination limit used in this request")
+
+
+class ShareCustomUserPromptRequest(BaseModel):
+    """Request body for sharing a custom user prompt with another user."""
+
+    sharedToUserId: str = Field(..., description="User ID (UUID) of the recipient")
+
+
+class CustomUserPromptShareResponse(BaseModel):
+    """A single share record, including the embedded prompt details."""
+
+    id: str = Field(..., description="Share record ID (UUID)")
+    customUserPromptId: str = Field(..., description="ID of the shared custom user prompt")
+    sharedTo: str = Field(..., description="User ID of the recipient")
+    isHidden: bool = Field(..., description="Whether the recipient has hidden this shared prompt")
+    createdAt: str = Field(..., description="Timestamp when the share was created (ISO format)")
+    prompt: CustomUserPromptResponse = Field(..., description="Full prompt details")
+
+
+class GetSharedCustomUserPromptsResponse(BaseModel):
+    """Paginated list of custom user prompts shared with the caller."""
+
+    shares: List[CustomUserPromptShareResponse] = Field(..., description="List of share records")
+    total: int = Field(..., description="Total number of non-hidden shares for the user")
+    offset: int = Field(..., description="Pagination offset used in this request")
+    limit: int = Field(..., description="Pagination limit used in this request")
+
+
+# ---------------------------------------------------------------------------
+# PDF text chat models (two-table design)
+# ---------------------------------------------------------------------------
+
+class ChatWho(str, Enum):
+    """Sender of a message in a PDF text chat conversation."""
+    USER = "USER"
+    SYSTEM = "SYSTEM"
+
+
+class ChatMessageItem(BaseModel):
+    """A single chat message used in request bodies."""
+
+    who: ChatWho = Field(..., description="Sender of this message (USER or SYSTEM)")
+    content: str = Field(..., min_length=1, description="Message content (may contain markdown)")
+
+
+class CreatePdfTextChatRequest(BaseModel):
+    """Request body for creating a PDF text chat conversation."""
+
+    start_text_pdf_page_number: int = Field(..., ge=1, description="Page number where the selected text starts")
+    end_text_pdf_page_number: int = Field(..., ge=1, description="Page number where the selected text ends")
+    start_text: str = Field(..., min_length=1, max_length=50, description="First 50 characters of the selected text")
+    end_text: str = Field(..., min_length=1, max_length=50, description="Last 50 characters of the selected text")
+    chats: Optional[List[ChatMessageItem]] = Field(default=None, description="Optional initial batch of messages to insert in order")
+
+
+class AppendPdfTextChatMessagesRequest(BaseModel):
+    """Request body for appending a batch of messages to an existing chat conversation."""
+
+    chats: List[ChatMessageItem] = Field(..., min_length=1, description="Ordered list of messages to append (at least one required)")
+
+
+class PdfTextChatResponse(BaseModel):
+    """A single pdf_text_chat conversation record."""
+
+    id: str = Field(..., description="Chat conversation ID (UUID)")
+    pdf_id: str = Field(..., description="PDF ID this conversation belongs to (UUID)")
+    user_id: str = Field(..., description="User ID who created this conversation (UUID)")
+    start_text_pdf_page_number: int = Field(..., description="Page number where the selected text starts")
+    end_text_pdf_page_number: int = Field(..., description="Page number where the selected text ends")
+    start_text: str = Field(..., description="First 50 characters of the selected text")
+    end_text: str = Field(..., description="Last 50 characters of the selected text")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetAllPdfTextChatsResponse(BaseModel):
+    """Response containing all pdf_text_chat records for a PDF."""
+
+    pdf_id: str = Field(..., description="PDF ID")
+    chats: List[PdfTextChatResponse] = Field(..., description="List of conversation records (no message history)")
+
+
+class PdfTextChatHistoryItemResponse(BaseModel):
+    """A single message in a pdf_text_chat_history."""
+
+    id: str = Field(..., description="Message ID (UUID)")
+    pdf_text_chat_id: str = Field(..., description="Conversation ID this message belongs to (UUID)")
+    who: str = Field(..., description="Sender of this message (USER or SYSTEM)")
+    content: str = Field(..., description="Message content (may contain markdown)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+
+
+class GetPdfTextChatHistoryResponse(BaseModel):
+    """Paginated response containing messages for a pdf_text_chat conversation."""
+
+    pdf_text_chat_id: str = Field(..., description="Conversation ID")
+    messages: List[PdfTextChatHistoryItemResponse] = Field(..., description="Messages ordered by created_at DESC (most recent first)")
+    total: int = Field(..., description="Total number of messages in this conversation")
+    offset: int = Field(..., description="Pagination offset used in this request")
+    limit: int = Field(..., description="Pagination limit used in this request")
+
+
+class CreatePdfTextChatResponse(BaseModel):
+    """Response returned after creating a pdf_text_chat conversation."""
+
+    chat: PdfTextChatResponse = Field(..., description="The created conversation record")
+    messages: List[PdfTextChatHistoryItemResponse] = Field(..., description="Initial messages inserted, in insertion order")

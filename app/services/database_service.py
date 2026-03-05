@@ -9988,3 +9988,1088 @@ def get_pdf_sharee_list(
 
     return sharees
 
+
+# ---------------------------------------------------------------------------
+# Custom User Prompt
+# ---------------------------------------------------------------------------
+
+def create_custom_user_prompt(
+    db: Session,
+    user_id: str,
+    title: str,
+    description: str,
+) -> Dict[str, Any]:
+    """
+    Create a new custom user prompt.
+
+    Args:
+        db: Database session
+        user_id: Owner user ID (CHAR(36) UUID)
+        title: Prompt title (max 200 characters)
+        description: Prompt body text
+
+    Returns:
+        Dictionary with the created prompt data
+    """
+    logger.info(
+        "Creating custom user prompt",
+        function="create_custom_user_prompt",
+        user_id=user_id,
+    )
+
+    prompt_id = str(uuid.uuid4())
+
+    db.execute(
+        text("""
+            INSERT INTO custom_user_prompt (id, user_id, title, description)
+            VALUES (:id, :user_id, :title, :description)
+        """),
+        {
+            "id": prompt_id,
+            "user_id": user_id,
+            "title": title,
+            "description": description,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        text("SELECT id, user_id, title, description, is_hidden, created_at, updated_at FROM custom_user_prompt WHERE id = :id"),
+        {"id": prompt_id},
+    ).fetchone()
+
+    result = {
+        "id": row[0],
+        "user_id": row[1],
+        "title": row[2],
+        "description": row[3],
+        "is_hidden": bool(row[4]),
+        "created_at": row[5].isoformat() if isinstance(row[5], datetime) else str(row[5]),
+        "updated_at": row[6].isoformat() if isinstance(row[6], datetime) else str(row[6]),
+    }
+
+    logger.info(
+        "Created custom user prompt successfully",
+        function="create_custom_user_prompt",
+        prompt_id=prompt_id,
+        user_id=user_id,
+    )
+
+    return result
+
+
+def update_custom_user_prompt(
+    db: Session,
+    prompt_id: str,
+    user_id: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update a custom user prompt's title and/or description.
+    Only updates fields that are not None.
+
+    Args:
+        db: Database session
+        prompt_id: Prompt ID (CHAR(36) UUID)
+        user_id: Caller's user ID — used for ownership check
+        title: New title (or None to leave unchanged)
+        description: New description (or None to leave unchanged)
+
+    Returns:
+        Updated prompt dict, or None if not found / not owned by caller
+    """
+    logger.info(
+        "Updating custom user prompt",
+        function="update_custom_user_prompt",
+        prompt_id=prompt_id,
+        user_id=user_id,
+    )
+
+    set_clauses = []
+    params: Dict[str, Any] = {"prompt_id": prompt_id, "user_id": user_id}
+
+    if title is not None:
+        set_clauses.append("title = :title")
+        params["title"] = title
+    if description is not None:
+        set_clauses.append("description = :description")
+        params["description"] = description
+
+    if not set_clauses:
+        row = db.execute(
+            text("SELECT id, user_id, title, description, is_hidden, created_at, updated_at FROM custom_user_prompt WHERE id = :prompt_id AND user_id = :user_id"),
+            params,
+        ).fetchone()
+    else:
+        set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+        db.execute(
+            text(f"UPDATE custom_user_prompt SET {', '.join(set_clauses)} WHERE id = :prompt_id AND user_id = :user_id"),
+            params,
+        )
+        db.commit()
+
+        row = db.execute(
+            text("SELECT id, user_id, title, description, is_hidden, created_at, updated_at FROM custom_user_prompt WHERE id = :id"),
+            {"id": prompt_id},
+        ).fetchone()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "user_id": row[1],
+        "title": row[2],
+        "description": row[3],
+        "is_hidden": bool(row[4]),
+        "created_at": row[5].isoformat() if isinstance(row[5], datetime) else str(row[5]),
+        "updated_at": row[6].isoformat() if isinstance(row[6], datetime) else str(row[6]),
+    }
+
+
+def get_custom_user_prompt_by_id(
+    db: Session,
+    prompt_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a single custom user prompt by its ID.
+
+    Args:
+        db: Database session
+        prompt_id: Prompt ID (CHAR(36) UUID)
+
+    Returns:
+        Prompt dict, or None if not found
+    """
+    logger.info(
+        "Getting custom user prompt by id",
+        function="get_custom_user_prompt_by_id",
+        prompt_id=prompt_id,
+    )
+
+    row = db.execute(
+        text("SELECT id, user_id, title, description, is_hidden, created_at, updated_at FROM custom_user_prompt WHERE id = :id"),
+        {"id": prompt_id},
+    ).fetchone()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "user_id": row[1],
+        "title": row[2],
+        "description": row[3],
+        "is_hidden": bool(row[4]),
+        "created_at": row[5].isoformat() if isinstance(row[5], datetime) else str(row[5]),
+        "updated_at": row[6].isoformat() if isinstance(row[6], datetime) else str(row[6]),
+    }
+
+
+def set_custom_user_prompt_hidden(
+    db: Session,
+    prompt_id: str,
+    user_id: str,
+    is_hidden: bool,
+) -> bool:
+    """
+    Set the is_hidden flag on a custom user prompt. Ownership is enforced.
+
+    Args:
+        db: Database session
+        prompt_id: Prompt ID (CHAR(36) UUID)
+        user_id: Caller's user ID — must be the owner
+        is_hidden: New hidden state
+
+    Returns:
+        True if updated, False if not found or not owned by caller
+    """
+    logger.info(
+        "Setting custom user prompt hidden flag",
+        function="set_custom_user_prompt_hidden",
+        prompt_id=prompt_id,
+        user_id=user_id,
+        is_hidden=is_hidden,
+    )
+
+    result = db.execute(
+        text("""
+            UPDATE custom_user_prompt
+            SET is_hidden = :is_hidden, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :prompt_id AND user_id = :user_id
+        """),
+        {"is_hidden": is_hidden, "prompt_id": prompt_id, "user_id": user_id},
+    )
+    db.commit()
+
+    updated = result.rowcount > 0
+
+    logger.info(
+        "Set custom user prompt hidden flag",
+        function="set_custom_user_prompt_hidden",
+        prompt_id=prompt_id,
+        user_id=user_id,
+        updated=updated,
+    )
+
+    return updated
+
+
+def delete_custom_user_prompt(
+    db: Session,
+    prompt_id: str,
+    user_id: str,
+) -> bool:
+    """
+    Delete a custom user prompt. Only the owner can delete it.
+
+    Args:
+        db: Database session
+        prompt_id: Prompt ID (CHAR(36) UUID)
+        user_id: Caller's user ID — must be the owner
+
+    Returns:
+        True if deleted, False if not found or not owned by caller
+    """
+    logger.info(
+        "Deleting custom user prompt",
+        function="delete_custom_user_prompt",
+        prompt_id=prompt_id,
+        user_id=user_id,
+    )
+
+    result = db.execute(
+        text("DELETE FROM custom_user_prompt WHERE id = :prompt_id AND user_id = :user_id"),
+        {"prompt_id": prompt_id, "user_id": user_id},
+    )
+    db.commit()
+
+    deleted = result.rowcount > 0
+
+    logger.info(
+        "Deleted custom user prompt",
+        function="delete_custom_user_prompt",
+        prompt_id=prompt_id,
+        user_id=user_id,
+        deleted=deleted,
+    )
+
+    return deleted
+
+
+def get_all_custom_user_prompts_by_user_id(
+    db: Session,
+    user_id: str,
+    offset: int = 0,
+    limit: int = 20,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get all non-hidden custom user prompts owned by a user, with pagination.
+
+    Args:
+        db: Database session
+        user_id: Owner user ID (CHAR(36) UUID)
+        offset: Pagination offset
+        limit: Pagination limit
+
+    Returns:
+        Tuple of (list of prompt dicts, total count)
+    """
+    logger.info(
+        "Getting all custom user prompts by user_id",
+        function="get_all_custom_user_prompts_by_user_id",
+        user_id=user_id,
+        offset=offset,
+        limit=limit,
+    )
+
+    total_row = db.execute(
+        text("SELECT COUNT(*) FROM custom_user_prompt WHERE user_id = :user_id AND is_hidden = FALSE"),
+        {"user_id": user_id},
+    ).fetchone()
+    total = total_row[0] if total_row else 0
+
+    rows = db.execute(
+        text("""
+            SELECT id, user_id, title, description, is_hidden, created_at, updated_at
+            FROM custom_user_prompt
+            WHERE user_id = :user_id AND is_hidden = FALSE
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"user_id": user_id, "limit": limit, "offset": offset},
+    ).fetchall()
+
+    prompts = [
+        {
+            "id": row[0],
+            "user_id": row[1],
+            "title": row[2],
+            "description": row[3],
+            "is_hidden": bool(row[4]),
+            "created_at": row[5].isoformat() if isinstance(row[5], datetime) else str(row[5]),
+            "updated_at": row[6].isoformat() if isinstance(row[6], datetime) else str(row[6]),
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "Fetched custom user prompts by user_id",
+        function="get_all_custom_user_prompts_by_user_id",
+        user_id=user_id,
+        count=len(prompts),
+        total=total,
+    )
+
+    return prompts, total
+
+
+# ---------------------------------------------------------------------------
+# Custom User Prompt Share
+# ---------------------------------------------------------------------------
+
+def create_custom_user_prompt_share(
+    db: Session,
+    prompt_id: str,
+    shared_to_user_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Share a custom user prompt with another user.
+    Returns None if a share already exists (duplicate).
+
+    Args:
+        db: Database session
+        prompt_id: ID of the prompt to share (CHAR(36) UUID)
+        shared_to_user_id: Recipient's user ID (CHAR(36) UUID)
+
+    Returns:
+        Share record dict, or None on duplicate
+    """
+    logger.info(
+        "Creating custom user prompt share",
+        function="create_custom_user_prompt_share",
+        prompt_id=prompt_id,
+        shared_to_user_id=shared_to_user_id,
+    )
+
+    share_id = str(uuid.uuid4())
+
+    try:
+        db.execute(
+            text("""
+                INSERT INTO custom_user_prompt_share (id, custom_user_prompt_id, shared_to)
+                VALUES (:id, :custom_user_prompt_id, :shared_to)
+            """),
+            {
+                "id": share_id,
+                "custom_user_prompt_id": prompt_id,
+                "shared_to": shared_to_user_id,
+            },
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        return None
+
+    row = db.execute(
+        text("SELECT id, custom_user_prompt_id, shared_to, is_hidden, created_at FROM custom_user_prompt_share WHERE id = :id"),
+        {"id": share_id},
+    ).fetchone()
+
+    if not row:
+        return None
+
+    result = {
+        "id": row[0],
+        "custom_user_prompt_id": row[1],
+        "shared_to": row[2],
+        "is_hidden": bool(row[3]),
+        "created_at": row[4].isoformat() if isinstance(row[4], datetime) else str(row[4]),
+    }
+
+    logger.info(
+        "Created custom user prompt share successfully",
+        function="create_custom_user_prompt_share",
+        share_id=share_id,
+        prompt_id=prompt_id,
+        shared_to_user_id=shared_to_user_id,
+    )
+
+    return result
+
+
+def delete_custom_user_prompt_share(
+    db: Session,
+    share_id: str,
+    shared_to_user_id: str,
+) -> bool:
+    """
+    Delete a share record. Only the recipient (shared_to) can delete it.
+
+    Args:
+        db: Database session
+        share_id: Share record ID (CHAR(36) UUID)
+        shared_to_user_id: Caller's user ID — must match shared_to
+
+    Returns:
+        True if deleted, False if not found or caller is not the recipient
+    """
+    logger.info(
+        "Deleting custom user prompt share",
+        function="delete_custom_user_prompt_share",
+        share_id=share_id,
+        shared_to_user_id=shared_to_user_id,
+    )
+
+    result = db.execute(
+        text("DELETE FROM custom_user_prompt_share WHERE id = :share_id AND shared_to = :shared_to"),
+        {"share_id": share_id, "shared_to": shared_to_user_id},
+    )
+    db.commit()
+
+    deleted = result.rowcount > 0
+
+    logger.info(
+        "Deleted custom user prompt share",
+        function="delete_custom_user_prompt_share",
+        share_id=share_id,
+        deleted=deleted,
+    )
+
+    return deleted
+
+
+def set_custom_user_prompt_share_hidden(
+    db: Session,
+    share_id: str,
+    shared_to_user_id: str,
+    is_hidden: bool,
+) -> bool:
+    """
+    Set the is_hidden flag on a share record. Only the recipient can do this.
+
+    Args:
+        db: Database session
+        share_id: Share record ID (CHAR(36) UUID)
+        shared_to_user_id: Caller's user ID — must match shared_to
+        is_hidden: New hidden state
+
+    Returns:
+        True if updated, False if not found or caller is not the recipient
+    """
+    logger.info(
+        "Setting custom user prompt share hidden flag",
+        function="set_custom_user_prompt_share_hidden",
+        share_id=share_id,
+        shared_to_user_id=shared_to_user_id,
+        is_hidden=is_hidden,
+    )
+
+    result = db.execute(
+        text("""
+            UPDATE custom_user_prompt_share
+            SET is_hidden = :is_hidden
+            WHERE id = :share_id AND shared_to = :shared_to
+        """),
+        {"is_hidden": is_hidden, "share_id": share_id, "shared_to": shared_to_user_id},
+    )
+    db.commit()
+
+    updated = result.rowcount > 0
+
+    logger.info(
+        "Set custom user prompt share hidden flag",
+        function="set_custom_user_prompt_share_hidden",
+        share_id=share_id,
+        updated=updated,
+    )
+
+    return updated
+
+
+def get_shared_custom_user_prompts_for_user(
+    db: Session,
+    user_id: str,
+    offset: int = 0,
+    limit: int = 20,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get all non-hidden custom user prompt shares where the caller is the recipient.
+    Includes embedded prompt details via JOIN.
+
+    Args:
+        db: Database session
+        user_id: Recipient user ID (CHAR(36) UUID)
+        offset: Pagination offset
+        limit: Pagination limit
+
+    Returns:
+        Tuple of (list of share dicts with nested prompt, total count)
+    """
+    logger.info(
+        "Getting shared custom user prompts for user",
+        function="get_shared_custom_user_prompts_for_user",
+        user_id=user_id,
+        offset=offset,
+        limit=limit,
+    )
+
+    total_row = db.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM custom_user_prompt_share s
+            WHERE s.shared_to = :user_id AND s.is_hidden = FALSE
+        """),
+        {"user_id": user_id},
+    ).fetchone()
+    total = total_row[0] if total_row else 0
+
+    rows = db.execute(
+        text("""
+            SELECT
+                s.id                    AS share_id,
+                s.custom_user_prompt_id,
+                s.shared_to,
+                s.is_hidden             AS share_is_hidden,
+                s.created_at            AS share_created_at,
+                p.id                    AS prompt_id,
+                p.user_id               AS prompt_user_id,
+                p.title,
+                p.description,
+                p.is_hidden             AS prompt_is_hidden,
+                p.created_at            AS prompt_created_at,
+                p.updated_at            AS prompt_updated_at
+            FROM custom_user_prompt_share s
+            JOIN custom_user_prompt p ON p.id = s.custom_user_prompt_id
+            WHERE s.shared_to = :user_id AND s.is_hidden = FALSE
+            ORDER BY s.created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"user_id": user_id, "limit": limit, "offset": offset},
+    ).fetchall()
+
+    shares = []
+    for row in rows:
+        shares.append({
+            "id": row[0],
+            "custom_user_prompt_id": row[1],
+            "shared_to": row[2],
+            "is_hidden": bool(row[3]),
+            "created_at": row[4].isoformat() if isinstance(row[4], datetime) else str(row[4]),
+            "prompt": {
+                "id": row[5],
+                "user_id": row[6],
+                "title": row[7],
+                "description": row[8],
+                "is_hidden": bool(row[9]),
+                "created_at": row[10].isoformat() if isinstance(row[10], datetime) else str(row[10]),
+                "updated_at": row[11].isoformat() if isinstance(row[11], datetime) else str(row[11]),
+            },
+        })
+
+    logger.info(
+        "Fetched shared custom user prompts for user",
+        function="get_shared_custom_user_prompts_for_user",
+        user_id=user_id,
+        count=len(shares),
+        total=total,
+    )
+
+    return shares, total
+
+
+def get_custom_user_prompt_share_by_id(
+    db: Session,
+    share_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a single share record by its ID (includes embedded prompt).
+
+    Args:
+        db: Database session
+        share_id: Share record ID (CHAR(36) UUID)
+
+    Returns:
+        Share dict with nested prompt, or None if not found
+    """
+    logger.info(
+        "Getting custom user prompt share by id",
+        function="get_custom_user_prompt_share_by_id",
+        share_id=share_id,
+    )
+
+    row = db.execute(
+        text("""
+            SELECT
+                s.id,
+                s.custom_user_prompt_id,
+                s.shared_to,
+                s.is_hidden             AS share_is_hidden,
+                s.created_at            AS share_created_at,
+                p.id                    AS prompt_id,
+                p.user_id               AS prompt_user_id,
+                p.title,
+                p.description,
+                p.is_hidden             AS prompt_is_hidden,
+                p.created_at            AS prompt_created_at,
+                p.updated_at            AS prompt_updated_at
+            FROM custom_user_prompt_share s
+            JOIN custom_user_prompt p ON p.id = s.custom_user_prompt_id
+            WHERE s.id = :share_id
+        """),
+        {"share_id": share_id},
+    ).fetchone()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "custom_user_prompt_id": row[1],
+        "shared_to": row[2],
+        "is_hidden": bool(row[3]),
+        "created_at": row[4].isoformat() if isinstance(row[4], datetime) else str(row[4]),
+        "prompt": {
+            "id": row[5],
+            "user_id": row[6],
+            "title": row[7],
+            "description": row[8],
+            "is_hidden": bool(row[9]),
+            "created_at": row[10].isoformat() if isinstance(row[10], datetime) else str(row[10]),
+            "updated_at": row[11].isoformat() if isinstance(row[11], datetime) else str(row[11]),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# PDF text chat (two-table design)
+# ---------------------------------------------------------------------------
+
+def create_pdf_text_chat(
+    db: Session,
+    pdf_id: str,
+    user_id: str,
+    start_text_pdf_page_number: int,
+    end_text_pdf_page_number: int,
+    start_text: str,
+    end_text: str,
+    chats: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
+    """
+    Create a pdf_text_chat record and optionally insert an ordered batch of messages
+    into pdf_text_chat_history, all within a single transaction.
+
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+        user_id: Authenticated user ID (CHAR(36) UUID)
+        start_text_pdf_page_number: Page where the selection starts
+        end_text_pdf_page_number: Page where the selection ends
+        start_text: First ≤50 characters of the selected text
+        end_text: Last ≤50 characters of the selected text
+        chats: Optional list of {'who': 'USER'|'SYSTEM', 'content': str} in desired order
+
+    Returns:
+        Dict with 'chat' (conversation record dict) and 'messages' (list of inserted message dicts)
+    """
+    logger.info(
+        "Creating PDF text chat",
+        function="create_pdf_text_chat",
+        pdf_id=pdf_id,
+        user_id=user_id,
+    )
+
+    chat_id = str(uuid.uuid4())
+
+    db.execute(
+        text("""
+            INSERT INTO pdf_text_chat
+                (id, pdf_id, user_id, start_text_pdf_page_number, end_text_pdf_page_number, start_text, end_text)
+            VALUES
+                (:id, :pdf_id, :user_id, :start_page, :end_page, :start_text, :end_text)
+        """),
+        {
+            "id": chat_id,
+            "pdf_id": pdf_id,
+            "user_id": user_id,
+            "start_page": start_text_pdf_page_number,
+            "end_page": end_text_pdf_page_number,
+            "start_text": start_text,
+            "end_text": end_text,
+        },
+    )
+
+    message_ids: List[str] = []
+    if chats:
+        for msg in chats:
+            msg_id = str(uuid.uuid4())
+            message_ids.append(msg_id)
+            db.execute(
+                text("""
+                    INSERT INTO pdf_text_chat_history (id, pdf_text_chat_id, who, content)
+                    VALUES (:id, :pdf_text_chat_id, :who, :content)
+                """),
+                {
+                    "id": msg_id,
+                    "pdf_text_chat_id": chat_id,
+                    "who": msg["who"],
+                    "content": msg["content"],
+                },
+            )
+
+    db.commit()
+
+    chat_row = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, start_text_pdf_page_number, end_text_pdf_page_number,
+                   start_text, end_text, created_at, updated_at
+            FROM pdf_text_chat
+            WHERE id = :id
+        """),
+        {"id": chat_id},
+    ).fetchone()
+
+    def _ts(val: Any) -> str:
+        return val.isoformat() if isinstance(val, datetime) else str(val)
+
+    chat_dict = {
+        "id": chat_row[0],
+        "pdf_id": chat_row[1],
+        "user_id": chat_row[2],
+        "start_text_pdf_page_number": chat_row[3],
+        "end_text_pdf_page_number": chat_row[4],
+        "start_text": chat_row[5],
+        "end_text": chat_row[6],
+        "created_at": _ts(chat_row[7]),
+        "updated_at": _ts(chat_row[8]),
+    }
+
+    messages: List[Dict[str, Any]] = []
+    if message_ids:
+        placeholders = ", ".join(f":id{i}" for i in range(len(message_ids)))
+        params = {f"id{i}": mid for i, mid in enumerate(message_ids)}
+        msg_rows = db.execute(
+            text(f"""
+                SELECT id, pdf_text_chat_id, who, content, created_at
+                FROM pdf_text_chat_history
+                WHERE id IN ({placeholders})
+                ORDER BY created_at ASC
+            """),
+            params,
+        ).fetchall()
+        for r in msg_rows:
+            messages.append({
+                "id": r[0],
+                "pdf_text_chat_id": r[1],
+                "who": r[2],
+                "content": r[3],
+                "created_at": _ts(r[4]),
+            })
+
+    logger.info(
+        "Created PDF text chat",
+        function="create_pdf_text_chat",
+        chat_id=chat_id,
+        pdf_id=pdf_id,
+        user_id=user_id,
+        message_count=len(messages),
+    )
+
+    return {"chat": chat_dict, "messages": messages}
+
+
+def append_pdf_text_chat_messages(
+    db: Session,
+    pdf_text_chat_id: str,
+    chats: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    """
+    Append an ordered batch of messages to an existing pdf_text_chat conversation.
+
+    Args:
+        db: Database session
+        pdf_text_chat_id: Conversation ID (CHAR(36) UUID)
+        chats: Ordered list of {'who': 'USER'|'SYSTEM', 'content': str}
+
+    Returns:
+        List of inserted message dicts in insertion order
+    """
+    logger.info(
+        "Appending PDF text chat messages",
+        function="append_pdf_text_chat_messages",
+        pdf_text_chat_id=pdf_text_chat_id,
+        count=len(chats),
+    )
+
+    message_ids: List[str] = []
+    for msg in chats:
+        msg_id = str(uuid.uuid4())
+        message_ids.append(msg_id)
+        db.execute(
+            text("""
+                INSERT INTO pdf_text_chat_history (id, pdf_text_chat_id, who, content)
+                VALUES (:id, :pdf_text_chat_id, :who, :content)
+            """),
+            {
+                "id": msg_id,
+                "pdf_text_chat_id": pdf_text_chat_id,
+                "who": msg["who"],
+                "content": msg["content"],
+            },
+        )
+
+    db.commit()
+
+    def _ts(val: Any) -> str:
+        return val.isoformat() if isinstance(val, datetime) else str(val)
+
+    placeholders = ", ".join(f":id{i}" for i in range(len(message_ids)))
+    params = {f"id{i}": mid for i, mid in enumerate(message_ids)}
+    rows = db.execute(
+        text(f"""
+            SELECT id, pdf_text_chat_id, who, content, created_at
+            FROM pdf_text_chat_history
+            WHERE id IN ({placeholders})
+            ORDER BY created_at ASC
+        """),
+        params,
+    ).fetchall()
+
+    result = [
+        {
+            "id": r[0],
+            "pdf_text_chat_id": r[1],
+            "who": r[2],
+            "content": r[3],
+            "created_at": _ts(r[4]),
+        }
+        for r in rows
+    ]
+
+    logger.info(
+        "Appended PDF text chat messages",
+        function="append_pdf_text_chat_messages",
+        pdf_text_chat_id=pdf_text_chat_id,
+        appended_count=len(result),
+    )
+
+    return result
+
+
+def get_pdf_text_chats_by_pdf_id(
+    db: Session,
+    pdf_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    Return all pdf_text_chat records for a PDF, ordered by created_at ASC.
+
+    Args:
+        db: Database session
+        pdf_id: PDF ID (CHAR(36) UUID)
+
+    Returns:
+        List of conversation record dicts
+    """
+    logger.info(
+        "Getting PDF text chats",
+        function="get_pdf_text_chats_by_pdf_id",
+        pdf_id=pdf_id,
+    )
+
+    rows = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, start_text_pdf_page_number, end_text_pdf_page_number,
+                   start_text, end_text, created_at, updated_at
+            FROM pdf_text_chat
+            WHERE pdf_id = :pdf_id
+            ORDER BY created_at ASC
+        """),
+        {"pdf_id": pdf_id},
+    ).fetchall()
+
+    def _ts(val: Any) -> str:
+        return val.isoformat() if isinstance(val, datetime) else str(val)
+
+    result = [
+        {
+            "id": r[0],
+            "pdf_id": r[1],
+            "user_id": r[2],
+            "start_text_pdf_page_number": r[3],
+            "end_text_pdf_page_number": r[4],
+            "start_text": r[5],
+            "end_text": r[6],
+            "created_at": _ts(r[7]),
+            "updated_at": _ts(r[8]),
+        }
+        for r in rows
+    ]
+
+    logger.info(
+        "Retrieved PDF text chats",
+        function="get_pdf_text_chats_by_pdf_id",
+        pdf_id=pdf_id,
+        count=len(result),
+    )
+
+    return result
+
+
+def get_pdf_text_chat_by_id(
+    db: Session,
+    text_chat_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a single pdf_text_chat record by its ID.
+
+    Args:
+        db: Database session
+        text_chat_id: Conversation ID (CHAR(36) UUID)
+
+    Returns:
+        Conversation dict or None
+    """
+    row = db.execute(
+        text("""
+            SELECT id, pdf_id, user_id, start_text_pdf_page_number, end_text_pdf_page_number,
+                   start_text, end_text, created_at, updated_at
+            FROM pdf_text_chat
+            WHERE id = :id
+        """),
+        {"id": text_chat_id},
+    ).fetchone()
+
+    if not row:
+        return None
+
+    def _ts(val: Any) -> str:
+        return val.isoformat() if isinstance(val, datetime) else str(val)
+
+    return {
+        "id": row[0],
+        "pdf_id": row[1],
+        "user_id": row[2],
+        "start_text_pdf_page_number": row[3],
+        "end_text_pdf_page_number": row[4],
+        "start_text": row[5],
+        "end_text": row[6],
+        "created_at": _ts(row[7]),
+        "updated_at": _ts(row[8]),
+    }
+
+
+def delete_pdf_text_chat(
+    db: Session,
+    text_chat_id: str,
+    user_id: str,
+) -> bool:
+    """
+    Delete a pdf_text_chat record (and its history via CASCADE) owned by the given user.
+
+    Args:
+        db: Database session
+        text_chat_id: Conversation ID (CHAR(36) UUID)
+        user_id: Authenticated user ID (CHAR(36) UUID)
+
+    Returns:
+        True if a row was deleted, False if not found or not owned by user
+    """
+    logger.info(
+        "Deleting PDF text chat",
+        function="delete_pdf_text_chat",
+        text_chat_id=text_chat_id,
+        user_id=user_id,
+    )
+
+    result = db.execute(
+        text("""
+            DELETE FROM pdf_text_chat
+            WHERE id = :id AND user_id = :user_id
+        """),
+        {"id": text_chat_id, "user_id": user_id},
+    )
+    db.commit()
+
+    deleted = result.rowcount > 0
+
+    logger.info(
+        "Deleted PDF text chat",
+        function="delete_pdf_text_chat",
+        text_chat_id=text_chat_id,
+        user_id=user_id,
+        deleted=deleted,
+    )
+
+    return deleted
+
+
+def get_pdf_text_chat_history(
+    db: Session,
+    text_chat_id: str,
+    offset: int = 0,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    Return a paginated page of messages for a conversation, ordered by created_at DESC.
+
+    Args:
+        db: Database session
+        text_chat_id: Conversation ID (CHAR(36) UUID)
+        offset: Pagination offset (default 0)
+        limit: Page size (default 50)
+
+    Returns:
+        Dict with 'messages', 'total', 'offset', 'limit'
+    """
+    logger.info(
+        "Getting PDF text chat history",
+        function="get_pdf_text_chat_history",
+        text_chat_id=text_chat_id,
+        offset=offset,
+        limit=limit,
+    )
+
+    total_row = db.execute(
+        text("""
+            SELECT COUNT(*) FROM pdf_text_chat_history
+            WHERE pdf_text_chat_id = :id
+        """),
+        {"id": text_chat_id},
+    ).fetchone()
+    total = total_row[0] if total_row else 0
+
+    rows = db.execute(
+        text("""
+            SELECT id, pdf_text_chat_id, who, content, created_at
+            FROM pdf_text_chat_history
+            WHERE pdf_text_chat_id = :id
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"id": text_chat_id, "limit": limit, "offset": offset},
+    ).fetchall()
+
+    def _ts(val: Any) -> str:
+        return val.isoformat() if isinstance(val, datetime) else str(val)
+
+    messages = [
+        {
+            "id": r[0],
+            "pdf_text_chat_id": r[1],
+            "who": r[2],
+            "content": r[3],
+            "created_at": _ts(r[4]),
+        }
+        for r in rows
+    ]
+
+    logger.info(
+        "Retrieved PDF text chat history",
+        function="get_pdf_text_chat_history",
+        text_chat_id=text_chat_id,
+        total=total,
+        returned=len(messages),
+    )
+
+    return {"messages": messages, "total": total, "offset": offset, "limit": limit}
