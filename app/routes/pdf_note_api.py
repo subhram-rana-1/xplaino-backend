@@ -17,6 +17,7 @@ from app.services.database_service import (
     update_pdf_note_content,
     delete_pdf_note_by_id_and_user_id,
     get_pdf_notes_by_pdf,
+    get_pdf_by_id,
     get_pdf_by_id_and_user_id,
     get_user_id_by_auth_vendor_id,
 )
@@ -206,28 +207,42 @@ async def get_notes_by_pdf(
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db),
 ):
-    """Get all notes for a PDF belonging to the authenticated user."""
-    if not auth_context.get("authenticated"):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "UNAUTHORIZED",
-                "error_message": "Authentication is required to retrieve notes",
-            },
-        )
-
-    session_data = auth_context["session_data"]
-    user_id = get_user_id_by_auth_vendor_id(db, session_data["auth_vendor_id"])
-
-    pdf = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+    """Get all notes for a PDF. Public PDFs are accessible without authentication."""
+    pdf = get_pdf_by_id(db, pdf_id)
     if not pdf:
         raise HTTPException(
             status_code=404,
             detail={
                 "error_code": "NOT_FOUND",
-                "error_message": "PDF not found or does not belong to the user",
+                "error_message": "PDF not found",
             },
         )
+
+    if pdf.get("access_level") != "PUBLIC":
+        if not auth_context.get("authenticated"):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error_code": "UNAUTHORIZED",
+                    "error_message": "Authentication is required to retrieve notes",
+                },
+            )
+
+        session_data = auth_context["session_data"]
+        user_id = get_user_id_by_auth_vendor_id(db, session_data["auth_vendor_id"])
+
+        owned_pdf = get_pdf_by_id_and_user_id(db, pdf_id, user_id)
+        if not owned_pdf:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "PDF not found or does not belong to the user",
+                },
+            )
+        log_user_id = user_id
+    else:
+        log_user_id = None
 
     notes_data = get_pdf_notes_by_pdf(db, pdf_id=pdf_id)
 
@@ -247,7 +262,7 @@ async def get_notes_by_pdf(
 
     logger.info(
         "Returned PDF notes",
-        user_id=user_id,
+        user_id=log_user_id,
         pdf_id=pdf_id,
         count=len(notes),
     )

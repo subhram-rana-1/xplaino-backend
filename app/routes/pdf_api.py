@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, Response, Path, 
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional
+from typing import List, Optional
 import structlog
 
 from app.models import (
@@ -18,6 +18,13 @@ from app.models import (
     GetSharedPdfsResponse,
     GetShareeListResponse,
     ShareeItem,
+    CreatePdfTextChatRequest,
+    AppendPdfTextChatMessagesRequest,
+    PdfTextChatResponse,
+    GetAllPdfTextChatsResponse,
+    PdfTextChatHistoryItemResponse,
+    GetPdfTextChatHistoryResponse,
+    CreatePdfTextChatResponse,
 )
 from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
@@ -42,6 +49,12 @@ from app.services.database_service import (
     get_pdfs_shared_with_email,
     get_pdf_sharee_list,
     get_user_info_with_email_by_user_id,
+    create_pdf_text_chat,
+    append_pdf_text_chat_messages,
+    get_pdf_text_chats_by_pdf_id,
+    get_pdf_text_chat_by_id,
+    delete_pdf_text_chat,
+    get_pdf_text_chat_history,
 )
 from app.services.s3_service import s3_service
 
@@ -708,4 +721,291 @@ async def get_pdf_sharee_list_endpoint(
             ShareeItem(email=s["email"], shared_at=s["shared_at"])
             for s in sharees_data
         ]
+    )
+
+
+def _assert_pdf_access(db: Session, pdf_id: str, user_id: str) -> None:
+    """Raise 404 if the user neither owns nor has been shared the PDF."""
+    user_info = get_user_info_with_email_by_user_id(db, user_id)
+    user_email = user_info.get("email", "") if user_info else ""
+    pdf_data = check_pdf_access_for_user(db, pdf_id, user_id, user_email)
+    if not pdf_data:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found or access denied"}
+        )
+
+
+def _chat_to_response(c: dict) -> PdfTextChatResponse:
+    return PdfTextChatResponse(
+        id=c["id"],
+        pdf_id=c["pdf_id"],
+        user_id=c["user_id"],
+        start_text_pdf_page_number=c["start_text_pdf_page_number"],
+        end_text_pdf_page_number=c["end_text_pdf_page_number"],
+        start_text=c["start_text"],
+        end_text=c["end_text"],
+        created_at=c["created_at"],
+        updated_at=c["updated_at"],
+    )
+
+
+def _msg_to_response(m: dict) -> PdfTextChatHistoryItemResponse:
+    return PdfTextChatHistoryItemResponse(
+        id=m["id"],
+        pdf_text_chat_id=m["pdf_text_chat_id"],
+        who=m["who"],
+        content=m["content"],
+        created_at=m["created_at"],
+    )
+
+
+@router.post(
+    "/{pdf_id}/text-chat",
+    response_model=CreatePdfTextChatResponse,
+    status_code=201,
+    summary="Create a PDF text chat conversation",
+    description=(
+        "Create a pdf_text_chat record anchored to a text selection on a PDF page range. "
+        "An optional ordered batch of initial messages (USER or SYSTEM) may be included and will be "
+        "inserted in the given order. "
+        "The caller must be the PDF owner or a sharee."
+    ),
+)
+async def create_pdf_text_chat_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    body: CreatePdfTextChatRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db),
+):
+    """Create a new pdf_text_chat conversation (with optional initial messages)."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+    _assert_pdf_access(db, pdf_id, user_id)
+
+    chats_payload = (
+        [{"who": msg.who.value, "content": msg.content} for msg in body.chats]
+        if body and body.chats
+        else None
+    )
+
+    result = create_pdf_text_chat(
+        db=db,
+        pdf_id=pdf_id,
+        user_id=user_id,
+        start_text_pdf_page_number=body.start_text_pdf_page_number,
+        end_text_pdf_page_number=body.end_text_pdf_page_number,
+        start_text=body.start_text,
+        end_text=body.end_text,
+        chats=chats_payload,
+    )
+
+    logger.info(
+        "Created PDF text chat",
+        pdf_id=pdf_id,
+        user_id=user_id,
+        chat_id=result["chat"]["id"],
+        message_count=len(result["messages"]),
+    )
+
+    return CreatePdfTextChatResponse(
+        chat=_chat_to_response(result["chat"]),
+        messages=[_msg_to_response(m) for m in result["messages"]],
+    )
+
+
+@router.post(
+    "/{pdf_id}/text-chat/{text_chat_id}/messages",
+    response_model=List[PdfTextChatHistoryItemResponse],
+    status_code=201,
+    summary="Append messages to a PDF text chat conversation",
+    description=(
+        "Append an ordered batch of messages (USER or SYSTEM) to an existing pdf_text_chat conversation. "
+        "Messages are inserted in the exact order supplied. "
+        "Only the user who created the conversation may append messages."
+    ),
+)
+async def append_pdf_text_chat_messages_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    text_chat_id: str = Path(..., description="Text chat conversation ID (UUID)"),
+    body: AppendPdfTextChatMessagesRequest = None,
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db),
+):
+    """Append a batch of messages to an existing conversation. Only the conversation creator may do this."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    chat = get_pdf_text_chat_by_id(db, text_chat_id)
+    if not chat or chat["pdf_id"] != pdf_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "Text chat not found"}
+        )
+    if chat["user_id"] != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={"error_code": "FORBIDDEN", "error_message": "Only the conversation creator may append messages"}
+        )
+
+    chats_payload = [{"who": msg.who.value, "content": msg.content} for msg in body.chats]
+    messages = append_pdf_text_chat_messages(db, pdf_text_chat_id=text_chat_id, chats=chats_payload)
+
+    logger.info(
+        "Appended messages to PDF text chat",
+        pdf_id=pdf_id,
+        text_chat_id=text_chat_id,
+        user_id=user_id,
+        appended_count=len(messages),
+    )
+
+    return [_msg_to_response(m) for m in messages]
+
+
+@router.get(
+    "/{pdf_id}/text-chat",
+    response_model=GetAllPdfTextChatsResponse,
+    summary="Get all text chat conversations for a PDF",
+    description=(
+        "Return all pdf_text_chat records for a PDF (without message history). "
+        "Accessible to the PDF owner and any user the PDF has been shared with."
+    ),
+)
+async def get_pdf_text_chats_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db),
+):
+    """List all conversations for a PDF. Public PDFs are accessible without authentication."""
+    pdf_data = get_pdf_by_id(db, pdf_id)
+    if not pdf_data:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found"}
+        )
+
+    if pdf_data.get("access_level") != "PUBLIC":
+        user_id = _get_user_id_from_auth(auth_context, db)
+        _assert_pdf_access(db, pdf_id, user_id)
+        log_user_id = user_id
+    else:
+        log_user_id = None
+
+    chats_data = get_pdf_text_chats_by_pdf_id(db, pdf_id=pdf_id)
+
+    logger.info(
+        "Retrieved PDF text chats",
+        pdf_id=pdf_id,
+        user_id=log_user_id,
+        count=len(chats_data),
+    )
+
+    return GetAllPdfTextChatsResponse(
+        pdf_id=pdf_id,
+        chats=[_chat_to_response(c) for c in chats_data],
+    )
+
+
+@router.delete(
+    "/{pdf_id}/text-chat/{text_chat_id}",
+    status_code=204,
+    summary="Delete a PDF text chat conversation",
+    description=(
+        "Delete a pdf_text_chat record and all its associated messages. "
+        "Only the user who created the conversation may delete it."
+    ),
+)
+async def delete_pdf_text_chat_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    text_chat_id: str = Path(..., description="Text chat conversation ID (UUID)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db),
+):
+    """Delete a conversation and all its messages. Only the conversation creator may do this."""
+    user_id = _get_user_id_from_auth(auth_context, db)
+
+    chat = get_pdf_text_chat_by_id(db, text_chat_id)
+    if not chat or chat["pdf_id"] != pdf_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "Text chat not found"}
+        )
+    if chat["user_id"] != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={"error_code": "FORBIDDEN", "error_message": "Only the conversation creator may delete it"}
+        )
+
+    delete_pdf_text_chat(db, text_chat_id=text_chat_id, user_id=user_id)
+
+    logger.info(
+        "Deleted PDF text chat",
+        pdf_id=pdf_id,
+        text_chat_id=text_chat_id,
+        user_id=user_id,
+    )
+
+    return FastAPIResponse(status_code=204)
+
+
+@router.get(
+    "/{pdf_id}/text-chat/{text_chat_id}/messages",
+    response_model=GetPdfTextChatHistoryResponse,
+    summary="Get paginated message history for a PDF text chat",
+    description=(
+        "Return messages for a pdf_text_chat conversation in descending created_at order "
+        "(most recent first). "
+        "Accessible to the PDF owner and any user the PDF has been shared with."
+    ),
+)
+async def get_pdf_text_chat_history_endpoint(
+    request: Request,
+    pdf_id: str = Path(..., description="PDF ID (UUID)"),
+    text_chat_id: str = Path(..., description="Text chat conversation ID (UUID)"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    limit: int = Query(50, ge=1, le=200, description="Pagination limit (max 200)"),
+    auth_context: dict = Depends(authenticate),
+    db: Session = Depends(get_db),
+):
+    """Fetch paginated messages for a conversation. Public PDFs are accessible without authentication."""
+    pdf_data = get_pdf_by_id(db, pdf_id)
+    if not pdf_data:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "PDF not found"}
+        )
+
+    if pdf_data.get("access_level") != "PUBLIC":
+        user_id = _get_user_id_from_auth(auth_context, db)
+        _assert_pdf_access(db, pdf_id, user_id)
+        log_user_id = user_id
+    else:
+        log_user_id = None
+
+    chat = get_pdf_text_chat_by_id(db, text_chat_id)
+    if not chat or chat["pdf_id"] != pdf_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "NOT_FOUND", "error_message": "Text chat not found"}
+        )
+
+    history = get_pdf_text_chat_history(db, text_chat_id=text_chat_id, offset=offset, limit=limit)
+
+    logger.info(
+        "Retrieved PDF text chat history",
+        pdf_id=pdf_id,
+        text_chat_id=text_chat_id,
+        user_id=log_user_id,
+        total=history["total"],
+        returned=len(history["messages"]),
+    )
+
+    return GetPdfTextChatHistoryResponse(
+        pdf_text_chat_id=text_chat_id,
+        messages=[_msg_to_response(m) for m in history["messages"]],
+        total=history["total"],
+        offset=history["offset"],
+        limit=history["limit"],
     )

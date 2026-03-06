@@ -19,6 +19,7 @@ from app.services.database_service import (
     create_pdf_highlight,
     get_pdf_highlights_by_pdf,
     delete_pdf_highlight_by_id_and_user_id,
+    get_pdf_by_id,
     get_pdf_by_id_and_user_id,
     check_pdf_access_for_user,
     get_user_id_by_auth_vendor_id,
@@ -135,31 +136,44 @@ async def get_pdf_highlights(
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db),
 ):
-    """Get paginated highlights for a PDF belonging to the authenticated user."""
-    if not auth_context.get("authenticated"):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error_code": "UNAUTHORIZED",
-                "error_message": "Authentication is required to retrieve highlights",
-            },
-        )
-
-    session_data = auth_context["session_data"]
-    user_id = get_user_id_by_auth_vendor_id(db, session_data["auth_vendor_id"])
-
-    # Validate PDF is accessible to this user (owner or sharee)
-    user_info = get_user_info_with_email_by_user_id(db, user_id)
-    user_email = user_info.get("email") if user_info else None
-    pdf = check_pdf_access_for_user(db, pdf_id, user_id, user_email or "")
+    """Get paginated highlights for a PDF. Public PDFs are accessible without authentication."""
+    pdf = get_pdf_by_id(db, pdf_id)
     if not pdf:
         raise HTTPException(
             status_code=404,
             detail={
                 "error_code": "NOT_FOUND",
-                "error_message": "PDF not found or not accessible to the user",
+                "error_message": "PDF not found",
             },
         )
+
+    if pdf.get("access_level") != "PUBLIC":
+        if not auth_context.get("authenticated"):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error_code": "UNAUTHORIZED",
+                    "error_message": "Authentication is required to retrieve highlights",
+                },
+            )
+
+        session_data = auth_context["session_data"]
+        user_id = get_user_id_by_auth_vendor_id(db, session_data["auth_vendor_id"])
+
+        user_info = get_user_info_with_email_by_user_id(db, user_id)
+        user_email = user_info.get("email") if user_info else None
+        accessible_pdf = check_pdf_access_for_user(db, pdf_id, user_id, user_email or "")
+        if not accessible_pdf:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_code": "NOT_FOUND",
+                    "error_message": "PDF not found or not accessible to the user",
+                },
+            )
+        log_user_id = user_id
+    else:
+        log_user_id = None
 
     highlights_data, total_count = get_pdf_highlights_by_pdf(
         db, pdf_id=pdf_id, offset=offset, limit=limit
@@ -177,7 +191,7 @@ async def get_pdf_highlights(
 
     logger.info(
         "Returned PDF highlights",
-        user_id=user_id,
+        user_id=log_user_id,
         pdf_id=pdf_id,
         count=len(highlights),
         total=total_count,
