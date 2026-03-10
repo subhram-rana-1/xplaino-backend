@@ -1735,7 +1735,7 @@ class GetAllCustomUserPromptsResponse(BaseModel):
 class ShareCustomUserPromptRequest(BaseModel):
     """Request body for sharing a custom user prompt with another user."""
 
-    sharedToUserId: str = Field(..., description="User ID (UUID) of the recipient")
+    sharedToUserId: str = Field(..., description="Email address of the recipient user")
 
 
 class CustomUserPromptShareResponse(BaseModel):

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 import secrets
 import string
 import time
@@ -1362,6 +1363,73 @@ def get_user_id_by_auth_vendor_id(
     )
     
     return user_id
+
+
+def get_user_id_by_email(
+    db: Session,
+    email: str,
+) -> Optional[str]:
+    """
+    Get user_id from google_user_auth_info by email address.
+
+    Args:
+        db: Database session
+        email: The user's email address
+
+    Returns:
+        user_id (CHAR(36) UUID) or None if not found
+    """
+    logger.info(
+        "Getting user_id by email",
+        function="get_user_id_by_email",
+        email=email,
+    )
+
+    result = db.execute(
+        text("SELECT user_id FROM google_user_auth_info WHERE email = :email"),
+        {"email": email},
+    ).fetchone()
+
+    if not result:
+        logger.warning(
+            "No google_user_auth_info found for email",
+            function="get_user_id_by_email",
+            email=email,
+        )
+        return None
+
+    user_id = result[0]
+
+    logger.info(
+        "User_id retrieved successfully by email",
+        function="get_user_id_by_email",
+        email=email,
+        user_id=user_id,
+    )
+
+    return user_id
+
+
+def get_email_by_user_id(
+    db: Session,
+    user_id: str,
+) -> Optional[str]:
+    """
+    Get email address from google_user_auth_info by user_id.
+
+    Args:
+        db: Database session
+        user_id: The user's UUID
+
+    Returns:
+        email address or None if not found
+    """
+    result = db.execute(
+        text("SELECT email FROM google_user_auth_info WHERE user_id = :user_id LIMIT 1"),
+        {"user_id": user_id},
+    ).fetchone()
+
+    return result[0] if result else None
 
 
 def get_saved_words_by_user_id(
@@ -10332,16 +10400,16 @@ def get_all_custom_user_prompts_by_user_id(
 def create_custom_user_prompt_share(
     db: Session,
     prompt_id: str,
-    shared_to_user_id: str,
+    shared_to_email: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Share a custom user prompt with another user.
+    Share a custom user prompt with another user identified by email.
     Returns None if a share already exists (duplicate).
 
     Args:
         db: Database session
         prompt_id: ID of the prompt to share (CHAR(36) UUID)
-        shared_to_user_id: Recipient's user ID (CHAR(36) UUID)
+        shared_to_email: Recipient's email address
 
     Returns:
         Share record dict, or None on duplicate
@@ -10350,7 +10418,7 @@ def create_custom_user_prompt_share(
         "Creating custom user prompt share",
         function="create_custom_user_prompt_share",
         prompt_id=prompt_id,
-        shared_to_user_id=shared_to_user_id,
+        shared_to_email=shared_to_email,
     )
 
     share_id = str(uuid.uuid4())
@@ -10364,11 +10432,11 @@ def create_custom_user_prompt_share(
             {
                 "id": share_id,
                 "custom_user_prompt_id": prompt_id,
-                "shared_to": shared_to_user_id,
+                "shared_to": shared_to_email,
             },
         )
         db.commit()
-    except Exception:
+    except IntegrityError:
         db.rollback()
         return None
 
@@ -10393,7 +10461,7 @@ def create_custom_user_prompt_share(
         function="create_custom_user_prompt_share",
         share_id=share_id,
         prompt_id=prompt_id,
-        shared_to_user_id=shared_to_user_id,
+        shared_to_email=shared_to_email,
     )
 
     return result
@@ -10402,7 +10470,7 @@ def create_custom_user_prompt_share(
 def delete_custom_user_prompt_share(
     db: Session,
     share_id: str,
-    shared_to_user_id: str,
+    shared_to_email: str,
 ) -> bool:
     """
     Delete a share record. Only the recipient (shared_to) can delete it.
@@ -10410,7 +10478,7 @@ def delete_custom_user_prompt_share(
     Args:
         db: Database session
         share_id: Share record ID (CHAR(36) UUID)
-        shared_to_user_id: Caller's user ID — must match shared_to
+        shared_to_email: Caller's email address — must match shared_to
 
     Returns:
         True if deleted, False if not found or caller is not the recipient
@@ -10419,12 +10487,12 @@ def delete_custom_user_prompt_share(
         "Deleting custom user prompt share",
         function="delete_custom_user_prompt_share",
         share_id=share_id,
-        shared_to_user_id=shared_to_user_id,
+        shared_to_email=shared_to_email,
     )
 
     result = db.execute(
         text("DELETE FROM custom_user_prompt_share WHERE id = :share_id AND shared_to = :shared_to"),
-        {"share_id": share_id, "shared_to": shared_to_user_id},
+        {"share_id": share_id, "shared_to": shared_to_email},
     )
     db.commit()
 
@@ -10443,7 +10511,7 @@ def delete_custom_user_prompt_share(
 def set_custom_user_prompt_share_hidden(
     db: Session,
     share_id: str,
-    shared_to_user_id: str,
+    shared_to_email: str,
     is_hidden: bool,
 ) -> bool:
     """
@@ -10452,7 +10520,7 @@ def set_custom_user_prompt_share_hidden(
     Args:
         db: Database session
         share_id: Share record ID (CHAR(36) UUID)
-        shared_to_user_id: Caller's user ID — must match shared_to
+        shared_to_email: Caller's email address — must match shared_to
         is_hidden: New hidden state
 
     Returns:
@@ -10462,7 +10530,7 @@ def set_custom_user_prompt_share_hidden(
         "Setting custom user prompt share hidden flag",
         function="set_custom_user_prompt_share_hidden",
         share_id=share_id,
-        shared_to_user_id=shared_to_user_id,
+        shared_to_email=shared_to_email,
         is_hidden=is_hidden,
     )
 
@@ -10472,7 +10540,7 @@ def set_custom_user_prompt_share_hidden(
             SET is_hidden = :is_hidden
             WHERE id = :share_id AND shared_to = :shared_to
         """),
-        {"is_hidden": is_hidden, "share_id": share_id, "shared_to": shared_to_user_id},
+        {"is_hidden": is_hidden, "share_id": share_id, "shared_to": shared_to_email},
     )
     db.commit()
 
@@ -10490,7 +10558,7 @@ def set_custom_user_prompt_share_hidden(
 
 def get_shared_custom_user_prompts_for_user(
     db: Session,
-    user_id: str,
+    shared_to_email: str,
     offset: int = 0,
     limit: int = 20,
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -10500,7 +10568,7 @@ def get_shared_custom_user_prompts_for_user(
 
     Args:
         db: Database session
-        user_id: Recipient user ID (CHAR(36) UUID)
+        shared_to_email: Recipient's email address
         offset: Pagination offset
         limit: Pagination limit
 
@@ -10510,7 +10578,7 @@ def get_shared_custom_user_prompts_for_user(
     logger.info(
         "Getting shared custom user prompts for user",
         function="get_shared_custom_user_prompts_for_user",
-        user_id=user_id,
+        shared_to_email=shared_to_email,
         offset=offset,
         limit=limit,
     )
@@ -10519,9 +10587,9 @@ def get_shared_custom_user_prompts_for_user(
         text("""
             SELECT COUNT(*)
             FROM custom_user_prompt_share s
-            WHERE s.shared_to = :user_id AND s.is_hidden = FALSE
+            WHERE s.shared_to = :email AND s.is_hidden = FALSE
         """),
-        {"user_id": user_id},
+        {"email": shared_to_email},
     ).fetchone()
     total = total_row[0] if total_row else 0
 
@@ -10542,11 +10610,11 @@ def get_shared_custom_user_prompts_for_user(
                 p.updated_at            AS prompt_updated_at
             FROM custom_user_prompt_share s
             JOIN custom_user_prompt p ON p.id = s.custom_user_prompt_id
-            WHERE s.shared_to = :user_id AND s.is_hidden = FALSE
+            WHERE s.shared_to = :email AND s.is_hidden = FALSE
             ORDER BY s.created_at DESC
             LIMIT :limit OFFSET :offset
         """),
-        {"user_id": user_id, "limit": limit, "offset": offset},
+        {"email": shared_to_email, "limit": limit, "offset": offset},
     ).fetchall()
 
     shares = []
@@ -10571,7 +10639,7 @@ def get_shared_custom_user_prompts_for_user(
     logger.info(
         "Fetched shared custom user prompts for user",
         function="get_shared_custom_user_prompts_for_user",
-        user_id=user_id,
+        shared_to_email=shared_to_email,
         count=len(shares),
         total=total,
     )

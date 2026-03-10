@@ -19,6 +19,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
+    get_email_by_user_id,
     create_custom_user_prompt,
     update_custom_user_prompt,
     get_custom_user_prompt_by_id,
@@ -324,7 +325,7 @@ async def delete_prompt(
     status_code=201,
     summary="Share a custom user prompt with another user",
     description=(
-        "Share one of your custom prompts with another user by their user ID. "
+        "Share one of your custom prompts with another user by their email address. "
         "Only the prompt owner can share it. "
         "Sharing the same prompt to the same user twice returns 409."
     ),
@@ -358,7 +359,9 @@ async def share_prompt(
             },
         )
 
-    if body.sharedToUserId == user_id:
+    caller_email = get_email_by_user_id(db, user_id)
+
+    if caller_email and caller_email.lower() == body.sharedToUserId.lower():
         raise HTTPException(
             status_code=422,
             detail={
@@ -404,8 +407,9 @@ async def list_received_shares(
     db: Session = Depends(get_db),
 ):
     user_id = _require_authenticated_user_id(auth_context, db)
+    caller_email = get_email_by_user_id(db, user_id) or ""
 
-    shares, total = get_shared_custom_user_prompts_for_user(db, user_id, offset, limit)
+    shares, total = get_shared_custom_user_prompts_for_user(db, caller_email, offset, limit)
 
     logger.info(
         "Listed received custom user prompt shares",
@@ -438,8 +442,9 @@ async def delete_share(
     db: Session = Depends(get_db),
 ):
     user_id = _require_authenticated_user_id(auth_context, db)
+    caller_email = get_email_by_user_id(db, user_id) or ""
 
-    deleted = delete_custom_user_prompt_share(db, share_id, user_id)
+    deleted = delete_custom_user_prompt_share(db, share_id, caller_email)
 
     if not deleted:
         raise HTTPException(
@@ -477,8 +482,9 @@ async def hide_share(
     db: Session = Depends(get_db),
 ):
     user_id = _require_authenticated_user_id(auth_context, db)
+    caller_email = get_email_by_user_id(db, user_id) or ""
 
-    updated = set_custom_user_prompt_share_hidden(db, share_id, user_id, is_hidden)
+    updated = set_custom_user_prompt_share_hidden(db, share_id, caller_email, is_hidden)
 
     if not updated:
         raise HTTPException(
