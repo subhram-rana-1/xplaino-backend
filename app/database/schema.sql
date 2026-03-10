@@ -569,17 +569,16 @@ CREATE TABLE IF NOT EXISTS pdf_text_chat_history (
     FOREIGN KEY (pdf_text_chat_id) REFERENCES pdf_text_chat(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Custom user prompt share table (owner shares a prompt with another user by user_id)
+-- Custom user prompt share table (owner shares a prompt with another user by email address)
 CREATE TABLE IF NOT EXISTS custom_user_prompt_share (
-    id                      CHAR(36)  PRIMARY KEY DEFAULT (UUID()),
-    custom_user_prompt_id   CHAR(36)  NOT NULL,
-    shared_to               CHAR(36)  NOT NULL,
-    is_hidden               BOOLEAN   NOT NULL DEFAULT FALSE,
-    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id                      CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+    custom_user_prompt_id   CHAR(36)     NOT NULL,
+    shared_to               VARCHAR(256) NOT NULL,
+    is_hidden               BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_prompt_shared_to      (custom_user_prompt_id, shared_to),
     INDEX idx_shared_to                 (shared_to),
     INDEX idx_custom_user_prompt_id     (custom_user_prompt_id),
-    FOREIGN KEY (custom_user_prompt_id) REFERENCES custom_user_prompt(id) ON DELETE CASCADE,
-    FOREIGN KEY (shared_to)             REFERENCES user(id) ON DELETE CASCADE
+    FOREIGN KEY (custom_user_prompt_id) REFERENCES custom_user_prompt(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
