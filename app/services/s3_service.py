@@ -220,6 +220,34 @@ class S3Service:
         prefix = self.pdf_prefix if entity_type == "PDF" else self.issue_prefix
         return f"{prefix}/{file_upload_id}_{sanitized_filename}"
 
+    def download_object(self, s3_key: str) -> bytes:
+        """
+        Download an object from S3 and return its contents as bytes.
+
+        Args:
+            s3_key: S3 object key
+
+        Returns:
+            Object content as bytes
+
+        Raises:
+            S3UploadError: If download fails
+        """
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
+            data = response["Body"].read()
+            logger.info(
+                "Downloaded S3 object",
+                bucket_name=self.bucket_name,
+                s3_key=s3_key,
+                size_bytes=len(data),
+            )
+            return data
+        except ClientError as e:
+            error_message = e.response.get("Error", {}).get("Message", str(e))
+            logger.error("S3 download failed", s3_key=s3_key, error=error_message)
+            raise S3UploadError(f"Failed to download S3 object: {error_message}")
+
     def delete_object(self, s3_key: str) -> None:
         """
         Delete an object from S3.

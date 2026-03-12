@@ -31,6 +31,7 @@ from app.routes import (
     folder_api,
     user_settings_api,
     pdf_api,
+    pdf_chat_api,
     coupon_api,
     feature_api,
     pre_launch_user_api,
@@ -79,6 +80,8 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down Caten API server")
     await rate_limiter.close()
+    from app.database.pg_connection import close_pg_pool
+    close_pg_pool()
 
 
 # Create FastAPI application
@@ -229,6 +232,7 @@ app.include_router(domain_api.router)
 app.include_router(folder_api.router)
 app.include_router(user_settings_api.router)
 app.include_router(pdf_api.router)
+app.include_router(pdf_chat_api.router)
 app.include_router(coupon_api.router)
 app.include_router(feature_api.router)
 app.include_router(pre_launch_user_api.router)

@@ -1837,3 +1837,82 @@ class CreatePdfTextChatResponse(BaseModel):
 
     chat: PdfTextChatResponse = Field(..., description="The created conversation record")
     messages: List[PdfTextChatHistoryItemResponse] = Field(..., description="Initial messages inserted, in insertion order")
+
+
+# ---------------------------------------------------------------------------
+# PDF Chat (RAG) models
+# ---------------------------------------------------------------------------
+
+class UpsertPdfContentPreprocessRequest(BaseModel):
+    """Request body for upsert preprocess endpoint."""
+
+    pdf_id: str = Field(..., min_length=1, max_length=36, description="PDF ID to preprocess")
+
+
+class PdfContentPreprocessResponse(BaseModel):
+    """Response for a pdf_content_preprocess record."""
+
+    id: str = Field(..., description="Preprocess record ID")
+    pdf_id: str = Field(..., description="PDF ID")
+    status: str = Field(..., description="Processing status (PENDING, IN_PROGRESS, COMPLETED, FAILED)")
+    error_message: Optional[str] = Field(default=None, description="Error details when status is FAILED")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class CreatePdfChatSessionRequest(BaseModel):
+    """Request body for creating a chat session."""
+
+    pdf_content_preprocess_id: str = Field(..., min_length=1, max_length=36, description="Preprocess record ID")
+
+
+class RenamePdfChatSessionRequest(BaseModel):
+    """Request body for renaming a chat session."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="New session name")
+
+
+class PdfChatSessionResponse(BaseModel):
+    """Response for a pdf_chat_session record."""
+
+    id: str = Field(..., description="Session ID")
+    name: str = Field(..., description="Session name")
+    pdf_content_preprocess_id: str = Field(..., description="Preprocess record ID")
+    user_id: Optional[str] = Field(default=None, description="Authenticated user ID (null for unauth)")
+    unauthenticated_user_id: Optional[str] = Field(default=None, description="Unauthenticated user ID (null for auth)")
+    owner_label: Optional[str] = Field(default=None, description="Email or name of the session owner (only in grouped list)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    updated_at: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class PdfChatCitationItem(BaseModel):
+    """A single citation referencing a chunk from the PDF."""
+
+    chunkSequence: int = Field(..., description="Chunk sequence number in the PDF")
+    pageNumber: Optional[int] = Field(default=None, description="PDF page number (null if unknown)")
+    content: str = Field(..., description="Cited text from the PDF")
+
+
+class PdfChatMessageResponse(BaseModel):
+    """Response for a single pdf_chat message."""
+
+    id: str = Field(..., description="Chat message ID")
+    pdf_chat_session_id: str = Field(..., description="Session ID")
+    who: str = Field(..., description="Sender (USER or SYSTEM)")
+    chat: str = Field(..., description="Message content")
+    citations: Optional[List[PdfChatCitationItem]] = Field(default=None, description="Citations (SYSTEM messages only)")
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+
+
+class AskPdfRequest(BaseModel):
+    """Request body for the SSE ask-pdf endpoint."""
+
+    pdf_chat_session_id: str = Field(..., min_length=1, max_length=36, description="Chat session ID")
+    question: str = Field(..., min_length=1, max_length=5000, description="User question")
+    selected_text: Optional[str] = Field(default=None, max_length=10000, description="Text selected/annotated in the PDF (optional)")
+
+
+class GetAllPdfChatSessionsRequest(BaseModel):
+    """Query parameters for listing chat sessions."""
+
+    pdf_content_preprocess_id: str = Field(..., min_length=1, max_length=36, description="Preprocess record ID")
