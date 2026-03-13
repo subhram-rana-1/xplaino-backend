@@ -15,6 +15,7 @@ from app.models import (
     PdfChatSessionResponse,
     AskPdfRequest,
     PdfChatMessageResponse,
+    PaginatedPdfChatMessagesResponse,
     GetAllPdfChatSessionsRequest,
 )
 from app.database.connection import get_db
@@ -304,12 +305,18 @@ async def ask_pdf(
     existing_chats = get_chats_by_session_id(db, session_id, limit=20)
     chat_history = existing_chats.get("messages", [])
 
-    from app.services.pdf_chat_service import ask_pdf_stream
+    from app.services.pdf_chat_service import ask_pdf_stream, generate_session_name
 
     async def generate():
         accumulated_answer = ""
         citations_list = None
         try:
+            if body.rename is True:
+                session_name = await generate_session_name(body.question)
+                rename_pdf_chat_session(db, session_id, session_name)
+                rename_event = {"type": "session_rename", "sessionName": session_name}
+                yield f"data: {json.dumps(rename_event)}\n\n"
+
             async for sse_event in ask_pdf_stream(
                 question=body.question,
                 preprocess_id=session["pdf_content_preprocess_id"],
@@ -389,7 +396,51 @@ async def clear_session_chats(
 
 
 # ---------------------------------------------------------------------------
-# 7. DELETE /sessions/{id}
+# 7. GET /sessions/{id}/chats  (paginated, newest-first)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/sessions/{session_id}/chats",
+    response_model=PaginatedPdfChatMessagesResponse,
+    summary="Get paginated chats for a session (newest first)",
+)
+async def get_session_chats(
+    session_id: str,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=100, description="Page size"),
+    offset: int = Query(default=0, ge=0, description="Number of messages to skip"),
+    db: Session = Depends(get_db),
+    auth_context: dict = Depends(authenticate),
+):
+    session = get_pdf_chat_session_by_id(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    preprocess = get_pdf_content_preprocess_by_id(db, session["pdf_content_preprocess_id"])
+    if not preprocess:
+        raise HTTPException(status_code=404, detail="Preprocess record not found")
+
+    pdf_id = preprocess["pdf_id"]
+    user_id, unauth_id = _resolve_owner(auth_context, db)
+    _assert_pdf_access(db, pdf_id, user_id, unauth_id, require_chat_permission=False)
+
+    result = get_chats_by_session_id(db, session_id, limit=limit, offset=offset, order="DESC")
+
+    if auth_context.get("is_new_unauthenticated_user"):
+        response.headers["X-Unauthenticated-User-Id"] = auth_context["unauthenticated_user_id"]
+
+    total = result["total"]
+    return PaginatedPdfChatMessagesResponse(
+        messages=[PdfChatMessageResponse(**m) for m in result["messages"]],
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(offset + limit) < total,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. DELETE /sessions/{id}
 # ---------------------------------------------------------------------------
 
 @router.delete(
@@ -422,7 +473,7 @@ async def delete_session(
 
 
 # ---------------------------------------------------------------------------
-# 8. GET /sessions
+# 9. GET /sessions
 # ---------------------------------------------------------------------------
 
 @router.get(

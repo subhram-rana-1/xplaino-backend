@@ -1904,12 +1904,23 @@ class PdfChatMessageResponse(BaseModel):
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
 
 
+class PaginatedPdfChatMessagesResponse(BaseModel):
+    """Paginated response for chat messages in a session."""
+
+    messages: List[PdfChatMessageResponse] = Field(..., description="Chat messages")
+    total: int = Field(..., description="Total number of messages in the session")
+    limit: int = Field(..., description="Page size used")
+    offset: int = Field(..., description="Offset used")
+    has_more: bool = Field(..., description="Whether more messages exist beyond this page")
+
+
 class AskPdfRequest(BaseModel):
     """Request body for the SSE ask-pdf endpoint."""
 
     pdf_chat_session_id: str = Field(..., min_length=1, max_length=36, description="Chat session ID")
     question: str = Field(..., min_length=1, max_length=5000, description="User question")
     selected_text: Optional[str] = Field(default=None, max_length=10000, description="Text selected/annotated in the PDF (optional)")
+    rename: Optional[bool] = Field(default=None, description="If true, auto-generate a session name from the question")
 
 
 class GetAllPdfChatSessionsRequest(BaseModel):

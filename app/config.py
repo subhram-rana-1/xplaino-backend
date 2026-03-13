@@ -292,6 +292,10 @@ class Settings(BaseSettings):
     rag_llm_model: str = Field(default="gpt-4o-mini", description="LLM model for RAG answer generation")
     rag_llm_temperature: float = Field(default=0.3, description="Temperature for RAG LLM (low for factual answers)")
     rag_max_tokens: int = Field(default=2000, description="Max tokens for RAG LLM response")
+    rag_broad_max_chunks: int = Field(default=200, description="Max chunks to fetch for broad/holistic questions")
+    rag_broad_token_budget: int = Field(default=80000, description="Max total context tokens for broad queries")
+    rag_comparative_retrieval_top_k: int = Field(default=40, description="Number of chunks to retrieve for comparative questions (wider net for both concepts)")
+    rag_comparative_rerank_top_k: int = Field(default=10, description="Number of chunks to keep after reranking for comparative questions")
 
     @property
     def database_url(self) -> str:

@@ -295,6 +295,7 @@ def get_chats_by_session_id(
     session_id: str,
     limit: int = 50,
     offset: int = 0,
+    order: str = "ASC",
 ) -> Dict[str, Any]:
     total_row = db.execute(
         text("SELECT COUNT(*) FROM pdf_chat WHERE pdf_chat_session_id = :sid"),
@@ -302,12 +303,13 @@ def get_chats_by_session_id(
     ).fetchone()
     total = total_row[0] if total_row else 0
 
+    direction = "DESC" if order.upper() == "DESC" else "ASC"
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT id, pdf_chat_session_id, who, chat, citations, created_at
             FROM pdf_chat
             WHERE pdf_chat_session_id = :sid
-            ORDER BY created_at ASC
+            ORDER BY created_at {direction}
             LIMIT :limit OFFSET :offset
         """),
         {"sid": session_id, "limit": limit, "offset": offset},
