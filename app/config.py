@@ -296,6 +296,7 @@ class Settings(BaseSettings):
     rag_broad_token_budget: int = Field(default=80000, description="Max total context tokens for broad queries")
     rag_comparative_retrieval_top_k: int = Field(default=40, description="Number of chunks to retrieve for comparative questions (wider net for both concepts)")
     rag_comparative_rerank_top_k: int = Field(default=10, description="Number of chunks to keep after reranking for comparative questions")
+    rag_rerank_score_threshold: float = Field(default=0.15, description="Min top rerank score for specific retrieval; below this, fall back to broad retrieval")
 
     @property
     def database_url(self) -> str:

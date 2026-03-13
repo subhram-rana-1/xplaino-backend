@@ -195,8 +195,8 @@ Reply with a SINGLE word from this list: "specific", "broad", "comparative", "de
 - "specific": Targets a particular fact, section, argument, event, or detail in the document.
   Examples: "What does section 3 say about pricing?", "What happened in Q2?", "What is the author's conclusion?"
 
-- "broad": Asks for a holistic view, summary, overview, or general takeaway of the whole document.
-  Examples: "What are the key takeaways?", "Summarize this document", "What is this about?", "List the main themes."
+- "broad": Asks for a holistic view, summary, overview, general takeaway, or structured analysis of the whole document (or a large portion of it). This includes multi-part analytical prompts that require reading the entire document.
+  Examples: "What are the key takeaways?", "Summarize this document", "What is this about?", "List the main themes.", "Provide key findings, methodology, and implications.", "Analyze this paper: strengths, weaknesses, and conclusions.", "Extract the main arguments and supporting evidence."
 
 - "comparative": Asks to compare, contrast, or find differences/similarities between two or more concepts, entities, or sections within the document.
   Examples: "What is the difference between X and Y?", "Compare approach A and B", "How does section 2 contrast with section 4?"
@@ -493,12 +493,21 @@ async def ask_pdf_stream(
         )
 
     elif intent == "definition":
-        # Same retrieval as specific, but definition-focused prompt
         query_embedding = await aembed_query(question)
         raw_chunks = retrieve_relevant_chunks(preprocess_id, query_embedding)
         logger.info("Definition retrieval", count=len(raw_chunks), preprocess_id=preprocess_id)
         reranked = rerank_chunks(question, raw_chunks)
         logger.info("Definition reranked", count=len(reranked))
+
+        top_score = reranked[0]["rerank_score"] if reranked else 0.0
+        if top_score < settings.rag_rerank_score_threshold:
+            logger.info(
+                "Definition retrieval below relevance threshold, falling back to broad",
+                top_score=top_score,
+                threshold=settings.rag_rerank_score_threshold,
+            )
+            reranked = retrieve_broad_chunks(preprocess_id)
+
         messages = build_rag_prompt(
             question, reranked, chat_history, selected_text,
             system_prompt=DEFINITION_SYSTEM_PROMPT,
@@ -522,6 +531,16 @@ async def ask_pdf_stream(
         logger.info("Retrieved chunks", count=len(raw_chunks), preprocess_id=preprocess_id)
         reranked = rerank_chunks(question, raw_chunks)
         logger.info("Reranked chunks", count=len(reranked))
+
+        top_score = reranked[0]["rerank_score"] if reranked else 0.0
+        if top_score < settings.rag_rerank_score_threshold:
+            logger.info(
+                "Specific retrieval below relevance threshold, falling back to broad",
+                top_score=top_score,
+                threshold=settings.rag_rerank_score_threshold,
+            )
+            reranked = retrieve_broad_chunks(preprocess_id)
+
         messages = build_rag_prompt(question, reranked, chat_history, selected_text)
 
     # 3. Stream LLM response
