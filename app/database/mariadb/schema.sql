@@ -618,6 +618,7 @@ CREATE TABLE IF NOT EXISTS pdf_chat (
     pdf_chat_session_id CHAR(36)               NOT NULL,
     who                 ENUM('USER', 'SYSTEM') NOT NULL,
     chat                TEXT                   NOT NULL,
+    selected_text       TEXT                   NULL,
     citations           JSON                   NULL,
     created_at          TIMESTAMP              NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_session_id      (pdf_chat_session_id),

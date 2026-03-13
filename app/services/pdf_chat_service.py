@@ -64,6 +64,14 @@ def retrieve_relevant_chunks(
             rows = cur.fetchall()
         conn.commit()
 
+        if not rows:
+            logger.warning(
+                "No embeddings found for preprocess_id",
+                preprocess_id=preprocess_id,
+                function="retrieve_relevant_chunks",
+            )
+            return []
+
         chunks = []
         for row in rows:
             chunks.append({
@@ -104,6 +112,14 @@ def retrieve_broad_chunks(
             rows = cur.fetchall()
         conn.commit()
 
+        if not rows:
+            logger.warning(
+                "No embeddings found for preprocess_id",
+                preprocess_id=preprocess_id,
+                function="retrieve_broad_chunks",
+            )
+            return []
+
         chunks = []
         total_tokens = 0
         for row in rows:
@@ -119,6 +135,14 @@ def retrieve_broad_chunks(
                 "distance": 0.0,
             })
             total_tokens += tok
+
+        logger.info(
+            "Broad retrieval result",
+            preprocess_id=preprocess_id,
+            db_rows=len(rows),
+            returned_chunks=len(chunks),
+            total_tokens=total_tokens,
+        )
         return chunks
     finally:
         release_pg_connection(conn)
@@ -164,7 +188,7 @@ SYSTEM_PROMPT = """You are a precise, citation-driven PDF assistant. Your task i
 ## STRICT RULES
 
 1. **Ground every claim**: Only state facts present in the provided context. Always answer using whatever relevant information is available, even if the content is brief. Only say "I don't have enough information in the document to answer this" when the provided context contains absolutely nothing relevant to the question.
-2. **Cite your sources**: For every factual statement, include a citation in the format [chunk_sequence:page_number]. If page_number is unknown, use [chunk_sequence].
+2. **Cite EVERY statement**: Every sentence or bullet point in your response that conveys information from the document MUST end with a citation in the format [chunk_sequence:page_number]. If page_number is unknown, use [chunk_sequence]. Do not write any factual statement without a citation — treat uncited claims as errors. When a single statement draws from multiple chunks, cite all of them (e.g. [2:1][5:3]).
 3. **Never hallucinate**: Do NOT invent information, statistics, or claims not present in the context. Stick strictly to what the context provides, but do provide a thorough answer from it.
 4. **Ask for clarification**: If the user's question is ambiguous or could be interpreted in multiple ways, ask a brief clarifying question instead of guessing.
 5. **Selected text**: When the user provides selected text from the PDF, treat it as the primary focus but also use other context chunks for supporting evidence and broader context.
@@ -217,7 +241,7 @@ COMPARATIVE_SYSTEM_PROMPT = """You are a precise, citation-driven PDF assistant.
 ## STRICT RULES
 
 1. **Structure your comparison**: Use a clear format — a table, side-by-side bullet points, or clearly labeled sections (e.g. "Concept A:" then "Concept B:"). Never mix them in running prose.
-2. **Cite both sides**: Every comparative claim must be cited with [chunk_sequence:page_number]. If page_number is unknown, use [chunk_sequence].
+2. **Cite EVERY statement**: Every sentence or bullet point that conveys information from the document MUST end with a citation in the format [chunk_sequence:page_number]. If page_number is unknown, use [chunk_sequence]. Do not write any factual statement without a citation. When a statement draws from multiple chunks, cite all of them (e.g. [2:1][5:3]).
 3. **Ground every claim**: Only state facts present in the provided context. Only say "I don't have enough information in the document to answer this" when the context contains absolutely nothing relevant.
 4. **Never hallucinate**: Do NOT invent comparisons not supported by the text.
 5. **Be comprehensive**: Cover all meaningful differences AND similarities present in the context.
@@ -236,7 +260,7 @@ DEFINITION_SYSTEM_PROMPT = """You are a precise, citation-driven PDF assistant. 
 
 1. **Lead with the definition**: Start with a clear, concise definition as the document uses or implies it.
 2. **Expand with context**: After the definition, explain the role, significance, or usage of the term within this document.
-3. **Cite your sources**: Include a citation [chunk_sequence:page_number] for the definition and each supporting statement.
+3. **Cite EVERY statement**: Every sentence or bullet point that conveys information from the document MUST end with a citation in the format [chunk_sequence:page_number]. If page_number is unknown, use [chunk_sequence]. Do not write any factual statement without a citation. When a statement draws from multiple chunks, cite all of them (e.g. [2:1][5:3]).
 4. **Document-specific**: If the term has a common general meaning but is used differently here, explicitly note the difference.
 5. **Ground every claim**: Only state facts present in the provided context.
 6. **Never hallucinate**: Do NOT use outside knowledge. Stick strictly to what the context provides.
@@ -542,6 +566,27 @@ async def ask_pdf_stream(
             reranked = retrieve_broad_chunks(preprocess_id)
 
         messages = build_rag_prompt(question, reranked, chat_history, selected_text)
+
+    # 2b. Guard: if no chunks were retrieved for a document-related question,
+    #     surface an actionable error instead of a vague LLM refusal.
+    if intent != "conversational" and not reranked:
+        logger.error(
+            "Zero chunks retrieved — embeddings may be missing for this preprocess_id",
+            preprocess_id=preprocess_id,
+            intent=intent,
+        )
+        error_data = {
+            "type": "error",
+            "error_code": "RAG_NO_CONTENT",
+            "error_message": (
+                "No document content could be retrieved. "
+                "The PDF may still be processing or the embeddings may not have been generated. "
+                "Please try again later or re-upload the PDF."
+            ),
+        }
+        yield f"data: {json.dumps(error_data)}\n\n"
+        yield "data: [DONE]\n\n"
+        return
 
     # 3. Stream LLM response
     client = _get_async_openai()

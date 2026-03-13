@@ -261,17 +261,19 @@ def create_pdf_chat(
     who: str,
     chat: str,
     citations: Optional[List[Dict[str, Any]]] = None,
+    selected_text: Optional[str] = None,
 ) -> Dict[str, Any]:
     citations_json = json.dumps(citations) if citations else None
     db.execute(
         text("""
-            INSERT INTO pdf_chat (pdf_chat_session_id, who, chat, citations)
-            VALUES (:session_id, :who, :chat, :citations)
+            INSERT INTO pdf_chat (pdf_chat_session_id, who, chat, selected_text, citations)
+            VALUES (:session_id, :who, :chat, :selected_text, :citations)
         """),
         {
             "session_id": pdf_chat_session_id,
             "who": who,
             "chat": chat,
+            "selected_text": selected_text or None,
             "citations": citations_json,
         },
     )
@@ -279,7 +281,7 @@ def create_pdf_chat(
 
     row = db.execute(
         text("""
-            SELECT id, pdf_chat_session_id, who, chat, citations, created_at
+            SELECT id, pdf_chat_session_id, who, chat, selected_text, citations, created_at
             FROM pdf_chat
             WHERE pdf_chat_session_id = :session_id
             ORDER BY created_at DESC
@@ -306,7 +308,7 @@ def get_chats_by_session_id(
     direction = "DESC" if order.upper() == "DESC" else "ASC"
     rows = db.execute(
         text(f"""
-            SELECT id, pdf_chat_session_id, who, chat, citations, created_at
+            SELECT id, pdf_chat_session_id, who, chat, selected_text, citations, created_at
             FROM pdf_chat
             WHERE pdf_chat_session_id = :sid
             ORDER BY created_at {direction}
@@ -346,7 +348,7 @@ def _session_row_to_dict_with_owner(row) -> Dict[str, Any]:
 
 
 def _chat_row_to_dict(row) -> Dict[str, Any]:
-    citations_raw = row[4]
+    citations_raw = row[5]
     if isinstance(citations_raw, str):
         try:
             citations_raw = json.loads(citations_raw)
@@ -358,6 +360,7 @@ def _chat_row_to_dict(row) -> Dict[str, Any]:
         "pdf_chat_session_id": row[1],
         "who": row[2],
         "chat": row[3],
+        "selected_text": row[4],
         "citations": citations_raw,
-        "created_at": _ts(row[5]),
+        "created_at": _ts(row[6]),
     }

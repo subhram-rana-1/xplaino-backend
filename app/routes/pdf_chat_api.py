@@ -337,7 +337,7 @@ async def ask_pdf(
                             pass
 
             if accumulated_answer:
-                create_pdf_chat(db, session_id, "USER", body.question)
+                create_pdf_chat(db, session_id, "USER", body.question, selected_text=body.selected_text)
                 create_pdf_chat(db, session_id, "SYSTEM", accumulated_answer, citations_list)
 
         except Exception as e:

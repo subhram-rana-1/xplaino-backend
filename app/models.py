@@ -1900,6 +1900,7 @@ class PdfChatMessageResponse(BaseModel):
     pdf_chat_session_id: str = Field(..., description="Session ID")
     who: str = Field(..., description="Sender (USER or SYSTEM)")
     chat: str = Field(..., description="Message content")
+    selected_text: Optional[str] = Field(default=None, description="Selected PDF text attached to this message (USER messages only)")
     citations: Optional[List[PdfChatCitationItem]] = Field(default=None, description="Citations (SYSTEM messages only)")
     created_at: str = Field(..., description="Creation timestamp (ISO format)")
 

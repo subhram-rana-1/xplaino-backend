@@ -40,3 +40,6 @@ CREATE TABLE IF NOT EXISTS pdf_chat (
     INDEX idx_session_created (pdf_chat_session_id, created_at),
     FOREIGN KEY (pdf_chat_session_id) REFERENCES pdf_chat_session(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Add selected_text column to pdf_chat table
+ALTER TABLE pdf_chat ADD COLUMN selected_text TEXT NULL AFTER chat;
