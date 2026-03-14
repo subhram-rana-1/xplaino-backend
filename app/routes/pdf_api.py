@@ -416,6 +416,11 @@ async def make_pdf_private_endpoint(
     db: Session = Depends(get_db)
 ):
     """Set access_level to PRIVATE for the given PDF. Only the owner can do this."""
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={"error_code": "LOGIN_REQUIRED_TO_MAKE_PRIVATE", "error_message": "You must be logged in to make a PDF private"}
+        )
     user_id = _get_user_id_from_auth(auth_context, db)
 
     pdf_data = update_pdf_access_level(db, pdf_id, user_id, "PRIVATE")

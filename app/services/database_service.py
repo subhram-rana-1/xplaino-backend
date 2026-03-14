@@ -7558,19 +7558,23 @@ def create_pdf(
     
     # Generate UUID for the new PDF
     pdf_id = str(uuid.uuid4())
-    
+
+    # Unauthenticated uploads are always PUBLIC; authenticated uploads default to PRIVATE
+    access_level = "PUBLIC" if unauthenticated_user_id else "PRIVATE"
+
     # Insert the new PDF
     db.execute(
         text("""
-            INSERT INTO pdf (id, file_name, created_by, unauthenticated_user_id, folder_id)
-            VALUES (:id, :file_name, :created_by, :unauthenticated_user_id, :folder_id)
+            INSERT INTO pdf (id, file_name, created_by, unauthenticated_user_id, folder_id, access_level)
+            VALUES (:id, :file_name, :created_by, :unauthenticated_user_id, :folder_id, :access_level)
         """),
         {
             "id": pdf_id,
             "file_name": file_name,
             "created_by": user_id,
             "unauthenticated_user_id": unauthenticated_user_id,
-            "folder_id": folder_id
+            "folder_id": folder_id,
+            "access_level": access_level
         }
     )
     db.commit()
