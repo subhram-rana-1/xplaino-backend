@@ -879,7 +879,7 @@ class HighlighterSetting(BaseModel):
     """The user's active highlight colour preference."""
 
     id: str = Field(..., description="highlight_colour.id")
-    hexcode: str = Field(..., description="Hex colour code, e.g. #FFF9C4")
+    hexcode: str = Field(..., description="Hex colour code, e.g. #FFE082")
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -1540,7 +1540,7 @@ class HighlightColourResponse(BaseModel):
     """A single highlight colour record."""
 
     id: str = Field(..., description="Highlight colour ID")
-    hexcode: str = Field(..., description="Hex colour code, e.g. #FFF9C4")
+    hexcode: str = Field(..., description="Hex colour code, e.g. #FFE082")
 
 
 class GetAllHighlightColoursResponse(BaseModel):
