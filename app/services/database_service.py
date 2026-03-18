@@ -11150,3 +11150,61 @@ def get_pdf_text_chat_history(
     )
 
     return {"messages": messages, "total": total, "offset": offset, "limit": limit}
+
+
+def add_shared_user(
+    db: Session,
+    shared_by_unauthenticated_user_id: Optional[str],
+    shared_by_user_email: Optional[str],
+    shared_to_email: str,
+) -> None:
+    """
+    Record that a sharer sent an invite to shared_to_email.
+    Uses INSERT IGNORE so duplicate (sharer, shared_to) pairs are silently skipped.
+    """
+    db.execute(
+        text("""
+            INSERT IGNORE INTO shared_user
+                (id, shared_by_unauthenticated_user_id, shared_by_user_email, shared_to_email)
+            VALUES (:id, :unauth_id, :user_email, :shared_to_email)
+        """),
+        {
+            "id": str(uuid.uuid4()),
+            "unauth_id": shared_by_unauthenticated_user_id,
+            "user_email": shared_by_user_email,
+            "shared_to_email": shared_to_email,
+        },
+    )
+    db.commit()
+
+
+def get_shared_to_emails_by_sharer(
+    db: Session,
+    shared_by_unauthenticated_user_id: Optional[str] = None,
+    shared_by_user_email: Optional[str] = None,
+) -> List[str]:
+    """
+    Return all emails that the given sharer has previously shared resources with.
+    Queries by unauthenticated user ID or authenticated user email, whichever is provided.
+    """
+    if shared_by_unauthenticated_user_id:
+        rows = db.execute(
+            text(
+                "SELECT shared_to_email FROM shared_user"
+                " WHERE shared_by_unauthenticated_user_id = :id"
+                " ORDER BY created_at DESC"
+            ),
+            {"id": shared_by_unauthenticated_user_id},
+        ).fetchall()
+    elif shared_by_user_email:
+        rows = db.execute(
+            text(
+                "SELECT shared_to_email FROM shared_user"
+                " WHERE shared_by_user_email = :email"
+                " ORDER BY created_at DESC"
+            ),
+            {"email": shared_by_user_email},
+        ).fetchall()
+    else:
+        return []
+    return [row[0] for row in rows]
