@@ -279,8 +279,20 @@ class Settings(BaseSettings):
     pg_db_name: str = Field(default="caten_vectors", description="PostgreSQL database name")
 
     # Celery Configuration
+    redis_url: str = Field(default="", description="Redis URL (auto-provided by Railway)")
     celery_broker_url: str = Field(default="redis://localhost:6379/1", description="Celery broker URL (Redis)")
     celery_result_backend: str = Field(default="redis://localhost:6379/2", description="Celery result backend URL (Redis)")
+
+    @model_validator(mode="after")
+    def derive_celery_urls_from_redis(self):
+        """When REDIS_URL is set and Celery URLs are still localhost defaults, derive them."""
+        if self.redis_url and self.redis_url.strip():
+            base = self.redis_url.rstrip("/")
+            if self.celery_broker_url == "redis://localhost:6379/1":
+                self.celery_broker_url = f"{base}/1"
+            if self.celery_result_backend == "redis://localhost:6379/2":
+                self.celery_result_backend = f"{base}/2"
+        return self
 
     # RAG Configuration
     openai_embedding_model: str = Field(default="text-embedding-3-small", description="OpenAI embedding model name")
