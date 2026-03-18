@@ -1928,3 +1928,9 @@ class GetAllPdfChatSessionsRequest(BaseModel):
     """Query parameters for listing chat sessions."""
 
     pdf_content_preprocess_id: str = Field(..., min_length=1, max_length=36, description="Preprocess record ID")
+
+
+class SharedToEmailsResponse(BaseModel):
+    """Response containing all emails that the caller has previously shared resources with."""
+
+    emails: List[str]

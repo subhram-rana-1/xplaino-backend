@@ -30,6 +30,7 @@ from app.database.connection import get_db
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     get_user_id_by_auth_vendor_id,
+    get_email_by_user_id,
     create_pdf,
     create_pdf_copy,
     get_pdfs_by_user_id,
@@ -55,6 +56,7 @@ from app.services.database_service import (
     get_pdf_text_chat_by_id,
     delete_pdf_text_chat,
     get_pdf_text_chat_history,
+    add_shared_user,
 )
 from app.services.s3_service import s3_service
 
@@ -625,6 +627,14 @@ async def share_pdf_endpoint(
                 "error_message": "PDF is already shared with this email"
             }
         )
+
+    user_email = get_email_by_user_id(db, user_id)
+    add_shared_user(
+        db,
+        shared_by_unauthenticated_user_id=None,
+        shared_by_user_email=user_email,
+        shared_to_email=body.email,
+    )
 
     logger.info(
         "Shared PDF successfully",
