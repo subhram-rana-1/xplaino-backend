@@ -112,24 +112,26 @@ async def create_prompt(
     "",
     response_model=GetAllCustomUserPromptsResponse,
     summary="List my custom user prompts",
-    description="Return a paginated list of all non-hidden custom prompts owned by the authenticated user.",
+    description="Return a paginated list of custom prompts owned by the authenticated user. By default only non-hidden prompts are returned; pass `include_hidden=true` to include hidden ones as well.",
 )
 async def list_prompts(
     request: Request,
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=20, ge=1, le=100, description="Pagination limit (max 100)"),
+    include_hidden: bool = Query(default=True, description="Include hidden prompts in the results"),
     auth_context: dict = Depends(authenticate),
     db: Session = Depends(get_db),
 ):
     user_id = _require_authenticated_user_id(auth_context, db)
 
-    prompts, total = get_all_custom_user_prompts_by_user_id(db, user_id, offset, limit)
+    prompts, total = get_all_custom_user_prompts_by_user_id(db, user_id, offset, limit, include_hidden)
 
     logger.info(
         "Listed custom user prompts",
         user_id=user_id,
         count=len(prompts),
         total=total,
+        include_hidden=include_hidden,
     )
 
     return GetAllCustomUserPromptsResponse(

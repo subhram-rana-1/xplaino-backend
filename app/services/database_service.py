@@ -7558,19 +7558,23 @@ def create_pdf(
     
     # Generate UUID for the new PDF
     pdf_id = str(uuid.uuid4())
-    
+
+    # Unauthenticated uploads are always PUBLIC; authenticated uploads default to PRIVATE
+    access_level = "PUBLIC" if unauthenticated_user_id else "PRIVATE"
+
     # Insert the new PDF
     db.execute(
         text("""
-            INSERT INTO pdf (id, file_name, created_by, unauthenticated_user_id, folder_id)
-            VALUES (:id, :file_name, :created_by, :unauthenticated_user_id, :folder_id)
+            INSERT INTO pdf (id, file_name, created_by, unauthenticated_user_id, folder_id, access_level)
+            VALUES (:id, :file_name, :created_by, :unauthenticated_user_id, :folder_id, :access_level)
         """),
         {
             "id": pdf_id,
             "file_name": file_name,
             "created_by": user_id,
             "unauthenticated_user_id": unauthenticated_user_id,
-            "folder_id": folder_id
+            "folder_id": folder_id,
+            "access_level": access_level
         }
     )
     db.commit()
@@ -10331,15 +10335,17 @@ def get_all_custom_user_prompts_by_user_id(
     user_id: str,
     offset: int = 0,
     limit: int = 20,
+    include_hidden: bool = False,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
-    Get all non-hidden custom user prompts owned by a user, with pagination.
+    Get custom user prompts owned by a user, with pagination.
 
     Args:
         db: Database session
         user_id: Owner user ID (CHAR(36) UUID)
         offset: Pagination offset
         limit: Pagination limit
+        include_hidden: When True, include hidden prompts in the results
 
     Returns:
         Tuple of (list of prompt dicts, total count)
@@ -10350,19 +10356,22 @@ def get_all_custom_user_prompts_by_user_id(
         user_id=user_id,
         offset=offset,
         limit=limit,
+        include_hidden=include_hidden,
     )
 
+    hidden_filter = "" if include_hidden else "AND is_hidden = FALSE"
+
     total_row = db.execute(
-        text("SELECT COUNT(*) FROM custom_user_prompt WHERE user_id = :user_id AND is_hidden = FALSE"),
+        text(f"SELECT COUNT(*) FROM custom_user_prompt WHERE user_id = :user_id {hidden_filter}"),
         {"user_id": user_id},
     ).fetchone()
     total = total_row[0] if total_row else 0
 
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT id, user_id, title, description, is_hidden, created_at, updated_at
             FROM custom_user_prompt
-            WHERE user_id = :user_id AND is_hidden = FALSE
+            WHERE user_id = :user_id {hidden_filter}
             ORDER BY created_at DESC
             LIMIT :limit OFFSET :offset
         """),

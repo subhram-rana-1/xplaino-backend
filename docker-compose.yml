@@ -36,6 +36,55 @@ services:
       timeout: 10s
       retries: 3
 
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: caten
+      POSTGRES_PASSWORD: caten_vectors_pass
+      POSTGRES_DB: caten_vectors
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./app/database/postgres/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caten -d caten_vectors"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery-worker:
+    build: .
+    command: celery -A app.services.celery_app:celery_app worker --queues=pdf_preprocess,default --concurrency=4 --loglevel=info
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_USER=caten
+      - PG_PASSWORD=caten_vectors_pass
+      - PG_DB_NAME=caten_vectors
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  celery-flower:
+    build: .
+    command: celery -A app.services.celery_app:celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - redis
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -67,5 +116,6 @@ services:
 
 volumes:
   redis_data:
+  postgres_data:
   prometheus_data:
   grafana_data:

@@ -6,15 +6,15 @@ CREATE TABLE IF NOT EXISTS highlight_colour (
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Migration 002: seed 7 gentle pastel highlight colours
+-- Migration 002: seed 7 highlight colours
 INSERT INTO highlight_colour (hexcode) VALUES
-    ('#FFF9C4'),  -- Lemon Yellow
-    ('#B5EAD7'),  -- Mint Green
-    ('#FFDAC1'),  -- Peach
-    ('#D4C5F9'),  -- Lavender
-    ('#C9E8F5'),  -- Sky Blue
-    ('#FFB7B2'),  -- Blush Pink
-    ('#E2F0CB');  -- Lime
+    ('#FFE082'),  -- Lemon Yellow
+    ('#80CBC4'),  -- Mint Green
+    ('#FFAB91'),  -- Peach
+    ('#B39DDB'),  -- Lavender
+    ('#90CAF9'),  -- Sky Blue
+    ('#EF9A9A'),  -- Blush Pink
+    ('#C5E1A5');  -- Lime
 
 -- Migration 002: create pdf_highlight table
 CREATE TABLE IF NOT EXISTS pdf_highlight (

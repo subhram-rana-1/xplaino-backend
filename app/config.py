@@ -270,14 +270,46 @@ class Settings(BaseSettings):
     paddle_environment: str = Field(default="sandbox", description="Paddle environment: 'sandbox' or 'production'")
     paddle_api_key: str = Field(default="", description="Paddle API key for direct API calls")
     paddle_api_url: str = Field(default="https://sandbox-api.paddle.com", description="Paddle API base URL (use https://api.paddle.com for production)")
-    
+
+    # PostgreSQL / pgvector Configuration
+    pg_host: str = Field(default="localhost", description="PostgreSQL host")
+    pg_port: int = Field(default=5432, description="PostgreSQL port")
+    pg_user: str = Field(default="caten", description="PostgreSQL user")
+    pg_password: str = Field(default="", description="PostgreSQL password")
+    pg_db_name: str = Field(default="caten_vectors", description="PostgreSQL database name")
+
+    # Celery Configuration
+    celery_broker_url: str = Field(default="redis://localhost:6379/1", description="Celery broker URL (Redis)")
+    celery_result_backend: str = Field(default="redis://localhost:6379/2", description="Celery result backend URL (Redis)")
+
+    # RAG Configuration
+    openai_embedding_model: str = Field(default="text-embedding-3-small", description="OpenAI embedding model name")
+    rag_chunk_size: int = Field(default=512, description="Target chunk size in tokens for semantic chunking")
+    rag_chunk_overlap: int = Field(default=50, description="Overlap in tokens between adjacent chunks")
+    rag_retrieval_top_k: int = Field(default=20, description="Number of chunks to retrieve from vector DB before reranking")
+    rag_rerank_top_k: int = Field(default=5, description="Number of chunks to keep after reranking")
+    rag_ef_search: int = Field(default=100, description="HNSW ef_search parameter at query time")
+    rag_llm_model: str = Field(default="gpt-4o-mini", description="LLM model for RAG answer generation")
+    rag_llm_temperature: float = Field(default=0.3, description="Temperature for RAG LLM (low for factual answers)")
+    rag_max_tokens: int = Field(default=2000, description="Max tokens for RAG LLM response")
+    rag_broad_max_chunks: int = Field(default=200, description="Max chunks to fetch for broad/holistic questions")
+    rag_broad_token_budget: int = Field(default=80000, description="Max total context tokens for broad queries")
+    rag_comparative_retrieval_top_k: int = Field(default=40, description="Number of chunks to retrieve for comparative questions (wider net for both concepts)")
+    rag_comparative_rerank_top_k: int = Field(default=10, description="Number of chunks to keep after reranking for comparative questions")
+    rag_rerank_score_threshold: float = Field(default=0.15, description="Min top rerank score for specific retrieval; below this, fall back to broad retrieval")
+
     @property
     def database_url(self) -> str:
-        """Construct database connection URL from individual fields."""
+        """Construct MariaDB connection URL from individual fields."""
         if self.db_password:
             return f"mysql+pymysql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
         else:
             return f"mysql+pymysql://{self.db_user}@{self.db_host}:{self.db_port}/{self.db_name}"
+
+    @property
+    def pg_dsn(self) -> str:
+        """Construct PostgreSQL DSN string for psycopg2."""
+        return f"host={self.pg_host} port={self.pg_port} dbname={self.pg_db_name} user={self.pg_user} password={self.pg_password}"
 
 
 # Global settings instance
