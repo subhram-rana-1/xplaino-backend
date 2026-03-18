@@ -135,6 +135,44 @@ class PdfService:
             logger.error("PDF to Markdown conversion failed", error=str(e))
             raise PdfProcessingError(f"Failed to convert PDF to Markdown: {str(e)}")
     
+    def extract_plain_text_from_pdf(self, pdf_data: bytes) -> List[Tuple[int, str]]:
+        """Extract plain text per page with proper word spacing using PyMuPDF.
+
+        Returns a list of ``(page_number, page_text)`` tuples where
+        *page_number* is **1-indexed** (matching PDF.js page numbering).
+
+        Unlike ``extract_text_from_pdf`` (which produces Markdown and may
+        fuse adjacent words), this method preserves inter-word spacing
+        exactly as rendered in the PDF so that citation content matches the
+        text layer produced by PDF.js on the frontend.
+        """
+        import fitz
+
+        try:
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
+            pages: List[Tuple[int, str]] = []
+            for page_idx, page in enumerate(doc):
+                text = page.get_text("text")
+                if text and text.strip():
+                    pages.append((page_idx + 1, text.strip()))
+            doc.close()
+
+            if not pages:
+                raise PdfProcessingError("No readable text found in the PDF")
+
+            logger.info(
+                "Extracted plain text from PDF using PyMuPDF",
+                content_length=sum(len(t) for _, t in pages),
+                page_count=len(pages),
+            )
+            return pages
+
+        except PdfProcessingError:
+            raise
+        except Exception as e:
+            logger.error("Plain-text PDF extraction failed", error=str(e))
+            raise PdfProcessingError(f"Failed to extract plain text from PDF: {str(e)}")
+
     def _enhance_with_formatting(self, pdf_path: str, markdown_content: str) -> str:
         """Enhance markdown content with bold text formatting and proper indentation."""
         try:

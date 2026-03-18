@@ -611,27 +611,28 @@ async def ask_pdf_stream(
     citations = format_citations(reranked)
 
     possible_questions: List[str] = []
-    try:
-        followup_resp = await client.chat.completions.create(
-            model=settings.rag_llm_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Based on the conversation so far about a PDF document, suggest exactly 3 "
-                        "concise follow-up questions the user might ask next. Return ONLY a JSON array "
-                        "of strings, nothing else."
-                    ),
-                },
-                {"role": "user", "content": f"User asked: {question}\nAssistant answered: {accumulated[:500]}"},
-            ],
-            max_tokens=200,
-            temperature=0.5,
-        )
-        raw = followup_resp.choices[0].message.content.strip()
-        possible_questions = json.loads(raw) if raw.startswith("[") else []
-    except Exception as e:
-        logger.warning("Failed to generate follow-up questions", error=str(e))
+    if intent != "conversational":
+        try:
+            followup_resp = await client.chat.completions.create(
+                model=settings.rag_llm_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Based on the conversation so far about a PDF document, suggest exactly 3 "
+                            "concise follow-up questions the user might ask next. Return ONLY a JSON array "
+                            "of strings, nothing else."
+                        ),
+                    },
+                    {"role": "user", "content": f"User asked: {question}\nAssistant answered: {accumulated[:500]}"},
+                ],
+                max_tokens=200,
+                temperature=0.5,
+            )
+            raw = followup_resp.choices[0].message.content.strip()
+            possible_questions = json.loads(raw) if raw.startswith("[") else []
+        except Exception as e:
+            logger.warning("Failed to generate follow-up questions", error=str(e))
 
     final_data = {
         "type": "complete",

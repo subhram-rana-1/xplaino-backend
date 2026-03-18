@@ -90,10 +90,84 @@ def _count_tokens(text: str) -> int:
     return len(_get_encoding().encode(text))
 
 
-def _split_into_sentences(text: str) -> List[str]:
-    """Split text into sentences using regex heuristics."""
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    return [s.strip() for s in sentences if s.strip()]
+_BULLET_OR_HEADER_RE = re.compile(
+    r'\n(?='
+    r'[\u2022\u25cf\u25aa\u2023\-\*\u2013\u2014•●▪]'  # bullet markers
+    r'|\d+[.\)]'                                         # numbered lists
+    r'|[A-Z][A-Z ]{2,}'                                  # ALL-CAPS headings
+    r')',
+)
+
+_MIN_SEGMENT_LEN = 20
+_MIN_MERGED_LEN = 40
+
+
+def _split_page_text(text: str) -> List[str]:
+    """Split a single page's text into semantic segments.
+
+    Handles both prose (split on sentence endings) and structured
+    documents like CVs/forms (split on paragraph breaks, bullet markers,
+    and section headers).  Very short fragments are merged with their
+    neighbours so they don't become useless micro-chunks.
+    """
+    paragraphs = re.split(r'\n{2,}', text)
+
+    segments: List[str] = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        lines = _BULLET_OR_HEADER_RE.split(para)
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            sub = re.split(r'(?<=[.!?])\s+', line)
+            for s in sub:
+                s = s.strip()
+                if s:
+                    segments.append(s)
+
+    if not segments:
+        return [text.strip()] if text.strip() else []
+
+    merged: List[str] = []
+    buf = ""
+    for i, seg in enumerate(segments):
+        if buf:
+            buf = buf + " " + seg
+            if len(buf) >= _MIN_MERGED_LEN:
+                merged.append(buf)
+                buf = ""
+        elif len(seg) < _MIN_SEGMENT_LEN and i < len(segments) - 1:
+            buf = seg
+        else:
+            merged.append(seg)
+
+    if buf:
+        if merged:
+            merged[-1] = merged[-1] + " " + buf
+        else:
+            merged.append(buf)
+
+    return merged
+
+
+def _split_into_sentences(
+    page_texts: List[Tuple[int, str]],
+) -> List[Tuple[int, str]]:
+    """Split per-page text into tagged ``(page_number, segment)`` tuples.
+
+    Each page is split independently so that no segment spans a page
+    boundary.
+    """
+    result: List[Tuple[int, str]] = []
+    for page_num, text in page_texts:
+        for seg in _split_page_text(text):
+            result.append((page_num, seg))
+    return result
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -107,48 +181,45 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 
 
 def _semantic_chunk(
-    sentences: List[str],
+    tagged_sentences: List[Tuple[int, str]],
     sentence_embeddings: List[List[float]],
     max_tokens: int,
     similarity_threshold: float = 0.5,
-) -> List[str]:
-    """Merge adjacent sentences into chunks while they remain semantically similar
-    and under the token limit.
+) -> List[Tuple[int, str]]:
+    """Merge adjacent sentences into chunks while they remain semantically
+    similar, under the token limit, **and on the same page**.
+
+    Returns a list of ``(page_number, chunk_text)`` tuples.  Chunks never
+    span a page boundary.
     """
-    if not sentences:
+    if not tagged_sentences:
         return []
 
-    chunks: List[str] = []
-    current_chunk_sentences: List[str] = [sentences[0]]
-    current_tokens = _count_tokens(sentences[0])
+    chunks: List[Tuple[int, str]] = []
+    current_page = tagged_sentences[0][0]
+    current_chunk_sentences: List[str] = [tagged_sentences[0][1]]
+    current_tokens = _count_tokens(tagged_sentences[0][1])
 
-    for i in range(1, len(sentences)):
+    for i in range(1, len(tagged_sentences)):
+        page_num, sentence = tagged_sentences[i]
         sim = _cosine_similarity(sentence_embeddings[i - 1], sentence_embeddings[i])
-        sentence_tokens = _count_tokens(sentences[i])
+        sentence_tokens = _count_tokens(sentence)
 
-        if sim >= similarity_threshold and (current_tokens + sentence_tokens) <= max_tokens:
-            current_chunk_sentences.append(sentences[i])
+        same_page = page_num == current_page
+
+        if same_page and sim >= similarity_threshold and (current_tokens + sentence_tokens) <= max_tokens:
+            current_chunk_sentences.append(sentence)
             current_tokens += sentence_tokens
         else:
-            chunks.append(" ".join(current_chunk_sentences))
-            current_chunk_sentences = [sentences[i]]
+            chunks.append((current_page, " ".join(current_chunk_sentences)))
+            current_chunk_sentences = [sentence]
             current_tokens = sentence_tokens
+            current_page = page_num
 
     if current_chunk_sentences:
-        chunks.append(" ".join(current_chunk_sentences))
+        chunks.append((current_page, " ".join(current_chunk_sentences)))
 
     return chunks
-
-
-def _detect_page_number(chunk_text: str, page_texts: List[Tuple[int, str]]) -> Optional[int]:
-    """Best-effort page detection: return the page whose raw text most overlaps with the chunk."""
-    if not page_texts:
-        return None
-    first_100 = chunk_text[:100]
-    for page_num, page_text in page_texts:
-        if first_100 in page_text:
-            return page_num
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -192,56 +263,45 @@ def preprocess_pdf(self, preprocess_id: str, pdf_id: str):
         pdf_bytes = s3_service.download_object(s3_key)
         logger.info("Downloaded PDF", pdf_id=pdf_id, size_bytes=len(pdf_bytes))
 
-        # 3. Extract text (reuse existing service)
+        # 3. Extract plain text per page (proper word spacing for citation matching)
         from app.services.pdf_service import PdfService
 
         pdf_service = PdfService()
-        extracted = pdf_service.extract_text_from_pdf(pdf_bytes)
+        page_texts = pdf_service.extract_plain_text_from_pdf(pdf_bytes)
 
-        if isinstance(extracted, dict):
-            full_text = extracted.get("text", "") or extracted.get("markdown", "")
-            page_texts: List[Tuple[int, str]] = []
-            pages = extracted.get("pages", [])
-            for idx, page in enumerate(pages):
-                if isinstance(page, dict):
-                    page_texts.append((idx + 1, page.get("text", "")))
-                elif isinstance(page, str):
-                    page_texts.append((idx + 1, page))
-        else:
-            full_text = str(extracted)
-            page_texts = []
-
-        if not full_text or not full_text.strip():
+        if not page_texts:
             raise ValueError("PDF text extraction produced empty content")
 
-        logger.info("Extracted text", pdf_id=pdf_id, text_length=len(full_text))
+        total_chars = sum(len(t) for _, t in page_texts)
+        logger.info("Extracted text", pdf_id=pdf_id, text_length=total_chars, pages=len(page_texts))
 
-        # 4. Sentence splitting
-        sentences = _split_into_sentences(full_text)
-        if not sentences:
+        # 4. Page-aware sentence splitting
+        tagged_sentences = _split_into_sentences(page_texts)
+        if not tagged_sentences:
             raise ValueError("No sentences extracted from PDF")
 
         # 5. Embed sentences for similarity-based merging
         from app.services.embedding_service import embed_texts
 
-        sentence_embeddings = embed_texts(sentences)
+        sentence_embeddings = embed_texts([s for _, s in tagged_sentences])
 
-        # 6. Semantic chunking
-        chunks = _semantic_chunk(
-            sentences,
+        # 6. Page-aware semantic chunking (never merges across page boundaries)
+        tagged_chunks = _semantic_chunk(
+            tagged_sentences,
             sentence_embeddings,
             max_tokens=settings.rag_chunk_size,
             similarity_threshold=0.5,
         )
-        logger.info("Semantic chunking complete", pdf_id=pdf_id, num_chunks=len(chunks))
+        logger.info("Semantic chunking complete", pdf_id=pdf_id, num_chunks=len(tagged_chunks))
 
         # 7. Embed final chunks
-        chunk_embeddings = embed_texts(chunks)
+        chunk_embeddings = embed_texts([c for _, c in tagged_chunks])
 
-        # 8. Prepare records
+        # 8. Prepare records (page_number is deterministic from the pipeline)
         records = []
-        for seq, (chunk_text, embedding) in enumerate(zip(chunks, chunk_embeddings)):
-            page_num = _detect_page_number(chunk_text, page_texts)
+        for seq, ((page_num, chunk_text), embedding) in enumerate(
+            zip(tagged_chunks, chunk_embeddings)
+        ):
             records.append(
                 (
                     preprocess_id,
