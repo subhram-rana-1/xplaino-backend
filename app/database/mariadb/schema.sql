@@ -456,7 +456,7 @@ CREATE TABLE IF NOT EXISTS paddle_adjustment (
 CREATE TABLE IF NOT EXISTS extension_uninstallation_user_feedback (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     reason ENUM('TOO_EXPENSIVE', 'NOT_USING', 'FOUND_ALTERNATIVE', 'MISSING_FEATURES', 'EXTENSION_NOT_WORKING', 'OTHER') NOT NULL,
-    user_feedback TEXT NULL,
+    metadata JSON NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -523,6 +523,19 @@ CREATE TABLE IF NOT EXISTS pdf_note (
     INDEX idx_user_id (user_id),
     FOREIGN KEY (pdf_id)  REFERENCES pdf(id)  ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS pdf_note_comment (
+    id          CHAR(36)       PRIMARY KEY DEFAULT (UUID()),
+    pdf_note_id CHAR(36)       NOT NULL,
+    user_id     CHAR(36)       NULL,
+    content     VARCHAR(1024)  NOT NULL,
+    created_at  TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_pdf_note_id (pdf_note_id),
+    INDEX idx_user_id     (user_id),
+    FOREIGN KEY (pdf_note_id) REFERENCES pdf_note(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id)     REFERENCES user(id)     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Custom user prompt table (user-authored prompt templates)

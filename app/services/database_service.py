@@ -8967,32 +8967,32 @@ def get_active_highlighted_coupon(
 def save_extension_uninstallation_feedback(
     db: Session,
     reason: str,
-    user_feedback: Optional[str] = None
+    metadata: Optional[dict] = None
 ) -> None:
     """
     Save extension uninstallation feedback to the database.
-    
+
     Args:
         db: Database session
         reason: Uninstallation reason (enum value)
-        user_feedback: Optional user feedback text
+        metadata: Optional metadata dict (e.g. {"webpageUrl": "...", "userFeedback": "..."})
     """
     logger.info(
         "Saving extension uninstallation feedback",
         function="save_extension_uninstallation_feedback",
         reason=reason,
-        has_feedback=user_feedback is not None
+        has_metadata=metadata is not None
     )
-    
+
     db.execute(
         text("""
-            INSERT INTO extension_uninstallation_user_feedback (reason, user_feedback)
-            VALUES (:reason, :user_feedback)
+            INSERT INTO extension_uninstallation_user_feedback (reason, metadata)
+            VALUES (:reason, :metadata)
         """),
-        {"reason": reason, "user_feedback": user_feedback}
+        {"reason": reason, "metadata": json.dumps(metadata) if metadata is not None else None}
     )
     db.commit()
-    
+
     logger.info(
         "Extension uninstallation feedback saved successfully",
         function="save_extension_uninstallation_feedback",
@@ -9611,6 +9611,292 @@ def get_pdf_notes_by_pdf(
         count=len(notes),
     )
     return notes
+
+
+# ---------------------------------------------------------------------------
+# PDF Note Comment functions
+# ---------------------------------------------------------------------------
+
+def create_pdf_note_comment(
+    db: Session,
+    pdf_note_id: str,
+    user_id: Optional[str],
+    content: str,
+) -> Dict[str, Any]:
+    """
+    Insert a new pdf_note_comment record.
+
+    Args:
+        db: Database session
+        pdf_note_id: FK to pdf_note.id
+        user_id: Authenticated user's ID (nullable)
+        content: Comment content (max 1024 characters)
+
+    Returns:
+        Dict with the created comment's fields
+    """
+    logger.info(
+        "Creating PDF note comment",
+        function="create_pdf_note_comment",
+        pdf_note_id=pdf_note_id,
+        user_id=user_id,
+    )
+
+    comment_id = str(uuid.uuid4())
+
+    db.execute(
+        text("""
+            INSERT INTO pdf_note_comment (id, pdf_note_id, user_id, content)
+            VALUES (:id, :pdf_note_id, :user_id, :content)
+        """),
+        {
+            "id": comment_id,
+            "pdf_note_id": pdf_note_id,
+            "user_id": user_id,
+            "content": content,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        text("""
+            SELECT c.id, c.pdf_note_id, c.user_id, c.content, c.created_at, c.updated_at,
+                   g.email, g.given_name, g.family_name
+            FROM pdf_note_comment c
+            LEFT JOIN google_user_auth_info g ON g.user_id = c.user_id
+            WHERE c.id = :id
+            LIMIT 1
+        """),
+        {"id": comment_id},
+    ).fetchone()
+
+    given_name = row[7]
+    family_name = row[8]
+    name_parts = [p for p in [given_name, family_name] if p]
+    user_name = " ".join(name_parts).strip() if name_parts else None
+
+    comment = {
+        "id": str(row[0]),
+        "pdf_note_id": str(row[1]),
+        "user_id": str(row[2]) if row[2] else None,
+        "content": row[3],
+        "created_at": row[4].isoformat() if row[4] else None,
+        "updated_at": row[5].isoformat() if row[5] else None,
+        "user_email": row[6],
+        "user_name": user_name,
+    }
+
+    logger.info(
+        "PDF note comment created successfully",
+        function="create_pdf_note_comment",
+        comment_id=comment_id,
+        pdf_note_id=pdf_note_id,
+    )
+
+    return comment
+
+
+def update_pdf_note_comment(
+    db: Session,
+    comment_id: str,
+    user_id: str,
+    content: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the content of a pdf_note_comment owned by the given user.
+
+    Args:
+        db: Database session
+        comment_id: pdf_note_comment.id to update
+        user_id: Authenticated user's ID (ownership check)
+        content: New comment content
+
+    Returns:
+        Dict with the updated comment's fields, or None if not found / not owned by user
+    """
+    logger.info(
+        "Updating PDF note comment",
+        function="update_pdf_note_comment",
+        comment_id=comment_id,
+        user_id=user_id,
+    )
+
+    result = db.execute(
+        text("""
+            UPDATE pdf_note_comment
+            SET content = :content
+            WHERE id = :comment_id AND user_id = :user_id
+        """),
+        {"content": content, "comment_id": comment_id, "user_id": user_id},
+    )
+    db.commit()
+
+    if result.rowcount == 0:
+        logger.warning(
+            "PDF note comment not found or not owned by user",
+            function="update_pdf_note_comment",
+            comment_id=comment_id,
+            user_id=user_id,
+        )
+        return None
+
+    row = db.execute(
+        text("""
+            SELECT c.id, c.pdf_note_id, c.user_id, c.content, c.created_at, c.updated_at,
+                   g.email, g.given_name, g.family_name
+            FROM pdf_note_comment c
+            LEFT JOIN google_user_auth_info g ON g.user_id = c.user_id
+            WHERE c.id = :id
+            LIMIT 1
+        """),
+        {"id": comment_id},
+    ).fetchone()
+
+    given_name = row[7]
+    family_name = row[8]
+    name_parts = [p for p in [given_name, family_name] if p]
+    user_name = " ".join(name_parts).strip() if name_parts else None
+
+    comment = {
+        "id": str(row[0]),
+        "pdf_note_id": str(row[1]),
+        "user_id": str(row[2]) if row[2] else None,
+        "content": row[3],
+        "created_at": row[4].isoformat() if row[4] else None,
+        "updated_at": row[5].isoformat() if row[5] else None,
+        "user_email": row[6],
+        "user_name": user_name,
+    }
+
+    logger.info(
+        "PDF note comment updated successfully",
+        function="update_pdf_note_comment",
+        comment_id=comment_id,
+    )
+
+    return comment
+
+
+def get_comments_by_note_id(
+    db: Session,
+    note_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    Get all pdf_note_comment records for a given note, ordered newest first.
+
+    Args:
+        db: Database session
+        note_id: pdf_note.id
+
+    Returns:
+        List of comment dicts (with user_email and user_name) ordered by created_at DESC
+    """
+    logger.info(
+        "Fetching comments for PDF note",
+        function="get_comments_by_note_id",
+        note_id=note_id,
+    )
+
+    rows = db.execute(
+        text("""
+            SELECT c.id, c.pdf_note_id, c.user_id, c.content, c.created_at, c.updated_at,
+                   g.email, g.given_name, g.family_name
+            FROM pdf_note_comment c
+            LEFT JOIN google_user_auth_info g ON g.user_id = c.user_id
+            WHERE c.pdf_note_id = :note_id
+            ORDER BY c.created_at DESC
+        """),
+        {"note_id": note_id},
+    ).fetchall()
+
+    comments = []
+    for row in rows:
+        given_name = row[7]
+        family_name = row[8]
+        name_parts = [p for p in [given_name, family_name] if p]
+        user_name = " ".join(name_parts).strip() if name_parts else None
+        comments.append({
+            "id": str(row[0]),
+            "pdf_note_id": str(row[1]),
+            "user_id": str(row[2]) if row[2] else None,
+            "content": row[3],
+            "created_at": row[4].isoformat() if row[4] else None,
+            "updated_at": row[5].isoformat() if row[5] else None,
+            "user_email": row[6],
+            "user_name": user_name,
+        })
+
+    logger.info(
+        "Fetched comments for PDF note successfully",
+        function="get_comments_by_note_id",
+        note_id=note_id,
+        count=len(comments),
+    )
+
+    return comments
+
+
+def get_comments_by_pdf_id(
+    db: Session,
+    pdf_id: str,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Get all pdf_note_comment records for all notes belonging to a PDF,
+    grouped by note_id and ordered newest first within each group.
+
+    Args:
+        db: Database session
+        pdf_id: pdf.id
+
+    Returns:
+        Dict mapping note_id -> list of comment dicts ordered by created_at DESC
+    """
+    logger.info(
+        "Fetching comments for PDF",
+        function="get_comments_by_pdf_id",
+        pdf_id=pdf_id,
+    )
+
+    rows = db.execute(
+        text("""
+            SELECT c.id, c.pdf_note_id, c.user_id, c.content, c.created_at, c.updated_at,
+                   g.email, g.given_name, g.family_name
+            FROM pdf_note_comment c
+            INNER JOIN pdf_note n ON n.id = c.pdf_note_id
+            LEFT JOIN google_user_auth_info g ON g.user_id = c.user_id
+            WHERE n.pdf_id = :pdf_id
+            ORDER BY c.pdf_note_id, c.created_at DESC
+        """),
+        {"pdf_id": pdf_id},
+    ).fetchall()
+
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        given_name = row[7]
+        family_name = row[8]
+        name_parts = [p for p in [given_name, family_name] if p]
+        user_name = " ".join(name_parts).strip() if name_parts else None
+        comment = {
+            "id": str(row[0]),
+            "pdf_note_id": str(row[1]),
+            "user_id": str(row[2]) if row[2] else None,
+            "content": row[3],
+            "created_at": row[4].isoformat() if row[4] else None,
+            "updated_at": row[5].isoformat() if row[5] else None,
+            "user_email": row[6],
+            "user_name": user_name,
+        }
+        note_id = comment["pdf_note_id"]
+        grouped.setdefault(note_id, []).append(comment)
+
+    logger.info(
+        "Fetched comments for PDF successfully",
+        function="get_comments_by_pdf_id",
+        pdf_id=pdf_id,
+        note_count=len(grouped),
+    )
+
+    return grouped
 
 
 # ---------------------------------------------------------------------------

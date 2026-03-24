@@ -1512,6 +1512,25 @@ class ExtensionUninstallationReason(str, Enum):
     OTHER = "OTHER"
 
 
+class ExtensionUninstallationFeedbackMetadata(BaseModel):
+    """Optional metadata for extension uninstallation feedback."""
+
+    webpageUrl: Optional[str] = Field(
+        default=None,
+        max_length=2048,
+        description="URL of the webpage where the extension was uninstalled from"
+    )
+    featureMissing: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Description of a feature the user felt was missing"
+    )
+    userFeedback: Optional[str] = Field(
+        default=None,
+        description="Optional user feedback about uninstallation"
+    )
+
+
 class ExtensionUninstallationFeedbackRequest(BaseModel):
     """Request model for extension uninstallation feedback."""
     
@@ -1519,9 +1538,9 @@ class ExtensionUninstallationFeedbackRequest(BaseModel):
         ...,
         description="Reason for uninstalling the extension (required)"
     )
-    user_feedback: Optional[str] = Field(
+    metadata: Optional[ExtensionUninstallationFeedbackMetadata] = Field(
         default=None,
-        description="Optional user feedback about uninstallation"
+        description="Optional metadata about the uninstallation context"
     )
 
 
@@ -1610,6 +1629,53 @@ class GetPdfNotesResponse(BaseModel):
 
     pdfId: str = Field(..., description="ID of the PDF")
     notes: List[PdfNoteResponse]
+
+
+class CreatePdfNoteCommentRequest(BaseModel):
+    """Request body for creating a comment on a PDF note."""
+
+    pdfNoteId: str = Field(..., description="ID of the PDF note to comment on")
+    content: str = Field(..., min_length=1, max_length=1024, description="Comment content (max 1024 characters)")
+
+
+class UpdatePdfNoteCommentRequest(BaseModel):
+    """Request body for updating a PDF note comment (content only)."""
+
+    content: str = Field(..., min_length=1, max_length=1024, description="Updated comment content (max 1024 characters)")
+
+
+class PdfNoteCommentResponse(BaseModel):
+    """A single PDF note comment record."""
+
+    id: str = Field(..., description="Comment ID")
+    pdfNoteId: str = Field(..., description="ID of the PDF note this comment belongs to")
+    userId: Optional[str] = Field(default=None, description="ID of the user who created the comment")
+    content: str = Field(..., description="Comment content")
+    userEmail: Optional[str] = Field(default=None, description="Email of the comment author")
+    userName: Optional[str] = Field(default=None, description="Full name of the comment author")
+    createdAt: str = Field(..., description="Creation timestamp (ISO format)")
+    updatedAt: str = Field(..., description="Last update timestamp (ISO format)")
+
+
+class GetPdfNoteCommentsResponse(BaseModel):
+    """Response containing all comments for a specific PDF note."""
+
+    pdfNoteId: str = Field(..., description="ID of the PDF note")
+    comments: List[PdfNoteCommentResponse]
+
+
+class NoteWithCommentsResponse(BaseModel):
+    """A PDF note along with all its comments."""
+
+    noteId: str = Field(..., description="ID of the PDF note")
+    comments: List[PdfNoteCommentResponse]
+
+
+class GetPdfCommentsResponse(BaseModel):
+    """Response containing all comments grouped by notes for a given PDF."""
+
+    pdfId: str = Field(..., description="ID of the PDF")
+    notes: List[NoteWithCommentsResponse]
 
 
 # ---------------------------------------------------------------------------

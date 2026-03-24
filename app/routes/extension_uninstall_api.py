@@ -36,14 +36,14 @@ async def submit_uninstallation_feedback(
     logger.info(
         "Extension uninstallation feedback received",
         reason=body.reason.value,
-        has_feedback=body.user_feedback is not None
+        has_metadata=body.metadata is not None
     )
 
     try:
         save_extension_uninstallation_feedback(
             db=db,
             reason=body.reason.value,
-            user_feedback=body.user_feedback
+            metadata=body.metadata.model_dump() if body.metadata is not None else None
         )
 
         return ExtensionUninstallationFeedbackResponse(

@@ -41,6 +41,7 @@ from app.routes import (
     file_upload_api,
     highlight_api,
     pdf_note_api,
+    pdf_note_comment_api,
     custom_user_prompt_api,
     shared_user_api,
 )
@@ -242,6 +243,7 @@ app.include_router(subscription_api.router)
 app.include_router(extension_uninstall_api.router)
 app.include_router(highlight_api.router)
 app.include_router(pdf_note_api.router)
+app.include_router(pdf_note_comment_api.router)
 app.include_router(custom_user_prompt_api.router)
 app.include_router(shared_user_api.router)
 
