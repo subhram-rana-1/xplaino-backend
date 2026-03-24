@@ -44,6 +44,8 @@ from app.routes import (
     pdf_note_comment_api,
     custom_user_prompt_api,
     shared_user_api,
+    web_highlight_api,
+    web_note_api,
 )
 from app.services.rate_limiter import rate_limiter
 
@@ -246,6 +248,8 @@ app.include_router(pdf_note_api.router)
 app.include_router(pdf_note_comment_api.router)
 app.include_router(custom_user_prompt_api.router)
 app.include_router(shared_user_api.router)
+app.include_router(web_highlight_api.router)
+app.include_router(web_note_api.router)
 
 
 @app.get("/metrics", include_in_schema=False)

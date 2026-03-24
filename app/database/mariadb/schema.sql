@@ -639,6 +639,39 @@ CREATE TABLE IF NOT EXISTS pdf_chat (
     FOREIGN KEY (pdf_chat_session_id) REFERENCES pdf_chat_session(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Web highlight table (browser extension text highlights on any webpage)
+CREATE TABLE IF NOT EXISTS web_highlight (
+    id             CHAR(36)    PRIMARY KEY DEFAULT (UUID()),
+    user_id        CHAR(36)    NOT NULL,
+    page_url       TEXT        NOT NULL,
+    page_url_hash  CHAR(64)    NOT NULL,
+    selected_text  TEXT        NOT NULL,
+    anchor         JSON        NOT NULL,
+    color          VARCHAR(20) NULL,
+    note           TEXT        NULL,
+    created_at     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_url_hash (user_id, page_url_hash),
+    INDEX idx_user_id       (user_id),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Web note table (browser extension notes anchored to text selections on any webpage)
+CREATE TABLE IF NOT EXISTS web_note (
+    id             CHAR(36)  PRIMARY KEY DEFAULT (UUID()),
+    user_id        CHAR(36)  NOT NULL,
+    page_url       TEXT      NOT NULL,
+    page_url_hash  CHAR(64)  NOT NULL,
+    selected_text  TEXT      NOT NULL,
+    anchor         JSON      NOT NULL,
+    content        TEXT      NOT NULL,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_url_hash (user_id, page_url_hash),
+    INDEX idx_user_id       (user_id),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Tracks the unique set of users each sharer has ever shared a resource with
 CREATE TABLE IF NOT EXISTS shared_user (
     id                                CHAR(36)     PRIMARY KEY DEFAULT (UUID()),

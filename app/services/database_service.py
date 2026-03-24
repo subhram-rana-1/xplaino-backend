@@ -11494,3 +11494,379 @@ def get_shared_to_emails_by_sharer(
     else:
         return []
     return [row[0] for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Web Highlights (browser extension text highlights on any webpage)
+# ---------------------------------------------------------------------------
+
+def get_web_highlights_by_user_and_url_hash(
+    db: Session,
+    user_id: str,
+    page_url_hash: str,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch all web highlights created by a user on a specific page.
+
+    Scoped strictly to user_id so no cross-user leakage is possible.
+    Results are ordered by created_at ASC for stable extension rendering.
+    """
+    rows = db.execute(
+        text(
+            "SELECT id, user_id, page_url, page_url_hash, selected_text,"
+            "       anchor, color, note, created_at, updated_at"
+            " FROM web_highlight"
+            " WHERE user_id = :user_id AND page_url_hash = :page_url_hash"
+            " ORDER BY created_at ASC"
+        ),
+        {"user_id": user_id, "page_url_hash": page_url_hash},
+    ).fetchall()
+
+    highlights = [
+        {
+            "id": str(row[0]),
+            "user_id": str(row[1]),
+            "page_url": row[2],
+            "page_url_hash": row[3],
+            "selected_text": row[4],
+            "anchor": row[5],
+            "color": row[6],
+            "note": row[7],
+            "created_at": row[8],
+            "updated_at": row[9],
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "Fetched web highlights",
+        function="get_web_highlights_by_user_and_url_hash",
+        user_id=user_id,
+        count=len(highlights),
+    )
+    return highlights
+
+
+def create_web_highlight(
+    db: Session,
+    user_id: str,
+    page_url: str,
+    page_url_hash: str,
+    selected_text: str,
+    anchor: str,
+    color: Optional[str],
+    note: Optional[str],
+) -> Dict[str, Any]:
+    """
+    Insert a new web_highlight row and return the created record.
+
+    anchor must be a JSON string (serialized before calling this function).
+    user_id is always set from the authenticated session — never from client input.
+    """
+    db.execute(
+        text(
+            "INSERT INTO web_highlight"
+            " (user_id, page_url, page_url_hash, selected_text, anchor, color, note)"
+            " VALUES (:user_id, :page_url, :page_url_hash, :selected_text,"
+            "         :anchor, :color, :note)"
+        ),
+        {
+            "user_id": user_id,
+            "page_url": page_url,
+            "page_url_hash": page_url_hash,
+            "selected_text": selected_text,
+            "anchor": anchor,
+            "color": color,
+            "note": note,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        text(
+            "SELECT id, user_id, page_url, page_url_hash, selected_text,"
+            "       anchor, color, note, created_at, updated_at"
+            " FROM web_highlight"
+            " WHERE user_id = :user_id AND page_url_hash = :page_url_hash"
+            "   AND selected_text = :selected_text"
+            " ORDER BY created_at DESC LIMIT 1"
+        ),
+        {
+            "user_id": user_id,
+            "page_url_hash": page_url_hash,
+            "selected_text": selected_text,
+        },
+    ).fetchone()
+
+    highlight = {
+        "id": str(row[0]),
+        "user_id": str(row[1]),
+        "page_url": row[2],
+        "page_url_hash": row[3],
+        "selected_text": row[4],
+        "anchor": row[5],
+        "color": row[6],
+        "note": row[7],
+        "created_at": row[8],
+        "updated_at": row[9],
+    }
+
+    logger.info(
+        "Web highlight created",
+        function="create_web_highlight",
+        highlight_id=highlight["id"],
+        user_id=user_id,
+    )
+    return highlight
+
+
+def delete_web_highlight_by_id_and_user_id(
+    db: Session,
+    highlight_id: str,
+    user_id: str,
+) -> bool:
+    """
+    Delete a web_highlight row only if it belongs to the given user.
+
+    The user_id condition is mandatory in the WHERE clause — no find-then-delete
+    pattern — to prevent IDOR and eliminate the race condition window.
+
+    Returns True if exactly one row was deleted, False otherwise (not found or
+    belongs to a different user; callers should treat both as 404).
+    """
+    result = db.execute(
+        text(
+            "DELETE FROM web_highlight"
+            " WHERE id = :id AND user_id = :user_id"
+        ),
+        {"id": highlight_id, "user_id": user_id},
+    )
+    db.commit()
+
+    deleted = result.rowcount == 1
+
+    logger.info(
+        "Web highlight delete attempted",
+        function="delete_web_highlight_by_id_and_user_id",
+        highlight_id=highlight_id,
+        user_id=user_id,
+        deleted=deleted,
+    )
+    return deleted
+
+
+# ---------------------------------------------------------------------------
+# Web Notes (browser extension notes anchored to text selections on any webpage)
+# ---------------------------------------------------------------------------
+
+def get_web_notes_by_user_and_url_hash(
+    db: Session,
+    user_id: str,
+    page_url_hash: str,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch all web notes created by a user on a specific page.
+
+    Scoped strictly to user_id — no cross-user leakage possible.
+    Results are ordered by created_at ASC for stable extension rendering.
+    """
+    rows = db.execute(
+        text(
+            "SELECT id, user_id, page_url, page_url_hash, selected_text,"
+            "       anchor, content, created_at, updated_at"
+            " FROM web_note"
+            " WHERE user_id = :user_id AND page_url_hash = :page_url_hash"
+            " ORDER BY created_at ASC"
+        ),
+        {"user_id": user_id, "page_url_hash": page_url_hash},
+    ).fetchall()
+
+    notes = [
+        {
+            "id": str(row[0]),
+            "user_id": str(row[1]),
+            "page_url": row[2],
+            "page_url_hash": row[3],
+            "selected_text": row[4],
+            "anchor": row[5],
+            "content": row[6],
+            "created_at": row[7],
+            "updated_at": row[8],
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "Fetched web notes",
+        function="get_web_notes_by_user_and_url_hash",
+        user_id=user_id,
+        count=len(notes),
+    )
+    return notes
+
+
+def create_web_note(
+    db: Session,
+    user_id: str,
+    page_url: str,
+    page_url_hash: str,
+    selected_text: str,
+    anchor: str,
+    content: str,
+) -> Dict[str, Any]:
+    """
+    Insert a new web_note row and return the created record.
+
+    anchor must be a JSON string (serialized before calling this function).
+    user_id is always set from the authenticated session — never from client input.
+    """
+    db.execute(
+        text(
+            "INSERT INTO web_note"
+            " (user_id, page_url, page_url_hash, selected_text, anchor, content)"
+            " VALUES (:user_id, :page_url, :page_url_hash, :selected_text, :anchor, :content)"
+        ),
+        {
+            "user_id": user_id,
+            "page_url": page_url,
+            "page_url_hash": page_url_hash,
+            "selected_text": selected_text,
+            "anchor": anchor,
+            "content": content,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        text(
+            "SELECT id, user_id, page_url, page_url_hash, selected_text,"
+            "       anchor, content, created_at, updated_at"
+            " FROM web_note"
+            " WHERE user_id = :user_id AND page_url_hash = :page_url_hash"
+            "   AND selected_text = :selected_text"
+            " ORDER BY created_at DESC LIMIT 1"
+        ),
+        {
+            "user_id": user_id,
+            "page_url_hash": page_url_hash,
+            "selected_text": selected_text,
+        },
+    ).fetchone()
+
+    note = {
+        "id": str(row[0]),
+        "user_id": str(row[1]),
+        "page_url": row[2],
+        "page_url_hash": row[3],
+        "selected_text": row[4],
+        "anchor": row[5],
+        "content": row[6],
+        "created_at": row[7],
+        "updated_at": row[8],
+    }
+
+    logger.info(
+        "Web note created",
+        function="create_web_note",
+        note_id=note["id"],
+        user_id=user_id,
+    )
+    return note
+
+
+def update_web_note_content(
+    db: Session,
+    note_id: str,
+    user_id: str,
+    content: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the content of a web_note row that belongs to the given user.
+
+    The user_id condition is mandatory in the WHERE clause to prevent IDOR.
+    Returns the updated row dict, or None if no row was matched (not found or
+    belongs to a different user — callers should treat both as 404).
+    """
+    result = db.execute(
+        text(
+            "UPDATE web_note"
+            " SET content = :content"
+            " WHERE id = :id AND user_id = :user_id"
+        ),
+        {"content": content, "id": note_id, "user_id": user_id},
+    )
+    db.commit()
+
+    if result.rowcount == 0:
+        logger.info(
+            "Web note update — not found or wrong owner",
+            function="update_web_note_content",
+            note_id=note_id,
+            user_id=user_id,
+        )
+        return None
+
+    row = db.execute(
+        text(
+            "SELECT id, user_id, page_url, page_url_hash, selected_text,"
+            "       anchor, content, created_at, updated_at"
+            " FROM web_note"
+            " WHERE id = :id AND user_id = :user_id"
+        ),
+        {"id": note_id, "user_id": user_id},
+    ).fetchone()
+
+    note = {
+        "id": str(row[0]),
+        "user_id": str(row[1]),
+        "page_url": row[2],
+        "page_url_hash": row[3],
+        "selected_text": row[4],
+        "anchor": row[5],
+        "content": row[6],
+        "created_at": row[7],
+        "updated_at": row[8],
+    }
+
+    logger.info(
+        "Web note updated",
+        function="update_web_note_content",
+        note_id=note_id,
+        user_id=user_id,
+    )
+    return note
+
+
+def delete_web_note_by_id_and_user_id(
+    db: Session,
+    note_id: str,
+    user_id: str,
+) -> bool:
+    """
+    Delete a web_note row only if it belongs to the given user.
+
+    The user_id condition is mandatory in the WHERE clause — no find-then-delete
+    pattern — to prevent IDOR and eliminate the race condition window.
+
+    Returns True if exactly one row was deleted, False otherwise (not found or
+    belongs to a different user; callers should treat both as 404).
+    """
+    result = db.execute(
+        text(
+            "DELETE FROM web_note"
+            " WHERE id = :id AND user_id = :user_id"
+        ),
+        {"id": note_id, "user_id": user_id},
+    )
+    db.commit()
+
+    deleted = result.rowcount == 1
+
+    logger.info(
+        "Web note delete attempted",
+        function="delete_web_note_by_id_and_user_id",
+        note_id=note_id,
+        user_id=user_id,
+        deleted=deleted,
+    )
+    return deleted

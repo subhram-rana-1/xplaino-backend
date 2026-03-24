@@ -2000,3 +2000,116 @@ class SharedToEmailsResponse(BaseModel):
     """Response containing all emails that the caller has previously shared resources with."""
 
     emails: List[str]
+
+
+# ---------------------------------------------------------------------------
+# Web Highlights (browser extension text highlights on any webpage)
+# ---------------------------------------------------------------------------
+
+class AnchorContainer(BaseModel):
+    """DOM container reference for one end of a text selection."""
+
+    xpath: str = Field(..., description="XPath to the container element")
+    offset: int = Field(..., description="Character offset within the container")
+
+
+class AnchorTextQuote(BaseModel):
+    """Surrounding context for fuzzy re-matching of a text selection."""
+
+    exact: str = Field(..., description="The exact selected text")
+    prefix: str = Field(default="", description="~15 chars before the selection")
+    suffix: str = Field(default="", description="~15 chars after the selection")
+
+
+class AnchorTextPosition(BaseModel):
+    """Character offsets from the start of the page body text."""
+
+    start: int = Field(..., description="Start character offset")
+    end: int = Field(..., description="End character offset")
+
+
+class AnchorData(BaseModel):
+    """Multi-strategy anchor for re-applying a highlight after DOM changes."""
+
+    startContainer: AnchorContainer
+    endContainer: AnchorContainer
+    textQuote: AnchorTextQuote
+    textPosition: AnchorTextPosition
+
+
+class CreateWebHighlightRequest(BaseModel):
+    """Request body for creating a web highlight."""
+
+    pageUrl: str = Field(..., min_length=1, description="Full URL of the highlighted page")
+    selectedText: str = Field(..., min_length=1, description="Raw selected text")
+    anchor: AnchorData = Field(..., description="Multi-strategy anchor object")
+    color: Optional[str] = Field(default=None, max_length=20, description="Highlight color name")
+    note: Optional[str] = Field(default=None, description="Optional user annotation")
+
+
+class WebHighlightResponse(BaseModel):
+    """A single web highlight as returned by the API."""
+
+    id: str
+    pageUrl: str
+    selectedText: str
+    anchor: AnchorData
+    color: Optional[str]
+    note: Optional[str]
+    createdAt: str = Field(..., description="ISO 8601 UTC timestamp")
+    updatedAt: str = Field(..., description="ISO 8601 UTC timestamp")
+
+
+class GetWebHighlightsResponse(BaseModel):
+    """Response for fetching all highlights on a page."""
+
+    highlights: List[WebHighlightResponse]
+
+
+class CreatedWebHighlightResponse(BaseModel):
+    """Response after successfully creating a web highlight."""
+
+    highlight: WebHighlightResponse
+
+
+# ---------------------------------------------------------------------------
+# Web Notes (browser extension notes anchored to text selections on any webpage)
+# ---------------------------------------------------------------------------
+
+class CreateWebNoteRequest(BaseModel):
+    """Request body for creating a web note."""
+
+    pageUrl: str = Field(..., min_length=1, description="Full URL of the page")
+    selectedText: str = Field(..., min_length=1, description="The text selection this note is anchored to")
+    anchor: AnchorData = Field(..., description="Multi-strategy anchor object")
+    content: str = Field(..., min_length=1, description="Note body text")
+
+
+class UpdateWebNoteRequest(BaseModel):
+    """Request body for updating a web note (only content is mutable)."""
+
+    content: str = Field(..., min_length=1, description="Updated note body text")
+
+
+class WebNoteResponse(BaseModel):
+    """A single web note as returned by the API."""
+
+    id: str
+    pageUrl: str
+    selectedText: str
+    anchor: AnchorData
+    content: str
+    createdAt: str = Field(..., description="ISO 8601 UTC timestamp")
+    updatedAt: str = Field(..., description="ISO 8601 UTC timestamp")
+
+
+class GetWebNotesResponse(BaseModel):
+    """Response for fetching all notes on a page."""
+
+    notes: List[WebNoteResponse]
+
+
+class WebNoteWriteResponse(BaseModel):
+    """Response for create and update operations. note is None when unauthenticated."""
+
+    note: Optional[WebNoteResponse]
