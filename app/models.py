@@ -2113,3 +2113,104 @@ class WebNoteWriteResponse(BaseModel):
     """Response for create and update operations. note is None when unauthenticated."""
 
     note: Optional[WebNoteResponse]
+
+
+# ---------------------------------------------------------------------------
+# Webpage Chat (browser extension feature: chat with any webpage)
+# ---------------------------------------------------------------------------
+
+class ConversationMessage(BaseModel):
+    """A single turn in a conversation history."""
+
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str = Field(..., description="Message text")
+
+
+class ClassifyQuestionRequest(BaseModel):
+    """Request body for POST /webpage-chat/classify."""
+
+    question: str = Field(..., min_length=1, description="The user's question or message")
+    conversationHistory: Optional[List[ConversationMessage]] = Field(
+        default=None, description="Last N conversation turns for context"
+    )
+
+
+class ClassifyQuestionResponse(BaseModel):
+    """Response from POST /webpage-chat/classify."""
+
+    type: str = Field(..., description="'greeting', 'broad', or 'contextual'")
+    reply: str = Field(default="", description="Populated only when type is 'greeting'")
+
+
+class ChunkMetadata(BaseModel):
+    """DOM anchor metadata for locating a chunk on the live webpage."""
+
+    startXPath: str = Field(..., description="XPath to the DOM node where this chunk starts")
+    endXPath: str = Field(..., description="XPath to the DOM node where this chunk ends")
+    startOffset: int = Field(..., description="Character offset within startXPath node")
+    endOffset: int = Field(..., description="Character offset within endXPath node")
+    cssSelector: str = Field(..., description="Most specific CSS selector for the chunk's container")
+    textSnippetStart: str = Field(..., description="First 60 chars of chunk text (fuzzy match fallback)")
+    textSnippetEnd: str = Field(..., description="Last 60 chars of chunk text (fuzzy match fallback)")
+
+
+class WebpageChunk(BaseModel):
+    """A single chunk of webpage content with anchor metadata."""
+
+    chunkId: str = Field(..., description="Unique identifier for this chunk")
+    text: str = Field(..., description="The chunk's text content")
+    metadata: ChunkMetadata
+
+
+class AnswerQuestionRequest(BaseModel):
+    """Request body for POST /webpage-chat/answer."""
+
+    question: str = Field(..., min_length=1, description="The user's question")
+    questionType: str = Field(..., description="'broad' or 'contextual'")
+    pageUrl: str = Field(..., min_length=1, description="URL of the webpage being discussed")
+    pageTitle: Optional[str] = Field(default=None, description="Title of the webpage")
+    languageCode: Optional[str] = Field(
+        default=None,
+        max_length=10,
+        description=(
+            "Optional language code (e.g., 'EN', 'FR', 'ES', 'DE', 'HI'). "
+            "If provided, the answer prose will be strictly in this language. "
+            "If None, the answer will be in the same language as the page content."
+        ),
+    )
+    selectedText: Optional[str] = Field(
+        default=None,
+        max_length=10000,
+        description=(
+            "Text the user has annotated/selected on the webpage. When provided, "
+            "the LLM treats this as the primary focus of the question and uses the "
+            "chunks for supporting evidence and broader context."
+        ),
+    )
+    chunks: List[WebpageChunk] = Field(..., description="Pre-fetched and ordered page content chunks")
+    conversationHistory: Optional[List[ConversationMessage]] = Field(
+        default=None, description="Last N conversation turns for context"
+    )
+
+
+class CitationDetail(BaseModel):
+    """Full anchor detail for a single cited chunk, returned in citationMap."""
+
+    chunkId: str
+    text: str
+    startXPath: str
+    endXPath: str
+    startOffset: int
+    endOffset: int
+    cssSelector: str
+    textSnippetStart: str
+    textSnippetEnd: str
+
+
+class AnswerQuestionResponse(BaseModel):
+    """Response shape for POST /webpage-chat/answer (non-streaming reference)."""
+
+    answer: str = Field(..., description="Answer text with inline [[cite:chunkId]] markers")
+    citationMap: Dict[str, CitationDetail] = Field(
+        ..., description="Map from chunkId to full anchor metadata for each cited chunk"
+    )
