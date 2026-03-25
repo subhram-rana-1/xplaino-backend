@@ -6,22 +6,29 @@ on the live webpage.
 """
 
 import json
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import structlog
 
 from app.database.connection import get_db
+from app.exceptions import FileValidationError
 from app.models import (
     AnswerQuestionRequest,
     ClassifyQuestionRequest,
     ClassifyQuestionResponse,
 )
 from app.services.auth_middleware import authenticate
+from app.services.image_service import ImageService
 from app.services.webpage_chat_service import (
     answer_question_stream,
+    answer_with_image_stream,
     classify_question,
 )
+
+image_service = ImageService()
 
 logger = structlog.get_logger()
 
@@ -195,6 +202,124 @@ async def answer_endpoint(
                 yield sse_event
         except Exception as exc:
             logger.error("Unhandled error in /answer SSE generator", error=str(exc))
+            error_event = {
+                "type": "error",
+                "error_code": "INTERNAL_001",
+                "error_message": "An unexpected error occurred",
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers=_sse_headers(request, auth_context),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /answer-with-image
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/answer-with-image",
+    summary="Answer a question about a webpage using an image + text chunks (SSE streaming)",
+    description=(
+        "Accepts a multipart/form-data request containing an image (screenshot or photo) "
+        "and pre-ordered webpage text chunks. The LLM uses the image as the primary source "
+        "and the chunks as supporting text evidence with [[cite:chunkId]] citations. "
+        "Streams the answer token-by-token as Server-Sent Events, then emits a final "
+        "'citations' event with the full citationMap. Requires authentication."
+    ),
+)
+async def answer_with_image_endpoint(
+    request: Request,
+    response: Response,
+    question: str = Form(..., min_length=1, max_length=5000, description="The user's question"),
+    question_type: str = Form(..., description="'broad' or 'contextual'"),
+    page_url: str = Form(..., min_length=1, description="URL of the webpage being discussed"),
+    image: UploadFile = File(..., description="Image file — screenshot or photo (jpeg/png/webp/gif/bmp, max 5 MB)"),
+    page_title: Optional[str] = Form(default=None, description="Title of the webpage"),
+    language_code: Optional[str] = Form(default=None, max_length=10, description="Optional language code (e.g. 'EN', 'FR'). If provided, answer prose will be in this language."),
+    selected_text: Optional[str] = Form(default=None, max_length=10000, description="Text the user has annotated/selected on the webpage"),
+    chunks: str = Form(..., description="JSON array of WebpageChunk objects (same schema as /answer)"),
+    conversation_history: str = Form(default="[]", description="JSON array of {role, content} turns"),
+    db: Session = Depends(get_db),
+    auth_context: dict = Depends(authenticate),
+):
+    _require_authenticated(auth_context)
+
+    if question_type not in ("broad", "contextual"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "VALIDATION_002",
+                "error_message": "questionType must be 'broad' or 'contextual'",
+            },
+        )
+
+    try:
+        chunks_list = json.loads(chunks)
+        if not isinstance(chunks_list, list) or len(chunks_list) == 0:
+            raise ValueError
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "VALIDATION_001", "error_message": "chunks must be a non-empty JSON array"},
+        )
+
+    try:
+        history_list = json.loads(conversation_history) if conversation_history else []
+        if not isinstance(history_list, list):
+            history_list = []
+        parsed_history = [
+            {"role": m.get("role", "user"), "content": m.get("content", "")}
+            for m in history_list
+            if isinstance(m, dict)
+        ]
+    except (json.JSONDecodeError, TypeError):
+        parsed_history = []
+
+    # Validate and read the image
+    try:
+        image_bytes = await image.read()
+        processed_image_data, image_format = image_service.validate_image_file_for_api(
+            image_bytes,
+            image.filename or "image",
+            max_size_mb=5,
+        )
+    except FileValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "IMAGE_VALIDATION_ERROR", "error_message": str(exc)},
+        )
+
+    chunks_raw = [
+        {
+            "chunkId": c.get("chunkId", ""),
+            "text": c.get("text", ""),
+            "metadata": c.get("metadata", {}),
+        }
+        for c in chunks_list
+    ]
+
+    async def generate():
+        try:
+            async for sse_event in answer_with_image_stream(
+                question=question,
+                question_type=question_type,
+                page_url=page_url,
+                page_title=page_title,
+                image_data=processed_image_data,
+                image_format=image_format,
+                chunks=chunks_raw,
+                conversation_history=parsed_history or None,
+                language_code=language_code,
+                selected_text=selected_text,
+            ):
+                yield sse_event
+        except Exception as exc:
+            logger.error("Unhandled error in /answer-with-image SSE generator", error=str(exc))
             error_event = {
                 "type": "error",
                 "error_code": "INTERNAL_001",

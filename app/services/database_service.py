@@ -11655,6 +11655,73 @@ def delete_web_highlight_by_id_and_user_id(
     return deleted
 
 
+def get_highlighted_pages_by_user(
+    db: Session,
+    user_id: str,
+    limit: int = 10,
+    offset: int = 0,
+) -> tuple:
+    """
+    Return a paginated list of distinct webpages on which a user has highlights,
+    ordered by most recently highlighted page first.
+
+    Each row contains:
+      - page_url_hash  : stable hash used as the page identifier
+      - page_url       : the canonical URL of the page (from the most recent row)
+      - highlight_count: number of highlights on that page
+      - last_highlighted_at: timestamp of the most recent highlight activity
+
+    Returns a tuple of (page_rows: List[Dict], total: int) where total is the
+    total number of distinct pages (for pagination).
+    """
+    total_row = db.execute(
+        text(
+            "SELECT COUNT(DISTINCT page_url_hash)"
+            " FROM web_highlight"
+            " WHERE user_id = :user_id"
+        ),
+        {"user_id": user_id},
+    ).fetchone()
+    total = int(total_row[0]) if total_row else 0
+
+    rows = db.execute(
+        text(
+            "SELECT"
+            "    page_url_hash,"
+            "    MAX(page_url)   AS page_url,"
+            "    COUNT(*)        AS highlight_count,"
+            "    MAX(updated_at) AS last_highlighted_at"
+            " FROM web_highlight"
+            " WHERE user_id = :user_id"
+            " GROUP BY page_url_hash"
+            " ORDER BY last_highlighted_at DESC"
+            " LIMIT :limit OFFSET :offset"
+        ),
+        {"user_id": user_id, "limit": limit, "offset": offset},
+    ).fetchall()
+
+    pages = [
+        {
+            "page_url_hash": row[0],
+            "page_url": row[1],
+            "highlight_count": int(row[2]),
+            "last_highlighted_at": row[3],
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "Fetched highlighted pages for user",
+        function="get_highlighted_pages_by_user",
+        user_id=user_id,
+        total=total,
+        returned=len(pages),
+        limit=limit,
+        offset=offset,
+    )
+    return pages, total
+
+
 # ---------------------------------------------------------------------------
 # Web Notes (browser extension notes anchored to text selections on any webpage)
 # ---------------------------------------------------------------------------

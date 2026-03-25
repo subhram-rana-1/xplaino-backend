@@ -12,12 +12,15 @@ from app.models import (
     CreateWebHighlightRequest,
     CreatedWebHighlightResponse,
     GetWebHighlightsResponse,
+    HighlightedPageSummary,
+    PaginatedHighlightedPagesResponse,
     WebHighlightResponse,
 )
 from app.services.auth_middleware import authenticate
 from app.services.database_service import (
     create_web_highlight,
     delete_web_highlight_by_id_and_user_id,
+    get_highlighted_pages_by_user,
     get_user_id_by_auth_vendor_id,
     get_web_highlights_by_user_and_url_hash,
 )
@@ -64,6 +67,56 @@ def _row_to_response(row: dict) -> WebHighlightResponse:
         note=row["note"],
         createdAt=row["created_at"].isoformat() + "Z" if row["created_at"] else "",
         updatedAt=row["updated_at"].isoformat() + "Z" if row["updated_at"] else "",
+    )
+
+
+@router.get(
+    "/pages",
+    response_model=PaginatedHighlightedPagesResponse,
+    summary="Get paginated list of highlighted pages (dashboard)",
+    description=(
+        "Returns a paginated list of distinct webpages on which the authenticated user has created highlights, "
+        "ordered by most recent highlight activity. Intended for the user's personal dashboard. "
+        "Requires authentication."
+    ),
+)
+def get_highlighted_pages_endpoint(
+    request: Request,
+    limit: int = Query(default=10, ge=1, le=50, description="Number of pages to return (1–50)"),
+    offset: int = Query(default=0, ge=0, description="Zero-based offset for pagination"),
+    db: Session = Depends(get_db),
+    auth_context: dict = Depends(authenticate),
+):
+    if not auth_context.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail={"error_code": "AUTH_001", "error_message": "Authentication required"},
+        )
+
+    user_id = get_user_id_by_auth_vendor_id(db, auth_context["session_data"]["auth_vendor_id"])
+
+    pages_raw, total = get_highlighted_pages_by_user(db, user_id=user_id, limit=limit, offset=offset)
+
+    pages = [
+        HighlightedPageSummary(
+            pageUrl=row["page_url"],
+            pageUrlHash=row["page_url_hash"],
+            highlightCount=row["highlight_count"],
+            lastHighlightedAt=(
+                row["last_highlighted_at"].isoformat()
+                if hasattr(row["last_highlighted_at"], "isoformat")
+                else str(row["last_highlighted_at"])
+            ),
+        )
+        for row in pages_raw
+    ]
+
+    return PaginatedHighlightedPagesResponse(
+        pages=pages,
+        total=total,
+        limit=limit,
+        offset=offset,
+        hasMore=(offset + len(pages)) < total,
     )
 
 

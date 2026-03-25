@@ -2072,6 +2072,25 @@ class CreatedWebHighlightResponse(BaseModel):
     highlight: WebHighlightResponse
 
 
+class HighlightedPageSummary(BaseModel):
+    """Summary of a single webpage on which the user has highlights."""
+
+    pageUrl: str = Field(..., description="Canonical URL of the webpage")
+    pageUrlHash: str = Field(..., description="Stable SHA-256 hash of the normalised URL")
+    highlightCount: int = Field(..., description="Number of highlights the user has on this page")
+    lastHighlightedAt: str = Field(..., description="ISO 8601 UTC timestamp of the most recent highlight activity on this page")
+
+
+class PaginatedHighlightedPagesResponse(BaseModel):
+    """Paginated list of webpages the user has highlighted — for the dashboard view."""
+
+    pages: List[HighlightedPageSummary] = Field(..., description="Page summaries for the current slice")
+    total: int = Field(..., description="Total number of distinct highlighted pages")
+    limit: int = Field(..., description="Page size used in this request")
+    offset: int = Field(..., description="Offset used in this request")
+    hasMore: bool = Field(..., description="Whether more pages exist beyond this slice")
+
+
 # ---------------------------------------------------------------------------
 # Web Notes (browser extension notes anchored to text selections on any webpage)
 # ---------------------------------------------------------------------------

@@ -37,11 +37,7 @@ CITATION RULES:
 {answer_format_guidance}
 
 FORMAT OF YOUR RESPONSE:
-Respond ONLY in this exact JSON format with no extra text or markdown:
-{{
-  "answer": "<your full answer text with [[cite:chunkId]] markers inline>",
-  "citedChunkIds": ["<chunkId>", ...]
-}}
+Write your answer as plain prose with [[cite:chunkId]] markers placed inline immediately after each claim they support. Do NOT wrap your response in JSON or any other structured format — output the answer text directly with no extra keys, braces, or metadata.
 
 WEBPAGE CHUNKS:
 {chunks_context}
@@ -139,3 +135,37 @@ CONTEXTUAL_ANSWER_FORMAT_GUIDANCE = """ANSWER FORMATTING RULES:
 - Write in clear, concise paragraphs when the answer flows as continuous prose
 - Avoid filler phrases like "Great question!" or "Based on the content provided..."
 - Aim for scannable answers: a reader should be able to grasp the key points at a glance"""
+
+
+# ---------------------------------------------------------------------------
+# Answer-with-image prompt
+# ---------------------------------------------------------------------------
+
+ANSWER_WITH_IMAGE_SYSTEM_PROMPT = """You are an intelligent assistant helping a user understand a webpage. You are given:
+1. An image the user has shared (a screenshot, photo, or visual from the webpage)
+2. The webpage content broken into numbered text chunks, each with a chunkId
+
+Use BOTH the image and the text chunks to answer the user's question as accurately and completely as possible. The image is the PRIMARY source — prioritise what you can see in it. Use the text chunks as supporting evidence.
+
+{language_requirement}
+
+{selected_text_context}
+
+CITATION RULES:
+- Every factual claim that comes from the text chunks MUST be followed immediately by a citation marker: [[cite:chunkId]]
+- You may cite multiple chunks: [[cite:chunk_3,chunk_7]]
+- Information you draw ONLY from the image does NOT need a citation marker
+- Only cite chunks that actually contain the information you are referencing
+- Do not fabricate information
+- IMPORTANT: Citation markers [[cite:chunkId]] must be kept exactly as-is — do not translate chunkIds or alter the marker format
+
+{answer_format_guidance}
+
+FORMAT OF YOUR RESPONSE:
+Write your answer as plain prose with [[cite:chunkId]] markers placed inline immediately after each claim they support. Do NOT wrap your response in JSON or any other structured format — output the answer text directly with no extra keys, braces, or metadata.
+
+TEXT CHUNKS FROM THE WEBPAGE:
+{chunks_context}
+
+CONVERSATION HISTORY:
+{conversation_history}"""
