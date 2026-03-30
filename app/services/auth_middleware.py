@@ -121,6 +121,11 @@ API_ENDPOINT_TO_COUNTER_FIELD = {
 
     # File upload APIs (method-specific)
     "POST:/api/file-upload/presigned-upload": "file_upload_presigned_upload_api_count_so_far",
+
+    # Webpage chat APIs
+    "POST:/api/webpage-chat/classify": "webpage_chat_classify_api_count_so_far",
+    "POST:/api/webpage-chat/answer": "webpage_chat_answer_api_count_so_far",
+    "POST:/api/webpage-chat/answer-with-image": "webpage_chat_answer_with_image_api_count_so_far",
 }
 
 # API endpoint to max limit config mapping for unauthenticated users (METHOD:URL format)
@@ -210,6 +215,11 @@ API_ENDPOINT_TO_MAX_LIMIT_CONFIG = {
 
     # File upload APIs (method-specific)
     "POST:/api/file-upload/presigned-upload": "unauth_user_file_upload_presigned_upload_api_max_limit",
+
+    # Webpage chat APIs
+    "POST:/api/webpage-chat/classify": "unauth_user_webpage_chat_classify_api_max_limit",
+    "POST:/api/webpage-chat/answer": "unauth_user_webpage_chat_answer_api_max_limit",
+    "POST:/api/webpage-chat/answer-with-image": "unauth_user_webpage_chat_answer_with_image_api_max_limit",
 }
 
 # API endpoint to authenticated unsubscribed max limit config mapping (METHOD:URL format)
@@ -299,6 +309,11 @@ API_ENDPOINT_TO_AUTHENTICATED_MAX_LIMIT_CONFIG = {
 
     # File upload APIs (method-specific)
     "POST:/api/file-upload/presigned-upload": "authenticated_unsubscribed_file_upload_presigned_upload_api_max_limit",
+
+    # Webpage chat APIs
+    "POST:/api/webpage-chat/classify": "authenticated_unsubscribed_webpage_chat_classify_api_max_limit",
+    "POST:/api/webpage-chat/answer": "authenticated_unsubscribed_webpage_chat_answer_api_max_limit",
+    "POST:/api/webpage-chat/answer-with-image": "authenticated_unsubscribed_webpage_chat_answer_with_image_api_max_limit",
 }
 
 # API endpoint to Plus subscriber max limit config mapping (METHOD:URL format)

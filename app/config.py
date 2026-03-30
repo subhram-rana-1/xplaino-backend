@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     unauth_user_antonyms_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated antonyms API")
     unauth_user_simplify_image_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated simplify-image API")
     unauth_user_ask_image_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated ask-image API")
+    unauth_user_webpage_chat_classify_api_max_limit: int = Field(default=10, description="Max limit for unauthenticated webpage-chat /classify API")
+    unauth_user_webpage_chat_answer_api_max_limit: int = Field(default=10, description="Max limit for unauthenticated webpage-chat /answer API")
+    unauth_user_webpage_chat_answer_with_image_api_max_limit: int = Field(default=3, description="Max limit for unauthenticated webpage-chat /answer-with-image API")
     
     # Unauthenticated saved words API limits (method-specific)
     unauth_user_saved_words_get_api_max_limit: int = Field(default=0, description="Max limit for unauthenticated GET saved-words API")
@@ -210,6 +213,9 @@ class Settings(BaseSettings):
     authenticated_unsubscribed_antonyms_api_max_limit: int = Field(default=0, description="Max limit for authenticated unsubscribed antonyms API")
     authenticated_unsubscribed_simplify_image_api_max_limit: int = Field(default=0, description="Max limit for authenticated unsubscribed simplify-image API")
     authenticated_unsubscribed_ask_image_api_max_limit: int = Field(default=0, description="Max limit for authenticated unsubscribed ask-image API")
+    authenticated_unsubscribed_webpage_chat_classify_api_max_limit: int = Field(default=10, description="Max limit for authenticated unsubscribed webpage-chat /classify API")
+    authenticated_unsubscribed_webpage_chat_answer_api_max_limit: int = Field(default=10, description="Max limit for authenticated unsubscribed webpage-chat /answer API")
+    authenticated_unsubscribed_webpage_chat_answer_with_image_api_max_limit: int = Field(default=3, description="Max limit for authenticated unsubscribed webpage-chat /answer-with-image API")
     
     # Authenticated unsubscribed saved words API limits (method-specific)
     authenticated_unsubscribed_saved_words_get_api_max_limit: int = Field(default=sys.maxsize, description="Max limit for authenticated unsubscribed GET saved-words API")

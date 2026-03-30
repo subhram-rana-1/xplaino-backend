@@ -99,8 +99,6 @@ async def classify_endpoint(
     db: Session = Depends(get_db),
     auth_context: dict = Depends(authenticate),
 ):
-    _require_authenticated(auth_context)
-
     history = (
         [{"role": m.role, "content": m.content} for m in body.conversationHistory]
         if body.conversationHistory
@@ -147,8 +145,6 @@ async def answer_endpoint(
     db: Session = Depends(get_db),
     auth_context: dict = Depends(authenticate),
 ):
-    _require_authenticated(auth_context)
-
     if not body.chunks:
         raise HTTPException(
             status_code=400,
@@ -247,8 +243,6 @@ async def answer_with_image_endpoint(
     db: Session = Depends(get_db),
     auth_context: dict = Depends(authenticate),
 ):
-    _require_authenticated(auth_context)
-
     if question_type not in ("broad", "contextual"):
         raise HTTPException(
             status_code=400,

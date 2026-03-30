@@ -173,6 +173,7 @@ async def get_all_issues_endpoint(
     type: Optional[str] = Query(default=None, description="Filter by issue type (GLITCH, SUBSCRIPTION, AUTHENTICATION, FEATURE_REQUEST, OTHERS)"),
     status: Optional[str] = Query(default=None, description="Filter by status (OPEN, WORK_IN_PROGRESS, DISCARDED, RESOLVED)"),
     closed_by: Optional[str] = Query(default=None, description="Filter by closed_by user ID (UUID)"),
+    email: Optional[str] = Query(default=None, description="Filter by the email of the user who created the issue"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=20, ge=1, le=100, description="Pagination limit (max 100)"),
     auth_context: dict = Depends(authenticate),
@@ -239,6 +240,7 @@ async def get_all_issues_endpoint(
         issue_type=type,
         status=status,
         closed_by=closed_by,
+        email=email,
         offset=offset,
         limit=limit
     )

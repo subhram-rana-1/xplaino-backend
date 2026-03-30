@@ -867,6 +867,10 @@ def create_unauthenticated_user_usage(
         "folders_get_api_count_so_far": 0,
         # File upload presigned-upload counter
         "file_upload_presigned_upload_api_count_so_far": 0,
+        # Webpage chat counters
+        "webpage_chat_classify_api_count_so_far": 0,
+        "webpage_chat_answer_api_count_so_far": 0,
+        "webpage_chat_answer_with_image_api_count_so_far": 0,
     }
     
     # Set the current API count to 1 (this API was just called)
@@ -1089,6 +1093,10 @@ def create_authenticated_user_api_usage(
         "folders_get_api_count_so_far": 0,
         # File upload presigned-upload counter
         "file_upload_presigned_upload_api_count_so_far": 0,
+        # Webpage chat counters
+        "webpage_chat_classify_api_count_so_far": 0,
+        "webpage_chat_answer_api_count_so_far": 0,
+        "webpage_chat_answer_with_image_api_count_so_far": 0,
     }
     
     # Ensure the api_name field exists (initialize to 0, will be incremented by caller)
@@ -5038,6 +5046,7 @@ def get_all_issues(
     issue_type: Optional[str] = None,
     status: Optional[str] = None,
     closed_by: Optional[str] = None,
+    email: Optional[str] = None,
     offset: int = 0,
     limit: int = 20
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -5050,6 +5059,7 @@ def get_all_issues(
         issue_type: Optional issue type to filter by (GLITCH, SUBSCRIPTION, etc.)
         status: Optional status to filter by (OPEN, WORK_IN_PROGRESS, etc.)
         closed_by: Optional closed_by user ID to filter by
+        email: Optional email to filter by (matches created_by user's email)
         offset: Pagination offset (default: 0)
         limit: Pagination limit (default: 20)
         
@@ -5063,6 +5073,7 @@ def get_all_issues(
         has_issue_type=issue_type is not None,
         has_status=status is not None,
         has_closed_by=closed_by is not None,
+        has_email=email is not None,
         offset=offset,
         limit=limit
     )
@@ -5070,39 +5081,58 @@ def get_all_issues(
     # Build conditions and params for WHERE clause
     conditions = []
     params = {}
+
+    # When filtering by email, join with google_user_auth_info
+    join_clause = ""
+    if email is not None:
+        join_clause = " JOIN google_user_auth_info g ON i.created_by = g.user_id"
+        conditions.append("g.email = :email")
+        params["email"] = email
+        issue_table_alias = "i"
+    else:
+        issue_table_alias = "issue"
     
     if ticket_id is not None:
-        conditions.append("ticket_id = :ticket_id")
+        conditions.append(f"{issue_table_alias}.ticket_id = :ticket_id")
         params["ticket_id"] = ticket_id
     
     if issue_type is not None:
-        conditions.append("type = :issue_type")
+        conditions.append(f"{issue_table_alias}.type = :issue_type")
         params["issue_type"] = issue_type
     
     if status is not None:
-        conditions.append("status = :status")
+        conditions.append(f"{issue_table_alias}.status = :status")
         params["status"] = status
     
     if closed_by is not None:
-        conditions.append("closed_by = :closed_by")
+        conditions.append(f"{issue_table_alias}.closed_by = :closed_by")
         params["closed_by"] = closed_by
     
     # Build WHERE clause
     where_clause = ""
     if conditions:
         where_clause = " WHERE " + " AND ".join(conditions)
+
+    # Build FROM clause (with alias when joining)
+    if email is not None:
+        from_clause = f"issue i{join_clause}"
+    else:
+        from_clause = "issue"
     
     # Get total count
-    count_query = f"SELECT COUNT(*) FROM issue{where_clause}"
+    count_query = f"SELECT COUNT(*) FROM {from_clause}{where_clause}"
     count_result = db.execute(text(count_query), params).fetchone()
     total_count = count_result[0] if count_result else 0
     
     # Build paginated query
+    select_prefix = f"{issue_table_alias}." if email is not None else ""
     base_query = f"""
-        SELECT id, ticket_id, type, heading, description, webpage_url, status, 
-               created_by, closed_by, closed_at, created_at, updated_at
-        FROM issue{where_clause}
-        ORDER BY created_at ASC
+        SELECT {select_prefix}id, {select_prefix}ticket_id, {select_prefix}type,
+               {select_prefix}heading, {select_prefix}description, {select_prefix}webpage_url,
+               {select_prefix}status, {select_prefix}created_by, {select_prefix}closed_by,
+               {select_prefix}closed_at, {select_prefix}created_at, {select_prefix}updated_at
+        FROM {from_clause}{where_clause}
+        ORDER BY {select_prefix}created_at ASC
         LIMIT :limit OFFSET :offset
     """
     
