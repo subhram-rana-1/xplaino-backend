@@ -839,6 +839,59 @@ def get_user_active_subscription(
     }
 
 
+def get_user_manageable_subscription(
+    db: Session,
+    user_id: str
+) -> Optional[Dict[str, Any]]:
+    """Get user's most recent subscription that can still be managed (active, past_due, paused, trialing)."""
+    result = db.execute(
+        text("""
+            SELECT 
+                s.id,
+                s.paddle_subscription_id,
+                s.paddle_customer_id,
+                s.user_id,
+                s.status,
+                s.currency_code,
+                s.billing_cycle_interval,
+                s.billing_cycle_frequency,
+                s.current_billing_period_starts_at,
+                s.current_billing_period_ends_at,
+                s.next_billed_at,
+                s.items,
+                c.email as customer_email,
+                c.name as customer_name
+            FROM paddle_subscription s
+            JOIN paddle_customer c ON c.paddle_customer_id = s.paddle_customer_id
+            WHERE s.user_id = :user_id
+            AND s.status IN ('ACTIVE', 'PAST_DUE', 'PAUSED', 'TRIALING')
+            ORDER BY s.created_at DESC
+            LIMIT 1
+        """),
+        {"user_id": user_id}
+    ).fetchone()
+
+    if not result:
+        return None
+
+    return {
+        "id": result[0],
+        "paddle_subscription_id": result[1],
+        "paddle_customer_id": result[2],
+        "user_id": result[3],
+        "status": result[4],
+        "currency_code": result[5],
+        "billing_cycle_interval": result[6],
+        "billing_cycle_frequency": result[7],
+        "current_billing_period_starts_at": result[8].isoformat() if result[8] else None,
+        "current_billing_period_ends_at": result[9].isoformat() if result[9] else None,
+        "next_billed_at": result[10].isoformat() if result[10] else None,
+        "items": json.loads(result[11]) if result[11] else [],
+        "customer_email": result[12],
+        "customer_name": result[13]
+    }
+
+
 def get_customer_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
     """Get Paddle customer by email."""
     result = db.execute(

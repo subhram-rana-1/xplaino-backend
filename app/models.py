@@ -1318,7 +1318,8 @@ class GetUserSubscriptionResponse(BaseModel):
     """Response model for getting user's active subscription."""
     
     has_active_subscription: bool = Field(..., description="Whether user has an active subscription")
-    subscription: Optional[PaddleSubscriptionResponse] = Field(default=None, description="Active subscription details")
+    can_cancel: bool = Field(default=False, description="Whether the subscription can be cancelled (active, past_due, paused, or trialing)")
+    subscription: Optional[PaddleSubscriptionResponse] = Field(default=None, description="Subscription details (present for active, past_due, paused, or trialing subscriptions)")
     customer: Optional[PaddleCustomerResponse] = Field(default=None, description="Customer details")
 
 

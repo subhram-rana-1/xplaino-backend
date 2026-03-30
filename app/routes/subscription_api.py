@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.services.paddle_service import (
     get_user_active_subscription,
+    get_user_manageable_subscription,
     get_customer_by_email,
     get_subscription_by_paddle_id,
     update_subscription_cancellation_info,
@@ -174,32 +175,41 @@ async def get_user_subscription_status(
             }
         )
     
-    subscription_data = get_user_active_subscription(db, user_id)
-    
+    subscription_data = get_user_manageable_subscription(db, user_id)
+
     if not subscription_data:
         return GetUserSubscriptionResponse(
             has_active_subscription=False,
+            can_cancel=False,
             subscription=None,
             customer=None
         )
-    
-    # Check if subscription billing period has expired
+
+    # Statuses where the user is entitled to premium access
+    ACTIVE_STATUSES = {"ACTIVE", "TRIALING"}
+    # Statuses where the user can still request cancellation
+    CANCELLABLE_STATUSES = {"ACTIVE", "PAST_DUE", "PAUSED", "TRIALING"}
+
+    subscription_status = subscription_data.get("status", "")
+
+    # Check if subscription billing period has expired (only relevant for ACTIVE/TRIALING)
     is_expired = False
     billing_period_ends_at = subscription_data.get("current_billing_period_ends_at")
-    if billing_period_ends_at:
-        # Parse the ISO format datetime string
+    if billing_period_ends_at and subscription_status in ACTIVE_STATUSES:
         if isinstance(billing_period_ends_at, str):
             ends_at = datetime.fromisoformat(billing_period_ends_at.replace('Z', '+00:00'))
         else:
             ends_at = billing_period_ends_at
-        
-        # Ensure timezone awareness
+
         if ends_at.tzinfo is None:
             ends_at = ends_at.replace(tzinfo=timezone.utc)
-        
+
         current_time = datetime.now(timezone.utc)
         is_expired = ends_at < current_time
-    
+
+    has_active = (subscription_status in ACTIVE_STATUSES) and not is_expired
+    can_cancel = subscription_status in CANCELLABLE_STATUSES
+
     # Build subscription response
     subscription = PaddleSubscriptionResponse(
         id=subscription_data["id"],
@@ -217,7 +227,7 @@ async def get_user_subscription_status(
         created_at=subscription_data.get("created_at", ""),
         updated_at=subscription_data.get("updated_at", "")
     )
-    
+
     # Get customer info
     customer_data = get_customer_by_email(db, subscription_data.get("customer_email", ""))
     customer = None
@@ -233,9 +243,10 @@ async def get_user_subscription_status(
             created_at=customer_data.get("created_at", ""),
             updated_at=customer_data.get("updated_at", "")
         )
-    
+
     return GetUserSubscriptionResponse(
-        has_active_subscription=not is_expired,
+        has_active_subscription=has_active,
+        can_cancel=can_cancel,
         subscription=subscription,
         customer=customer
     )
