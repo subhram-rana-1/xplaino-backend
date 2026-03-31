@@ -25,7 +25,7 @@ logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/file-upload", tags=["File upload"])
 
-MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
 MAX_FILE_NAME_LENGTH = 255  # Match CreatePdfRequest file_name limit
 PRESIGNED_UPLOAD_EXPIRES_IN = 3600  # 1 hour
 PRESIGNED_DOWNLOAD_EXPIRES_IN = 3600  # 1 hour
