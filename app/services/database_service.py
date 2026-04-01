@@ -11967,3 +11967,142 @@ def delete_web_note_by_id_and_user_id(
         deleted=deleted,
     )
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# User Feedback
+# ---------------------------------------------------------------------------
+
+def create_user_feedback(
+    db: Session,
+    user_id: str,
+    verdict: str,
+    metadata: dict,
+) -> Dict[str, Any]:
+    """
+    Insert a new user_feedback row and return it.
+
+    Args:
+        db:       Database session.
+        user_id:  ID of the authenticated user submitting feedback.
+        verdict:  One of 'UNHAPPY', 'NEUTRAL', 'HAPPY'.
+        metadata: Dict conforming to UserFeedbackMetadata (will be JSON-serialised).
+
+    Returns:
+        The newly created row as a dictionary.
+    """
+    logger.info(
+        "Creating user feedback",
+        function="create_user_feedback",
+        user_id=user_id,
+        verdict=verdict,
+    )
+
+    feedback_id = str(uuid.uuid4())
+    metadata_json = json.dumps(metadata)
+
+    db.execute(
+        text(
+            "INSERT INTO user_feedback (id, user_id, verdict, metadata)"
+            " VALUES (:id, :user_id, :verdict, :metadata)"
+        ),
+        {
+            "id": feedback_id,
+            "user_id": user_id,
+            "verdict": verdict,
+            "metadata": metadata_json,
+        },
+    )
+    db.commit()
+
+    row = db.execute(
+        text("SELECT * FROM user_feedback WHERE id = :id"),
+        {"id": feedback_id},
+    ).mappings().fetchone()
+
+    result = dict(row)
+    if isinstance(result.get("metadata"), str):
+        result["metadata"] = json.loads(result["metadata"])
+
+    logger.info(
+        "User feedback created",
+        function="create_user_feedback",
+        feedback_id=feedback_id,
+        user_id=user_id,
+    )
+    return result
+
+
+def get_all_user_feedbacks(
+    db: Session,
+    verdict: Optional[str] = None,
+    email: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Return paginated user_feedback rows in descending created_at order.
+
+    When `email` is provided the query joins the user table to resolve the
+    matching user_id first, then filters feedback rows by that user_id.
+
+    Args:
+        db:      Database session.
+        verdict: Optional verdict filter ('UNHAPPY', 'NEUTRAL', 'HAPPY').
+        email:   Optional user email filter.
+        offset:  Pagination offset.
+        limit:   Pagination limit.
+
+    Returns:
+        Tuple of (list of feedback dicts, total matching count).
+    """
+    logger.info(
+        "Getting all user feedbacks",
+        function="get_all_user_feedbacks",
+        has_verdict=verdict is not None,
+        has_email=email is not None,
+        offset=offset,
+        limit=limit,
+    )
+
+    conditions: List[str] = []
+    params: Dict[str, Any] = {}
+
+    if verdict is not None:
+        conditions.append("uf.verdict = :verdict")
+        params["verdict"] = verdict
+
+    if email is not None:
+        conditions.append("g.email = :email")
+        params["email"] = email
+
+    join_clause = "JOIN google_user_auth_info g ON uf.user_id = g.user_id"
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    count_sql = f"SELECT COUNT(*) FROM user_feedback uf {join_clause} {where_clause}"
+    total_count: int = db.execute(text(count_sql), params).scalar() or 0
+
+    params["limit"] = limit
+    params["offset"] = offset
+
+    data_sql = (
+        f"SELECT uf.*, g.email AS user_email FROM user_feedback uf {join_clause} {where_clause}"
+        " ORDER BY uf.created_at DESC"
+        " LIMIT :limit OFFSET :offset"
+    )
+    rows = db.execute(text(data_sql), params).mappings().fetchall()
+
+    results = []
+    for row in rows:
+        item = dict(row)
+        if isinstance(item.get("metadata"), str):
+            item["metadata"] = json.loads(item["metadata"])
+        results.append(item)
+
+    logger.info(
+        "User feedbacks retrieved",
+        function="get_all_user_feedbacks",
+        total_count=total_count,
+        returned=len(results),
+    )
+    return results, total_count

@@ -315,6 +315,46 @@ async def cancel_subscription(
         )
         
     except PaddleAPIError as e:
+        if e.error_code == "subscription_locked_pending_changes":
+            # Paddle auto-attached a scheduled change (e.g. after a failed renewal).
+            # Clear it first, then retry the cancel — transparent to the user.
+            logger.warning(
+                "Subscription has pending scheduled change, clearing before cancel",
+                subscription_id=subscription_id
+            )
+            try:
+                await paddle_api_client.clear_scheduled_change(subscription_id)
+                paddle_response = await paddle_api_client.cancel_subscription(
+                    subscription_id=subscription_id,
+                    effective_from=effective_from.value
+                )
+                update_subscription_cancellation_info(
+                    db=db,
+                    paddle_subscription_id=subscription_id,
+                    cancellation_info=body.cancellation_info.model_dump()
+                )
+                return SubscriptionActionResponse(
+                    success=True,
+                    paddle_subscription_id=subscription_id,
+                    status=paddle_response.get("status", "unknown"),
+                    scheduled_change=_extract_scheduled_change(paddle_response),
+                    message="Subscription will be cancelled at end of billing period"
+                )
+            except PaddleAPIError as retry_e:
+                logger.error(
+                    "Paddle API error cancelling subscription after clearing scheduled change",
+                    subscription_id=subscription_id,
+                    error_code=retry_e.error_code,
+                    error_message=retry_e.message
+                )
+                raise HTTPException(
+                    status_code=retry_e.status_code,
+                    detail={
+                        "error_code": f"PADDLE_{retry_e.error_code.upper()}",
+                        "error_message": retry_e.message
+                    }
+                )
+
         logger.error(
             "Paddle API error cancelling subscription",
             subscription_id=subscription_id,

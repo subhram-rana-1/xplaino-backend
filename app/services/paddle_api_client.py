@@ -183,6 +183,40 @@ class PaddleAPIClient:
         )
         return result.get("data", {})
     
+    async def clear_scheduled_change(self, subscription_id: str) -> Dict[str, Any]:
+        """
+        Clear any pending scheduled change on a subscription by nulling it.
+
+        Required before cancelling when Paddle has auto-attached a scheduled change
+        (e.g. after a failed renewal), which would otherwise block the cancel call
+        with a subscription_locked_pending_changes error.
+
+        Args:
+            subscription_id: Paddle subscription ID (sub_xxx)
+
+        Returns:
+            Updated subscription data from Paddle
+        """
+        logger.info(
+            "Clearing pending scheduled change via Paddle API",
+            subscription_id=subscription_id
+        )
+
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                f"{self.base_url}/subscriptions/{subscription_id}",
+                headers=self._get_headers(),
+                json={"scheduled_change": None},
+                timeout=30.0
+            )
+
+        result = self._handle_response(response)
+        logger.info(
+            "Successfully cleared scheduled change via Paddle",
+            subscription_id=subscription_id
+        )
+        return result.get("data", {})
+
     async def pause_subscription(
         self,
         subscription_id: str,

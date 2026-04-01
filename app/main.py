@@ -47,6 +47,7 @@ from app.routes import (
     web_highlight_api,
     web_note_api,
     webpage_chat_api,
+    user_feedback_api,
 )
 from app.services.rate_limiter import rate_limiter
 
@@ -252,6 +253,7 @@ app.include_router(shared_user_api.router)
 app.include_router(web_highlight_api.router)
 app.include_router(web_note_api.router)
 app.include_router(webpage_chat_api.router)
+app.include_router(user_feedback_api.router)
 
 
 @app.get("/metrics", include_in_schema=False)

@@ -2234,3 +2234,51 @@ class AnswerQuestionResponse(BaseModel):
     citationMap: Dict[str, CitationDetail] = Field(
         ..., description="Map from chunkId to full anchor metadata for each cited chunk"
     )
+
+
+# ---------------------------------------------------------------------------
+# User Feedback
+# ---------------------------------------------------------------------------
+
+class UserFeedbackVerdict(str, Enum):
+    """Verdict enum for user feedback."""
+    UNHAPPY = "UNHAPPY"
+    NEUTRAL = "NEUTRAL"
+    HAPPY = "HAPPY"
+
+
+class UserFeedbackQnA(BaseModel):
+    """A single question-answer pair within user feedback metadata."""
+    question: str = Field(..., description="The question posed to the user")
+    answer: str = Field(..., description="The user's answer")
+
+
+class UserFeedbackMetadata(BaseModel):
+    """Structured metadata stored as JSON in user_feedback.metadata."""
+    qna: List[UserFeedbackQnA] = Field(..., description="List of question-answer pairs")
+
+
+class CreateUserFeedbackRequest(BaseModel):
+    """Request body for creating user feedback."""
+    verdict: UserFeedbackVerdict = Field(..., description="User's overall verdict (UNHAPPY, NEUTRAL, HAPPY)")
+    metadata: UserFeedbackMetadata = Field(..., description="Structured Q&A metadata")
+
+
+class UserFeedbackResponse(BaseModel):
+    """Response model for a single user feedback record."""
+    id: str = Field(..., description="Feedback ID (UUID)")
+    user_id: str = Field(..., description="ID of the user who submitted feedback (UUID)")
+    user_email: Optional[str] = Field(None, description="Email of the user who submitted feedback")
+    verdict: str = Field(..., description="User's verdict (UNHAPPY, NEUTRAL, HAPPY)")
+    metadata: UserFeedbackMetadata = Field(..., description="Structured Q&A metadata")
+    created_at: str = Field(..., description="ISO format timestamp when the feedback was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the feedback was last updated")
+
+
+class GetAllUserFeedbacksResponse(BaseModel):
+    """Paginated response model for admin listing of all user feedbacks."""
+    feedbacks: List[UserFeedbackResponse] = Field(..., description="List of user feedback records")
+    total: int = Field(..., description="Total number of feedback records matching the filters")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more records to fetch")
