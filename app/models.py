@@ -1,6 +1,6 @@
 """Pydantic models for request/response validation."""
 
-from typing import List, Optional, Dict
+from typing import Any, Dict, List, Optional
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -1513,25 +1513,6 @@ class ExtensionUninstallationReason(str, Enum):
     OTHER = "OTHER"
 
 
-class ExtensionUninstallationFeedbackMetadata(BaseModel):
-    """Optional metadata for extension uninstallation feedback."""
-
-    webpageUrl: Optional[str] = Field(
-        default=None,
-        max_length=2048,
-        description="URL of the webpage where the extension was uninstalled from"
-    )
-    featureMissing: Optional[str] = Field(
-        default=None,
-        max_length=1000,
-        description="Description of a feature the user felt was missing"
-    )
-    userFeedback: Optional[str] = Field(
-        default=None,
-        description="Optional user feedback about uninstallation"
-    )
-
-
 class ExtensionUninstallationFeedbackRequest(BaseModel):
     """Request model for extension uninstallation feedback."""
     
@@ -1539,9 +1520,9 @@ class ExtensionUninstallationFeedbackRequest(BaseModel):
         ...,
         description="Reason for uninstalling the extension (required)"
     )
-    metadata: Optional[ExtensionUninstallationFeedbackMetadata] = Field(
+    metadata: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Optional metadata about the uninstallation context"
+        description="Optional free-form metadata about the uninstallation context"
     )
 
 
@@ -1550,6 +1531,25 @@ class ExtensionUninstallationFeedbackResponse(BaseModel):
     
     success: bool = Field(..., description="Whether the feedback was saved successfully")
     message: str = Field(..., description="Response message")
+
+
+class ExtensionUninstallFeedbackItem(BaseModel):
+    """A single extension uninstallation feedback record."""
+
+    id: str = Field(..., description="Feedback record UUID")
+    reason: ExtensionUninstallationReason = Field(..., description="Reason for uninstalling the extension")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Optional free-form metadata")
+    created_at: str = Field(..., description="ISO-8601 timestamp when the feedback was submitted")
+
+
+class GetAllExtensionUninstallFeedbacksResponse(BaseModel):
+    """Paginated response for admin listing of extension uninstallation feedbacks."""
+
+    feedbacks: List[ExtensionUninstallFeedbackItem] = Field(..., description="List of feedback records")
+    total: int = Field(..., description="Total number of matching records")
+    offset: int = Field(..., description="Pagination offset used in this response")
+    limit: int = Field(..., description="Pagination limit used in this response")
+    has_next: bool = Field(..., description="Whether there are more records after this page")
 
 
 # ---------------------------------------------------------------------------

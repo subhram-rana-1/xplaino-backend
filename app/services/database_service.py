@@ -9030,6 +9030,84 @@ def save_extension_uninstallation_feedback(
     )
 
 
+def get_all_extension_uninstallation_feedbacks(
+    db: Session,
+    reason: Optional[str] = None,
+    created_at_from: Optional[str] = None,
+    created_at_to: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Return paginated extension_uninstallation_user_feedback rows in descending created_at order.
+
+    Args:
+        db:              Database session.
+        reason:          Optional reason filter (one of the ExtensionUninstallationReason enum values).
+        created_at_from: Optional ISO-8601 datetime string — only rows with created_at >= this value are returned.
+        created_at_to:   Optional ISO-8601 datetime string — only rows with created_at <= this value are returned.
+        offset:          Pagination offset.
+        limit:           Pagination limit.
+
+    Returns:
+        Tuple of (list of feedback dicts, total matching count).
+    """
+    logger.info(
+        "Getting all extension uninstallation feedbacks",
+        function="get_all_extension_uninstallation_feedbacks",
+        has_reason=reason is not None,
+        has_created_at_from=created_at_from is not None,
+        has_created_at_to=created_at_to is not None,
+        offset=offset,
+        limit=limit,
+    )
+
+    conditions: List[str] = []
+    params: Dict[str, Any] = {}
+
+    if reason is not None:
+        conditions.append("reason = :reason")
+        params["reason"] = reason
+
+    if created_at_from is not None:
+        conditions.append("created_at >= :created_at_from")
+        params["created_at_from"] = created_at_from
+
+    if created_at_to is not None:
+        conditions.append("created_at <= :created_at_to")
+        params["created_at_to"] = created_at_to
+
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    count_sql = f"SELECT COUNT(*) FROM extension_uninstallation_user_feedback {where_clause}"
+    total_count: int = db.execute(text(count_sql), params).scalar() or 0
+
+    params["limit"] = limit
+    params["offset"] = offset
+
+    data_sql = (
+        f"SELECT * FROM extension_uninstallation_user_feedback {where_clause}"
+        " ORDER BY created_at DESC"
+        " LIMIT :limit OFFSET :offset"
+    )
+    rows = db.execute(text(data_sql), params).mappings().fetchall()
+
+    results = []
+    for row in rows:
+        item = dict(row)
+        if isinstance(item.get("metadata"), str):
+            item["metadata"] = json.loads(item["metadata"])
+        results.append(item)
+
+    logger.info(
+        "Extension uninstallation feedbacks retrieved",
+        function="get_all_extension_uninstallation_feedbacks",
+        total_count=total_count,
+        returned=len(results),
+    )
+    return results, total_count
+
+
 # ---------------------------------------------------------------------------
 # Highlight colour functions
 # ---------------------------------------------------------------------------
