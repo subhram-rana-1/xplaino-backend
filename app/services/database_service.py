@@ -12184,3 +12184,150 @@ def get_all_user_feedbacks(
         returned=len(results),
     )
     return results, total_count
+
+
+def get_all_users(
+    db: Session,
+    role: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> tuple:
+    """
+    Get all users with their Google auth profile info (admin endpoint).
+
+    Returns a tuple of (list of user dicts, total_count).
+    Each dict contains fields from both `user` and `google_user_auth_info`.
+    """
+    logger.info(
+        "Getting all users",
+        function="get_all_users",
+        role=role,
+        offset=offset,
+        limit=limit,
+    )
+
+    where_clause = ""
+    params: Dict[str, Any] = {}
+
+    if role == "USER":
+        where_clause = " WHERE (u.role IS NULL OR u.role NOT IN ('ADMIN', 'SUPER_ADMIN'))"
+    elif role is not None:
+        where_clause = " WHERE u.role = :role"
+        params["role"] = role
+
+    total_count: int = (
+        db.execute(
+            text(
+                "SELECT COUNT(*) FROM user u"
+                " LEFT JOIN google_user_auth_info g ON g.user_id = u.id"
+                + where_clause
+            ),
+            params,
+        ).scalar()
+        or 0
+    )
+
+    params["limit"] = limit
+    params["offset"] = offset
+
+    rows = db.execute(
+        text(
+            "SELECT"
+            "  u.id, u.role, u.created_at, u.updated_at,"
+            "  g.email, g.email_verified,"
+            "  g.given_name, g.family_name,"
+            "  g.picture, g.locale, g.hd"
+            " FROM user u"
+            " LEFT JOIN google_user_auth_info g ON g.user_id = u.id"
+            + where_clause
+            + " ORDER BY u.created_at DESC"
+            " LIMIT :limit OFFSET :offset"
+        ),
+        params,
+    ).mappings().fetchall()
+
+    results = [dict(row) for row in rows]
+
+    logger.info(
+        "Users retrieved",
+        function="get_all_users",
+        total_count=total_count,
+        returned=len(results),
+    )
+    return results, total_count
+
+
+def get_all_subscriptions(
+    db: Session,
+    status: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> tuple:
+    """
+    Get all paddle subscriptions with customer email (admin endpoint).
+
+    Returns a tuple of (list of subscription dicts, total_count).
+    """
+    logger.info(
+        "Getting all subscriptions",
+        function="get_all_subscriptions",
+        status=status,
+        offset=offset,
+        limit=limit,
+    )
+
+    where_clause = ""
+    params: Dict[str, Any] = {}
+
+    if status is not None:
+        where_clause = " WHERE s.status = :status"
+        params["status"] = status
+
+    total_count: int = (
+        db.execute(
+            text(
+                "SELECT COUNT(*) FROM paddle_subscription s"
+                " LEFT JOIN paddle_customer c ON c.paddle_customer_id = s.paddle_customer_id"
+                + where_clause
+            ),
+            params,
+        ).scalar()
+        or 0
+    )
+
+    params["limit"] = limit
+    params["offset"] = offset
+
+    rows = db.execute(
+        text(
+            "SELECT"
+            "  s.id, s.paddle_subscription_id, s.paddle_customer_id,"
+            "  s.user_id, s.status, s.currency_code,"
+            "  s.billing_cycle_interval, s.billing_cycle_frequency,"
+            "  s.current_billing_period_starts_at, s.current_billing_period_ends_at,"
+            "  s.next_billed_at, s.started_at, s.paused_at, s.canceled_at,"
+            "  s.items, s.created_at, s.updated_at,"
+            "  c.email AS customer_email"
+            " FROM paddle_subscription s"
+            " LEFT JOIN paddle_customer c ON c.paddle_customer_id = s.paddle_customer_id"
+            + where_clause
+            + " ORDER BY s.created_at DESC"
+            " LIMIT :limit OFFSET :offset"
+        ),
+        params,
+    ).mappings().fetchall()
+
+    results = []
+    for row in rows:
+        item = dict(row)
+        if isinstance(item.get("items"), str):
+            item["items"] = json.loads(item["items"])
+        results.append(item)
+
+    logger.info(
+        "Subscriptions retrieved",
+        function="get_all_subscriptions",
+        total_count=total_count,
+        returned=len(results),
+    )
+    return results, total_count

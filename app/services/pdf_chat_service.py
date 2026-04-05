@@ -499,6 +499,7 @@ async def ask_pdf_stream(
 
     elif intent == "broad":
         reranked = retrieve_broad_chunks(preprocess_id)
+        print("Broad retrieval...")
         logger.info("Broad retrieval", count=len(reranked), preprocess_id=preprocess_id)
         messages = build_rag_prompt(question, reranked, chat_history, selected_text)
 

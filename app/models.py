@@ -2282,3 +2282,58 @@ class GetAllUserFeedbacksResponse(BaseModel):
     offset: int = Field(..., description="Pagination offset")
     limit: int = Field(..., description="Pagination limit")
     has_next: bool = Field(..., description="Whether there are more records to fetch")
+
+
+class AdminUserResponse(BaseModel):
+    """Response model for a single user record (admin view)."""
+    id: str = Field(..., description="User ID (UUID)")
+    email: Optional[str] = Field(default=None, description="User's email address")
+    email_verified: Optional[bool] = Field(default=None, description="Whether the email has been verified by Google")
+    first_name: Optional[str] = Field(default=None, description="User's first name (given_name from Google)")
+    last_name: Optional[str] = Field(default=None, description="User's last name (family_name from Google)")
+    picture: Optional[str] = Field(default=None, description="URL of the user's profile picture")
+    role: Optional[str] = Field(default=None, description="User role: ADMIN, SUPER_ADMIN, or null for regular users")
+    locale: Optional[str] = Field(default=None, description="User's locale preference from Google")
+    hd: Optional[str] = Field(default=None, description="Hosted domain (Google Workspace), indicates company/org accounts")
+    created_at: str = Field(..., description="ISO format timestamp when the user account was created")
+    updated_at: str = Field(..., description="ISO format timestamp when the user account was last updated")
+
+
+class GetAllUsersResponse(BaseModel):
+    """Paginated response model for admin listing of all users."""
+    users: List[AdminUserResponse] = Field(..., description="List of user records")
+    total: int = Field(..., description="Total number of users")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more users to fetch")
+
+
+class AdminSubscriptionResponse(BaseModel):
+    """Response model for a single subscription record (admin view)."""
+    id: str = Field(..., description="Internal ID (UUID)")
+    paddle_subscription_id: str = Field(..., description="Paddle subscription ID")
+    paddle_customer_id: str = Field(..., description="Paddle customer ID")
+    customer_email: Optional[str] = Field(default=None, description="Email of the Paddle customer")
+    user_id: Optional[str] = Field(default=None, description="Linked user ID (UUID)")
+    status: str = Field(..., description="Subscription status (ACTIVE, CANCELED, PAST_DUE, PAUSED, TRIALING)")
+    currency_code: str = Field(..., description="Currency code (e.g. USD)")
+    billing_cycle_interval: str = Field(..., description="Billing interval (DAY, WEEK, MONTH, YEAR)")
+    billing_cycle_frequency: int = Field(..., description="Billing frequency")
+    current_billing_period_starts_at: Optional[str] = Field(default=None, description="Current period start")
+    current_billing_period_ends_at: Optional[str] = Field(default=None, description="Current period end")
+    next_billed_at: Optional[str] = Field(default=None, description="Next billing date")
+    started_at: Optional[str] = Field(default=None, description="When the subscription started")
+    paused_at: Optional[str] = Field(default=None, description="When the subscription was paused")
+    canceled_at: Optional[str] = Field(default=None, description="When the subscription was canceled")
+    items: List[Dict] = Field(..., description="Subscription line-items/products")
+    created_at: str = Field(..., description="Creation timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
+
+
+class GetAllSubscriptionsResponse(BaseModel):
+    """Paginated response model for admin listing of all subscriptions."""
+    subscriptions: List[AdminSubscriptionResponse] = Field(..., description="List of subscription records")
+    total: int = Field(..., description="Total number of subscriptions")
+    offset: int = Field(..., description="Pagination offset")
+    limit: int = Field(..., description="Pagination limit")
+    has_next: bool = Field(..., description="Whether there are more subscriptions to fetch")
